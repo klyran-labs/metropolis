@@ -1,0 +1,15 @@
+# Default owner for everything not matched below.
+* @agentguard-maintainers
+
+# Onchain core requires review from whoever owns contract security.
+/contracts/                    @agentguard-maintainers
+/docs/ADR/                     @agentguard-maintainers
+/docs/GAP_ANALYSIS.md          @agentguard-maintainers
+
+# Offchain gateway and web control plane.
+/services/gateway/             @agentguard-maintainers
+/apps/web/                     @agentguard-maintainers
+
+# Replace @agentguard-maintainers above with real GitHub usernames/teams
+# once this repository has an owning org — this file is a placeholder
+# structure, not a live routing table.
