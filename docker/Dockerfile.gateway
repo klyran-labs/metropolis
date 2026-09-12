@@ -1,0 +1,60 @@
+# AgentGuard x402 / AP2 Payment & Policy Gateway Container
+# Node.js Alpine multi-stage builder
+#
+# Runs the REAL gateway at services/gateway (see services/gateway/README.md).
+# The previous version of this file's runtime CMD was a one-line inline stub
+# that always returned HTTP 402 and never verified a signature, called
+# PolicyEngine, or touched Monad — see docs/GAP_ANALYSIS.md, finding 1.4.
+
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# Copy root and package manifests
+COPY package.json package-lock.json ./
+COPY packages/shared-types/package.json ./packages/shared-types/package.json
+COPY packages/x402-middleware/package.json ./packages/x402-middleware/package.json
+
+# Install dependencies (root lockfile only — services/gateway is intentionally
+# NOT a declared npm workspace; see services/gateway/README.md for why. It
+# builds directly against these already-hoisted/root-installed dependencies:
+# @agentguard/shared-types, @agentguard/x402-middleware, viem, typescript.)
+RUN apk add --no-cache python3 make g++
+RUN npm ci --ignore-scripts
+
+# Build shared types and middleware
+COPY deployments ./deployments
+COPY packages/shared-types ./packages/shared-types
+COPY packages/x402-middleware ./packages/x402-middleware
+
+RUN npm run build --workspace=@agentguard/shared-types
+RUN npm run build --workspace=@agentguard/x402-middleware
+
+# Build the real gateway service using the root-installed TypeScript compiler
+COPY services/gateway ./services/gateway
+RUN npx tsc -p services/gateway/tsconfig.json
+
+# Runtime stage
+FROM node:24-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=8080 \
+    MONAD_CHAIN_ID=10143 \
+    MONAD_RPC_URL=https://testnet-rpc.monad.xyz
+
+COPY package.json package-lock.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
+COPY --from=builder /app/packages/shared-types/package.json ./packages/shared-types/package.json
+COPY --from=builder /app/packages/x402-middleware/dist ./packages/x402-middleware/dist
+COPY --from=builder /app/packages/x402-middleware/package.json ./packages/x402-middleware/package.json
+COPY --from=builder /app/services/gateway/dist ./services/gateway/dist
+COPY --from=builder /app/services/gateway/package.json ./services/gateway/package.json
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:8080/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
+
+CMD ["node", "services/gateway/dist/index.js"]

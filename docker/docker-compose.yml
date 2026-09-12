@@ -1,107 +1,62 @@
 services:
-  # Local Monad EVM Node (Chain ID 10143, 400ms Block Time Physics)
-  monad-local:
-    image: ghcr.io/foundry-rs/foundry:latest
-    entrypoint: ["anvil"]
-    command:
-      - "--chain-id"
-      - "10143"
-      - "--block-time"
-      - "0.4"
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "8545"
-      - "--accounts"
-      - "10"
-      - "--balance"
-      - "10000"
-    ports:
-      - "8545:8545"
-    restart: always
-
-  # Nginx Gateway & Reverse Proxy (Rate Limiting, Static Assets, WebSocket Hub)
-  nginx-gateway:
+  agentguard-web:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
       args:
-        VITE_APP_ENV: development
+        VITE_APP_ENV: production
+        VITE_CHAIN_ID: "10143"
+        VITE_RPC_URL: https://testnet-rpc.monad.xyz
+        VITE_POLICY_ENGINE_ADDRESS: "0x2222222222222222222222222222222222222222"
+        VITE_REPUTATION_REGISTRY_ADDRESS: "0x3333333333333333333333333333333333333333"
+        VITE_AGENT_WALLET_GUARD_ADDRESS: "0x4444444444444444444444444444444444444444"
+        VITE_USDC_TOKEN_ADDRESS: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
+        VITE_PRIVY_APP_ID: cmton65ao004l0cl11tgmwiah
+    container_name: agentguard-web
+    restart: unless-stopped
     ports:
-      - "80:80"
-    depends_on:
-      - computex-engine
-      - monad-local
-    restart: always
+      - "3110:80"
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-network
 
-  # Core Execution Engine (Rust + memmap2 WAL + In-Memory CLOB)
-  computex-engine:
+  agentguard-gateway:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.engine
+      dockerfile: docker/Dockerfile.gateway
+    container_name: agentguard-gateway
+    restart: unless-stopped
     ports:
-      - "9101:9101"
-      - "9003:9003"
-    security_opt:
-      - "no-new-privileges:true"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    cap_drop:
-      - ALL
-    cap_add:
-      - SYS_NICE
-      - IPC_LOCK
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    cpuset: "0"
+      - "8080:8080"
     environment:
-      - RUST_LOG=info
-      - COMPUTEX_WS_PORT=9101
-      - COMPUTEX_WAL_PATH=/var/data/computex_engine.wal
-
-      - COMPUTEX_CPU_CORE=0
-      - COMPUTEX_ENABLE_MLOCK=true
-      - MONAD_RPC_URL=http://monad-local:8545
+      - NODE_ENV=production
+      - PORT=8080
       - MONAD_CHAIN_ID=10143
-    volumes:
-      - engine-wal-data:/var/data
-    depends_on:
-      - monad-local
-    restart: always
+      - MONAD_RPC_URL=https://testnet-rpc.monad.xyz
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-0x2222222222222222222222222222222222222222}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-0x3333333333333333333333333333333333333333}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-0x4444444444444444444444444444444444444444}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:-0xf817257fed379853cDe0fa4F97AB987181B1E5Ea}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:-0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC}
+      # Intentionally NOT defaulted: without this, the gateway boots and
+      # serves challenges/policy simulation but returns 503 on settlement
+      # (see services/gateway/README.md). Supply it via a real secret store
+      # in production, never a checked-in default.
+      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-network
 
-  # 3-of-5 SLA Telemetry Oracle & Embedded DuckDB Analytics
-  computex-oracle:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.oracle
-    ports:
-      - "9002:9002"
-    security_opt:
-      - "no-new-privileges:true"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    cap_drop:
-      - ALL
-    environment:
-      - RUST_LOG=info
-      - DUCKDB_PATH=/var/data/computex_telemetry.duckdb
-      - MONAD_RPC_URL=http://monad-local:8545
-      - MONAD_CHAIN_ID=10143
-      # Local-only deployment manifest; production uses docker-compose.prod.yml
-      # and requires an injected non-zero address.
-      - SLA_VAULT_ADDRESS=${SLA_VAULT_ADDRESS:-0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0}
-    volumes:
-      - duckdb-data:/var/data
-    depends_on:
-      - computex-engine
-      - monad-local
-    restart: always
-
-
-volumes:
-  engine-wal-data:
-  duckdb-data:
+networks:
+  agentguard-network:
+    driver: bridge
