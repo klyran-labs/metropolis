@@ -63,7 +63,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
     success: <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />,
     error: <ShieldAlert className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />,
     warning: <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />,
-    info: <Info className="w-5 h-5 text-[#254BFF] dark:text-blue-400 shrink-0 mt-0.5" />,
+    info: <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />,
   };
 
   const borders = {
@@ -77,7 +77,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
     success: 'bg-emerald-500',
     error: 'bg-rose-500',
     warning: 'bg-amber-500',
-    info: 'bg-[#254BFF]',
+    info: 'bg-primary',
   };
 
   return (
@@ -99,7 +99,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
                 href={`${MONAD_EXPLORER_URL}/tx/${toast.txHash}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center space-x-1.5 text-[#254BFF] dark:text-blue-400 font-semibold hover:underline pt-1"
+                className="inline-flex items-center space-x-1.5 text-primary font-semibold hover:underline pt-1"
               >
                 <span>Monad Explorer</span>
                 <ExternalLink className="w-3 h-3" />

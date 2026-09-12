@@ -37,7 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="p-6 my-4 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/60 rounded-[28px] shadow-sm">
+        <div className="p-6 my-4 bg-card border border-rose-200 dark:border-rose-900/60 rounded-[28px] shadow-sm">
           <TruthfulNotice
             variant="danger"
             title={this.props.fallbackTitle || 'Component Execution Halted'}

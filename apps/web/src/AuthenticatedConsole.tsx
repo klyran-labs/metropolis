@@ -23,10 +23,10 @@ const PortalLoadingFallback: React.FC = () => (
 
 const MainLayout: React.FC = () => {
   return (
-    <div className="flex min-h-screen flex-col justify-between bg-[#F3F5FA] font-sans text-slate-900 selection:bg-[#254BFF] selection:text-white dark:bg-[#0c1020] dark:text-slate-100">
+    <div className="flex min-h-screen flex-col justify-between bg-[#F3F5FA] font-sans text-slate-900 selection:bg-primary selection:text-white dark:bg-[#0c1020] dark:text-slate-100">
       <a
         href="#portal-main-content"
-        className="sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:not-sr-only rounded-xl bg-[#254BFF] px-4 py-2 font-bold text-white shadow-lg focus:outline-none"
+        className="sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:not-sr-only rounded-xl bg-primary px-4 py-2 font-bold text-white shadow-lg focus:outline-none"
       >
         Skip to main content
       </a>
@@ -56,7 +56,7 @@ const MainLayout: React.FC = () => {
             <span>•</span>
             <span>Programmable Risk & Spend Control for Autonomous Agent Fleets</span>
             <span>•</span>
-            <span className="font-medium text-[#254BFF] dark:text-blue-400">Monad Parallel EVM</span>
+            <span className="font-medium text-primary">Monad Parallel EVM</span>
           </div>
           <div className="flex items-center space-x-4 text-[11px] font-medium">
             <span className="flex items-center space-x-1">

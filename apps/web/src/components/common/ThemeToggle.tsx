@@ -17,7 +17,7 @@ export const ThemeToggle: React.FC = () => {
         active:scale-90
         ${isDark
           ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700 hover:border-slate-600 hover:shadow-amber-500/10'
-          : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50 hover:shadow-blue-500/10'
+          : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50 hover:shadow-primary/10'
         }
       `}
     >

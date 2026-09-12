@@ -38,12 +38,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
           role="dialog"
           aria-modal="true"
           aria-labelledby="drawer-title"
-          className="w-screen max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col justify-between animate-fade-in-up"
+          className="w-screen max-w-md bg-card border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col justify-between animate-fade-in-up"
         >
           {/* Header */}
           <div className="p-6 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-[#254BFF] dark:text-blue-400">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-primary">
                 <Bell className="w-4 h-4" />
               </div>
               <div>
@@ -86,7 +86,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
                 Recent Onchain Policy Events
               </h4>
 
-              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-xs space-y-1.5">
+              <div className="p-3.5 rounded-2xl bg-card border border-card-border shadow-xs space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -107,7 +107,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+              className="px-4 py-2 rounded-full bg-card border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
             >
               Close
             </button>

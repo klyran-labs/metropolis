@@ -31,7 +31,7 @@ export const SkeletonBox: React.FC<SkeletonProps> = ({ className = 'h-4 w-full' 
 export const SkeletonCard: React.FC = () => (
   <div
     aria-hidden="true"
-    className="bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-[28px] p-6 shadow-sm space-y-4"
+    className="bg-card border border-card-border rounded-[28px] p-6 shadow-sm space-y-4"
   >
     <div className="flex items-center justify-between">
       <SkeletonBox className="h-4 w-28" />
@@ -82,7 +82,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div
-      className={`bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-[28px] p-10 sm:p-14 text-center space-y-4 shadow-sm font-sans ${className}`}
+      className={`bg-card border border-card-border rounded-[28px] p-10 sm:p-14 text-center space-y-4 shadow-sm font-sans ${className}`}
     >
       <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto shadow-inner">
         <Icon className="w-7 h-7 text-slate-600 dark:text-slate-300" />
@@ -97,7 +97,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             <button
               type="button"
               onClick={onAction}
-              className="px-5 py-2.5 rounded-full bg-[#254BFF] hover:bg-[#1D40DF] text-white text-xs font-semibold shadow-md shadow-blue-500/20 transition cursor-pointer"
+              className="px-5 py-2.5 rounded-full bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md shadow-primary/20 transition cursor-pointer"
             >
               {actionLabel}
             </button>
@@ -166,8 +166,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' })
     case 'FUNDS_LOCKED':
     case 'PROVISIONING':
     case 'AWAITING_SIGNATURE':
-      bg = 'bg-blue-50 dark:bg-blue-950/40 text-[#254BFF] dark:text-blue-400 border-blue-200/70 dark:border-blue-800/60';
-      dot = 'bg-[#254BFF] animate-pulse';
+      bg = 'bg-blue-50 dark:bg-blue-950/40 text-primary border-blue-200/70 dark:border-blue-800/60';
+      dot = 'bg-primary animate-pulse';
       break;
     case 'SETTLEMENT_PENDING':
     case 'EXPIRING':
@@ -242,7 +242,7 @@ export const TruthfulNotice: React.FC<TruthfulNoticeProps> = ({
     info: {
       bg: 'bg-blue-50/80 dark:bg-blue-950/30 border-blue-200/70 dark:border-blue-800/60 text-blue-900 dark:text-blue-200',
       icon: Info,
-      iconColor: 'text-[#254BFF] dark:text-blue-400',
+      iconColor: 'text-primary',
     },
     warning: {
       bg: 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200/70 dark:border-amber-800/60 text-amber-900 dark:text-amber-200',
@@ -278,7 +278,7 @@ export const TruthfulNotice: React.FC<TruthfulNoticeProps> = ({
         <button
           type="button"
           onClick={onAction}
-          className="shrink-0 px-3.5 py-1.5 rounded-full bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs transition shadow-sm cursor-pointer"
+          className="shrink-0 px-3.5 py-1.5 rounded-full bg-card hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs transition shadow-sm cursor-pointer"
         >
           {actionLabel}
         </button>

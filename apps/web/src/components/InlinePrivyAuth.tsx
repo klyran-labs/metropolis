@@ -114,7 +114,7 @@ export const InlinePrivyAuth: React.FC = () => {
   };
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-[28px] shadow-xl p-6 sm:p-8 relative font-sans text-slate-900 dark:text-slate-100 text-left">
+    <div className="w-full bg-card border border-card-border rounded-[28px] shadow-xl p-6 sm:p-8 relative font-sans text-slate-900 dark:text-slate-100 text-left">
       {/* Step 1: User Objective Selection */}
       <div className="mb-6">
         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
@@ -128,7 +128,7 @@ export const InlinePrivyAuth: React.FC = () => {
             onClick={() => setSelectedIntent('risk_controller')}
             className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
               selectedIntent === 'risk_controller'
-                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-[#254BFF] dark:border-blue-500 text-[#254BFF] dark:text-blue-400 shadow-xs'
+                ? 'bg-blue-50/70 dark:bg-blue-950/40 border-primary text-primary shadow-xs'
                 : 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
             }`}
           >
@@ -136,7 +136,7 @@ export const InlinePrivyAuth: React.FC = () => {
               <div
                 className={`w-8 h-8 rounded-xl flex items-center justify-center ${
                   selectedIntent === 'risk_controller'
-                    ? 'bg-[#254BFF] text-white'
+                    ? 'bg-primary text-white'
                     : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'
                 }`}
               >
@@ -149,7 +149,7 @@ export const InlinePrivyAuth: React.FC = () => {
                 </span>
               </div>
             </div>
-            {selectedIntent === 'risk_controller' && <CheckCircle2 className="w-4 h-4 text-[#254BFF] dark:text-blue-400 shrink-0" />}
+            {selectedIntent === 'risk_controller' && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
           </button>
 
           <button
@@ -208,7 +208,7 @@ export const InlinePrivyAuth: React.FC = () => {
                     setError(null);
                   }}
                   placeholder="name@company.com"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-[#254BFF] text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#254BFF]/10 transition-all font-sans"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-primary text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all font-sans"
                 />
               </div>
               <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
@@ -227,14 +227,14 @@ export const InlinePrivyAuth: React.FC = () => {
                   setAgreedToTerms(e.target.checked);
                   setError(null);
                 }}
-                className="mt-1 rounded border-slate-300 dark:border-slate-600 text-[#254BFF] focus:ring-[#254BFF] cursor-pointer"
+                className="mt-1 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-primary cursor-pointer"
               />
               <div id="terms-description" className="text-xs text-slate-600 dark:text-slate-400 leading-snug">
                 I agree to the{' '}
                 <button
                   type="button"
                   onClick={() => setShowTermsModal(true)}
-                  className="text-[#254BFF] dark:text-blue-400 hover:underline font-semibold cursor-pointer"
+                  className="text-primary hover:underline font-semibold cursor-pointer"
                 >
                   AgentGuard Risk Governance & Security Policy
                 </button>{' '}
@@ -245,7 +245,7 @@ export const InlinePrivyAuth: React.FC = () => {
             <button
               type="submit"
               disabled={isSendingCode}
-              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-[#254BFF] hover:bg-[#1D40DF] transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
+              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-primary hover:bg-primary-hover transition-all shadow-md shadow-primary/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
             >
               {isSendingCode ? (
                 <>
@@ -284,7 +284,7 @@ export const InlinePrivyAuth: React.FC = () => {
                     setError(null);
                   }}
                   placeholder="000000"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-[#254BFF] text-center tracking-widest text-lg font-mono font-bold text-slate-900 dark:text-slate-100 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-[#254BFF]/10 transition-all"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-primary text-center tracking-widest text-lg font-mono font-bold text-slate-900 dark:text-slate-100 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
                 />
               </div>
             </div>
@@ -292,7 +292,7 @@ export const InlinePrivyAuth: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmittingCode || code.length < 6}
-              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-[#254BFF] hover:bg-[#1D40DF] transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
+              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-primary hover:bg-primary-hover transition-all shadow-md shadow-primary/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
             >
               {isSubmittingCode ? (
                 <>
@@ -320,7 +320,7 @@ export const InlinePrivyAuth: React.FC = () => {
                 type="button"
                 onClick={handleSendCode}
                 disabled={isSendingCode}
-                className="text-[#254BFF] dark:text-blue-400 hover:underline flex items-center space-x-1 cursor-pointer"
+                className="text-primary hover:underline flex items-center space-x-1 cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isSendingCode ? 'animate-spin' : ''}`} />
                 <span>Resend code</span>
@@ -359,7 +359,7 @@ export const InlinePrivyAuth: React.FC = () => {
                 {isConnectingWallet ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Wallet className="w-4 h-4 text-[#254BFF] dark:text-blue-400" />
+                  <Wallet className="w-4 h-4 text-primary" />
                 )}
                 <span>Connect MetaMask / Phantom / WalletConnect</span>
               </button>
@@ -382,19 +382,19 @@ export const InlinePrivyAuth: React.FC = () => {
         </span>
         <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 dark:text-slate-400">
           <div className="flex items-center space-x-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
             <span>Monad Parallel EVM (400ms)</span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
             <span>O(1) Instant Kill Switch</span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
             <span>x402 / AP2 Agent Protocol</span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
             <span>Disjoint State Isolation</span>
           </div>
         </div>
@@ -410,11 +410,11 @@ export const InlinePrivyAuth: React.FC = () => {
         >
           <div
             ref={modalRef}
-            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[28px] max-w-lg w-full p-7 space-y-4 shadow-2xl relative text-left"
+            className="bg-card border border-slate-200 dark:border-slate-800 rounded-[28px] max-w-lg w-full p-7 space-y-4 shadow-2xl relative text-left"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-[#254BFF] dark:text-blue-400" />
+                <ShieldCheck className="w-5 h-5 text-primary" />
                 <h3 id="terms-modal-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   AgentGuard Risk Governance & Security Policy
                 </h3>
@@ -451,7 +451,7 @@ export const InlinePrivyAuth: React.FC = () => {
                   setAgreedToTerms(true);
                   setShowTermsModal(false);
                 }}
-                className="py-2.5 px-6 rounded-full bg-[#254BFF] hover:bg-[#1D40DF] text-white font-semibold text-xs shadow-md shadow-blue-500/20 cursor-pointer"
+                className="py-2.5 px-6 rounded-full bg-primary hover:bg-primary-hover text-white font-semibold text-xs shadow-md shadow-primary/20 cursor-pointer"
               >
                 Accept & Continue
               </button>
