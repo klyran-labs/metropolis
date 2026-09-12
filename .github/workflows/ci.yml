@@ -1,4 +1,4 @@
-name: ComputeX CI / CD Quality Gates
+name: AgentGuard CI / CD Quality Gates
 
 on:
   push:
@@ -10,24 +10,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Every job is read-only against the repository unless a future job explicitly
-# declares a narrower additional permission. Artifact upload uses the Actions
-# service and does not require repository write access.
 permissions:
   contents: read
 
 jobs:
   static-analysis-and-lint:
-    name: Strict Static Analysis & Clippy Lints
+    name: Static Analysis, Typechecks & Zero-Mock Gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
@@ -46,47 +38,65 @@ jobs:
       - name: Install Monorepo Dependencies
         run: npm ci
 
-      - name: Block known high-severity production dependency findings
-        run: node scripts/verify-production-audit.mjs
-
-      - name: Verify production UI interaction contract
-        run: npm run verify:ui-contract
+      - name: Verify Production UI Interaction Contract
+        run: node scripts/verify-ui-contract.mjs
 
       - name: Validate ERC-7730 Descriptors
-        run: npm run validate:erc7730:schema
+        run: |
+          node scripts/validate-erc7730.mjs
+          python3 scripts/validate-erc7730-schema.py
 
-      - name: Run Rust Clippy (-D warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Verify Zero-Mock Production Integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -rn --exclude="*.test.*" --exclude="*.spec.*" -E 'Math\.random|0x70997970C51812dc3A010C7d01b50e0d17dc79C8' apps/web/src; then
+            echo "Prohibited mock or fallback data found in apps/web/src"
+            exit 1
+          fi
+          test -s apps/web/src/config/env.ts
 
       - name: Typecheck TypeScript Workspaces
         run: |
           npx tsc --noEmit --project packages/shared-types/tsconfig.json
-          npx tsc --noEmit --project packages/sdk-ts/tsconfig.json
-          npx tsc --noEmit --project services/api-gateway/tsconfig.json
-          npx tsc --noEmit --project services/identity-policy/tsconfig.json
-          npx tsc --noEmit --project services/provisioning-controller/tsconfig.json
-          npx tsc --noEmit --project services/reconciliation/tsconfig.json
-          npx tsc --noEmit --project services/settlement-keeper/tsconfig.json
+          npx tsc --noEmit --project packages/x402-middleware/tsconfig.json
           npx tsc --noEmit --project apps/web/tsconfig.json
-          npx tsc --noEmit --project apps/mobile/tsconfig.json
 
-  full-test-suite:
-    name: Full Multi-Tier Automated Test Suite
+  contracts-foundry:
+    name: Solidity Contracts (Foundry build, unit, fuzz, invariant)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Python 3.12+
-        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          submodules: recursive
 
-      - name: Install Descriptor Validation Dependency
-        run: python -m pip install --disable-pip-version-check jsonschema
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Forge Build (real compiled bytecode)
+        working-directory: contracts
+        run: forge build --sizes
+
+      - name: Forge Test (unit + 5000-run fuzz + 500x128 invariant)
+        working-directory: contracts
+        run: forge test -vvv
+
+      - name: Slither Static Analysis (informational)
+        uses: crytic/slither-action@v0.4.0
+        continue-on-error: true
+        with:
+          target: contracts/
+          fail-on: none
+
+  full-test-suite:
+    name: AgentGuard Monad Contracts & Frontend Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
@@ -94,86 +104,38 @@ jobs:
           node-version: 24
           cache: 'npm'
 
-      - name: Install System Libraries
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
-
       - name: Install Dependencies
         run: npm ci
 
-      - name: Block known high-severity production dependency findings
-        run: node scripts/verify-production-audit.mjs
-
-      - name: Generate production dependency SBOM
+      - name: Build Core Packages
         run: |
-          mkdir -p artifacts
-          npm sbom --omit=dev --sbom-format=cyclonedx > artifacts/computex-production-sbom.cdx.json
+          npm run build --workspace=@agentguard/shared-types
+          npm run build --workspace=@agentguard/x402-middleware
 
-      - name: Upload production dependency SBOM
-        uses: actions/upload-artifact@v4
-        with:
-          name: computex-production-sbom
-          path: artifacts/computex-production-sbom.cdx.json
-          if-no-files-found: error
-
-      - name: Run Smart Contracts Test Suite
-        run: node --test contracts/test/computex-contracts.test.mjs
-
-      - name: Run Rust Matching Engine & WAL Tests
-        run: cargo test -p computex-engine
-
-      - name: Run Telemetry Oracle, DuckDB & Threshold Consensus Tests
-        run: cargo test -p computex-oracle
-
-      - name: Run TypeScript SDK Tests
-        run: cd packages/sdk-ts && npm test
-
-      - name: Run Python SDK Tests
-        run: cd packages/sdk-py && PYTHONPATH=. python3 -m unittest discover tests
+      - name: Run Monad Smart Contracts Test Suite
+        run: node --test contracts/test/agentguard-contracts.test.mjs
 
       - name: Run React 19 Frontend Tests
         run: node --test apps/web/test/frontend.test.mjs
 
-      - name: Run ComputeX Mobile App Tests
-        run: node --test apps/mobile/test/mobile-tests.mjs
+      - name: Run x402 / AP2 Middleware Tests
+        run: node --test packages/x402-middleware/test/middleware.test.mjs
 
-      - name: Run API Gateway Tests
-        run: node --test services/api-gateway/test/*.test.mjs
+      - name: Run Live Protocol Simulation Demo
+        run: node scripts/agentguard-live-demo.mjs
 
-      - name: Build Production API Gateway
-        run: npm run build --workspace=@computex/api-gateway
-
-      - name: Build Production Web Client With Explicit Configuration
+      - name: Build Production Web Console With Explicit Configuration
         env:
           VITE_APP_ENV: production
           VITE_CHAIN_ID: 10143
-          VITE_RPC_URL: https://rpc.example.invalid
-          VITE_WS_URL: wss://clob.example.invalid/ws/v1/depth
-          VITE_CLOB_SETTLEMENT_ADDRESS: 0x1111111111111111111111111111111111111111
-          VITE_SLA_VAULT_ADDRESS: 0x2222222222222222222222222222222222222222
-          VITE_COMPUTE_TOKEN_ADDRESS: 0x3333333333333333333333333333333333333333
-          VITE_USDC_TOKEN_ADDRESS: 0x4444444444444444444444444444444444444444
-          VITE_PRIVY_APP_ID: ci-validation-app
-        run: npm run build --workspace=@computex/web
-
-      - name: Validate Production Migration Fails Closed Without Database
-        run: |
-          if DATABASE_URL= npm run db:migrate --workspace=@computex/api-gateway; then
-            echo "Migration unexpectedly ran without DATABASE_URL"
-            exit 1
-          fi
-
-  release-benchmarks:
-    name: Empirical Latency & Throughput Benchmark SLA Gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Run Release Benchmark
-        run: cargo run --release --bin benchmark
+          VITE_RPC_URL: https://testnet-rpc.monad.xyz
+          VITE_WS_URL: wss://testnet-rpc.monad.xyz
+          VITE_POLICY_ENGINE_ADDRESS: 0x2222222222222222222222222222222222222222
+          VITE_REPUTATION_REGISTRY_ADDRESS: 0x3333333333333333333333333333333333333333
+          VITE_AGENT_WALLET_GUARD_ADDRESS: 0x4444444444444444444444444444444444444444
+          VITE_USDC_TOKEN_ADDRESS: 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea
+          VITE_PRIVY_APP_ID: cmton65ao004l0cl11tgmwiah
+        run: npm run build --workspace=@agentguard/web
 
   container-builds:
     name: Production Docker Container Build Gate
@@ -185,88 +147,18 @@ jobs:
       - name: Build Docker Stack
         run: docker compose -f docker/docker-compose.yml build
 
-      - name: Build Production API Gateway Image
-        run: docker build -f docker/Dockerfile.api-gateway .
-
       - name: Build Production Web Image With Explicit Configuration
         run: |
           docker build -f docker/Dockerfile.web \
             --build-arg VITE_APP_ENV=production \
             --build-arg VITE_CHAIN_ID=10143 \
-            --build-arg VITE_RPC_URL=https://rpc.example.invalid \
-            --build-arg VITE_WS_URL=wss://clob.example.invalid/ws/v1/depth \
-            --build-arg VITE_CLOB_SETTLEMENT_ADDRESS=0x1111111111111111111111111111111111111111 \
-            --build-arg VITE_SLA_VAULT_ADDRESS=0x2222222222222222222222222222222222222222 \
-            --build-arg VITE_COMPUTE_TOKEN_ADDRESS=0x3333333333333333333333333333333333333333 \
-            --build-arg VITE_USDC_TOKEN_ADDRESS=0x4444444444444444444444444444444444444444 \
-            --build-arg VITE_PRIVY_APP_ID=ci-validation-app .
+            --build-arg VITE_RPC_URL=https://testnet-rpc.monad.xyz \
+            --build-arg VITE_WS_URL=wss://testnet-rpc.monad.xyz \
+            --build-arg VITE_POLICY_ENGINE_ADDRESS=0x2222222222222222222222222222222222222222 \
+            --build-arg VITE_REPUTATION_REGISTRY_ADDRESS=0x3333333333333333333333333333333333333333 \
+            --build-arg VITE_AGENT_WALLET_GUARD_ADDRESS=0x4444444444444444444444444444444444444444 \
+            --build-arg VITE_USDC_TOKEN_ADDRESS=0xf817257fed379853cDe0fa4F97AB987181B1E5Ea \
+            --build-arg VITE_PRIVY_APP_ID=cmton65ao004l0cl11tgmwiah .
 
-      - name: Build Production Matching Engine Image
-        run: docker build -f docker/Dockerfile.engine .
-
-      - name: Build Production Telemetry Oracle Image
-        run: docker build -f docker/Dockerfile.oracle .
-
-      - name: Validate Public Nginx Ingress Configuration
-        run: docker run --rm --add-host computex-engine:127.0.0.1 --add-host computex-api-gateway:127.0.0.1 -v "$PWD/docker/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:alpine nginx -t
-
-      - name: Validate Production Compose Configuration
-        env:
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/computex
-          PGSSL: require
-          PRIVY_APP_ID: ci-validation-app
-          MONAD_RPC_URL: https://rpc.example.invalid
-          SLA_VAULT_ADDRESS: 0x2222222222222222222222222222222222222222
-          ENGINE_WEBSOCKET_URL: ws://computex-engine:9101/ws/v1/control
-          ENGINE_AUTH_TOKEN: ci-engine-auth-token
-          ORACLE_HTTP_AUTH_TOKEN: ci-oracle-auth-token
-          ORACLE_HTTP_URL: http://computex-oracle:9002
-          SLA_INSTANCE_ID: 1
-          SLA_PROVIDER_ADDRESS: 0x3333333333333333333333333333333333333333
-          SLA_BUYER_ADDRESS: 0x4444444444444444444444444444444444444444
-          SLA_BONDED_STAKE_WEI: 1
-          SLA_MIN_UPTIME_PPM: 995000
-          SLA_MAX_LATENCY_MS: 50
-          COMPUTEX_SETTLEMENT_ADDRESS: 0x1111111111111111111111111111111111111111
-          METRICS_AUTH_TOKEN: ci-metrics-auth-token
-          VITE_APP_ENV: staging
-          VITE_CHAIN_ID: 10143
-          VITE_RPC_URL: https://rpc.example.invalid
-          VITE_WS_URL: wss://clob.example.invalid/ws/v1/depth
-          VITE_CLOB_SETTLEMENT_ADDRESS: 0x1111111111111111111111111111111111111111
-          VITE_SLA_VAULT_ADDRESS: 0x2222222222222222222222222222222222222222
-          VITE_COMPUTE_TOKEN_ADDRESS: 0x3333333333333333333333333333333333333333
-          VITE_USDC_TOKEN_ADDRESS: 0x4444444444444444444444444444444444444444
-          VITE_PRIVY_APP_ID: ci-validation-app
-        run: docker compose -f docker/docker-compose.prod.yml config --quiet
-
-  production-integrity:
-    name: Production Integrity & Zero-Mock Gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Reject prohibited frontend fallbacks
-        shell: bash
-        run: |
-          set -euo pipefail
-          if rg -n --glob '!**/*.test.*' --glob '!**/*.spec.*' 'Math\.random|0x70997970C51812dc3A010C7d01b50e0d17dc79C8' apps/web/src; then
-            echo "Prohibited mock or fallback data found in apps/web/src"
-            exit 1
-          fi
-
-      - name: Verify production configuration is explicit
-        shell: bash
-        run: |
-          set -euo pipefail
-          required_files=(
-            apps/web/src/config/env.ts
-            services/api-gateway/src/production-main.ts
-            docker/docker-compose.prod.yml
-          )
-          for file in "${required_files[@]}"; do
-            test -s "$file"
-          done
-          rg -q 'const required|ProductionConfigurationError' services/api-gateway/src/production-main.ts
-          rg -q 'MONAD_CHAIN_ID' docker/docker-compose.prod.yml
+      - name: Build Production Gateway Image
+        run: docker build -f docker/Dockerfile.gateway .
