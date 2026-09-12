@@ -16,6 +16,14 @@ export interface AppConfig {
     agentWalletGuard: Address;
     usdcToken: Address;
   };
+  /**
+   * Block PolicyEngine was deployed at, used to bound eth_getLogs scans when
+   * discovering the agent roster / activity feed from onchain events instead
+   * of scanning from genesis. Defaults to 0 (scan everything) when unset -
+   * operators should set VITE_POLICY_ENGINE_DEPLOY_BLOCK once the contracts
+   * are actually deployed, for query performance on a long-lived chain.
+   */
+  policyEngineDeployBlock: bigint;
   strictZeroMock: true;
 }
 
@@ -136,6 +144,15 @@ if (isDeployment && !/^\S+$/.test(privyAppId)) {
 const rpcUrl = requireDeploymentEnv("VITE_RPC_URL", activeDefaults.rpc);
 const wsUrl = requireDeploymentEnv("VITE_WS_URL", activeDefaults.ws);
 
+const rawDeployBlock = getEnvVar("VITE_POLICY_ENGINE_DEPLOY_BLOCK", "0");
+let policyEngineDeployBlock: bigint;
+try {
+  policyEngineDeployBlock = BigInt(rawDeployBlock);
+  if (policyEngineDeployBlock < 0n) throw new Error("negative");
+} catch {
+  throw new Error("DeploymentConfigurationError: VITE_POLICY_ENGINE_DEPLOY_BLOCK must be a non-negative integer.");
+}
+
 export const APP_CONFIG: AppConfig = {
   appEnv,
   isProduction,
@@ -150,5 +167,6 @@ export const APP_CONFIG: AppConfig = {
     agentWalletGuard,
     usdcToken,
   },
+  policyEngineDeployBlock,
   strictZeroMock: true,
 } as const;
