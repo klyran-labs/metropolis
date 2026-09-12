@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useWeb3Wallet } from '../../hooks/useWeb3Wallet';
 import { usePrivy } from '@privy-io/react-auth';
 import {
@@ -10,17 +11,25 @@ import {
   ShieldCheck,
   Wallet,
   ExternalLink,
+  Shield,
+  Layers,
+  Sliders,
+  Play,
+  FileText,
 } from 'lucide-react';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { NotificationDrawer } from '../common/NotificationDrawer';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
 
-interface AgentGuardHeaderProps {
-  activeSection?: string;
-  onSelectSection?: (section: string) => void;
-}
+const NAV_SECTIONS = [
+  { to: '/fleet', label: 'Fleet', icon: Shield },
+  { to: '/lifecycle', label: 'Lifecycle', icon: Layers },
+  { to: '/studio', label: 'Policy Studio', icon: Sliders },
+  { to: '/simulator', label: 'Simulator', icon: Play },
+  { to: '/audit', label: 'Audit', icon: FileText },
+] as const;
 
-export const AgentGuardHeader: React.FC<AgentGuardHeaderProps> = () => {
+export const AgentGuardHeader: React.FC = () => {
   const wallet = useWeb3Wallet();
   const { logout: privyLogout, user } = usePrivy();
 
@@ -71,20 +80,34 @@ export const AgentGuardHeader: React.FC<AgentGuardHeaderProps> = () => {
           </div>
         </div>
 
-        {/* Center / Network Indicator */}
-        <div className="hidden md:flex items-center space-x-2">
-          <span className="flex items-center space-x-1.5 rounded-full border border-slate-200/80 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Monad Testnet (10143)</span>
-          </span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">|</span>
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            400ms Parallel Finality
-          </span>
-        </div>
+        {/* Primary section navigation — floating pill group, deep-linkable routes */}
+        <nav aria-label="Dashboard sections" className="hidden lg:flex items-center gap-1 rounded-full border border-card-border bg-card-muted p-1">
+          {NAV_SECTIONS.map((section) => {
+            const Icon = section.icon;
+            return (
+              <NavLink
+                key={section.to}
+                to={section.to}
+                className={({ isActive }) =>
+                  `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                    isActive ? 'bg-primary text-white shadow-xs' : 'text-fg-muted hover:text-fg hover:bg-card'
+                  }`
+                }
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span>{section.label}</span>
+              </NavLink>
+            );
+          })}
+        </nav>
 
-        {/* Right Actions: Notifications, Theme, Account */}
+        {/* Right Actions: Network, Notifications, Theme, Account */}
         <div className="flex items-center space-x-3">
+          <span className="hidden xl:flex items-center space-x-1.5 rounded-full border border-card-border bg-card-muted px-3 py-1 text-xs font-semibold text-fg-muted">
+            <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
+            <span>Monad Testnet · 400ms finality</span>
+          </span>
+
           <ThemeToggle />
 
           <button

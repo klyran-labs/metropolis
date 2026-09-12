@@ -2,13 +2,19 @@ import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AgentGuardProvider } from './context/AgentGuardContext';
 import { ToastProvider } from './context/ToastContext';
+import { DashboardProvider } from './context/DashboardContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { SkeletonCard } from './components/common/UiState';
 import { AgentGuardHeader } from './components/navigation/AgentGuardHeader';
 
-const AgentGuardDashboard = React.lazy(() =>
-  import('./components/dashboard/AgentGuardDashboard').then((module) => ({ default: module.AgentGuardDashboard }))
+const DashboardShell = React.lazy(() =>
+  import('./components/dashboard/AgentGuardDashboard').then((module) => ({ default: module.DashboardShell }))
 );
+const FleetView = React.lazy(() => import('./components/dashboard/FleetView'));
+const LifecycleView = React.lazy(() => import('./components/dashboard/LifecycleView'));
+const PolicyStudioView = React.lazy(() => import('./components/dashboard/PolicyStudioView'));
+const SimulatorView = React.lazy(() => import('./components/dashboard/SimulatorView'));
+const AuditLedgerView = React.lazy(() => import('./components/dashboard/AuditLedgerView'));
 
 const PortalLoadingFallback: React.FC = () => (
   <div aria-busy="true" className="space-y-6 animate-pulse py-4 font-sans">
@@ -40,9 +46,16 @@ const MainLayout: React.FC = () => {
           <ErrorBoundary fallbackTitle="AgentGuard Control Plane Alert">
             <Suspense fallback={<PortalLoadingFallback />}>
               <Routes>
-                <Route path="/" element={<AgentGuardDashboard />} />
-                <Route path="/dashboard" element={<AgentGuardDashboard />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route element={<DashboardShell />}>
+                  <Route path="/fleet" element={<FleetView />} />
+                  <Route path="/lifecycle" element={<LifecycleView />} />
+                  <Route path="/studio" element={<PolicyStudioView />} />
+                  <Route path="/simulator" element={<SimulatorView />} />
+                  <Route path="/audit" element={<AuditLedgerView />} />
+                  <Route path="/" element={<Navigate to="/fleet" replace />} />
+                  <Route path="/dashboard" element={<Navigate to="/fleet" replace />} />
+                  <Route path="*" element={<Navigate to="/fleet" replace />} />
+                </Route>
               </Routes>
             </Suspense>
           </ErrorBoundary>
@@ -78,7 +91,9 @@ export const AuthenticatedConsole: React.FC = () => (
   <AgentGuardProvider>
     <ToastProvider>
       <BrowserRouter>
-        <MainLayout />
+        <DashboardProvider>
+          <MainLayout />
+        </DashboardProvider>
       </BrowserRouter>
     </ToastProvider>
   </AgentGuardProvider>
