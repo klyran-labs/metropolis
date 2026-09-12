@@ -1,146 +1,118 @@
-# ComputeX Engineering Instructions: Tier-1 DePIN Marketplace & Monad Settlement Architecture
+# AgentGuard Engineering Instructions: Tier-1 Agentic Risk, Spend Control & Monad Settlement Architecture
 
-These instructions apply to all work in this repository (`ComputeX` / `ScoreFi`). They establish repository-wide policy and merge-blocking engineering standards. They synthesize low-latency systems discipline, high-throughput Rust matching engine physics, atomic Monad Parallel EVM DvP settlement, and zero-mock enterprise integrity.
+These instructions apply to all work in this repository (`AgentGuard`). They establish repository-wide policy and merge-blocking engineering standards. They synthesize low-latency systems discipline, high-throughput onchain policy evaluation, atomic Monad Parallel EVM settlement, and zero-mock enterprise integrity.
 
 ---
 
 ## 1. Engineering Role & Core Principles
 
-Act as a **Principal Web3 Fintech & DePIN Systems Architect**. Optimize for mathematical correctness, sub-millisecond execution, zero-allocation hot paths, non-custodial financial safety, and predictable tail latency (p99/p99.9).
+Act as a **Principal Web3 Fintech & Agentic Systems Architect**. Optimize for mathematical correctness, sub-millisecond execution, zero-allocation hot paths, non-custodial financial safety, and predictable tail latency (p99/p99.9).
 
 - **Strict Zero-Mock Mandate (Non-Negotiable)**:
   - Absolutely NO hardcoded fallback addresses (`0x70997970C51812dc3A010C7d01b50e0d17dc79C8`), synthetic account balances (`100.0000 MON`), fake ticker loops, or mock data files.
-  - When balances or orders are zero, render honest, clean enterprise empty states with real call-to-actions.
-  - All token balances and escrow records must derive from real onchain Viem contract calls or live WebSocket feeds.
-- **Domain-Driven Design (DDD)**: Keep core financial clearing, order book matching, and SLA math pure and decoupled from framework transport protocols.
-- **Strict Role Exclusivity (Buyer vs. Seller Separation)**:
-  - A user is either a **Compute Buyer** or a **Node Operator / Seller**, **never both simultaneously in the UI**.
-  - Do NOT mix buyer and seller navigation tabs in the same interface.
-  - **Buyer View**: Dedicated to GPU procurement: CLOB Marketplace (Terminal locked to BUY mode), provisioned instance credentials (ERC-1155 tokens), and Monad escrow management.
-  - **Seller View**: Dedicated to node operations: hardware cluster registration, capacity listing (Asks), SLA collateral staking, and settled payout claims.
+  - When balances or limits are zero, render honest, clean enterprise empty states with real call-to-actions.
+  - All token balances, policy records, and reputation logs must derive from real onchain Viem contract calls.
+- **Domain-Driven Design (DDD)**: Keep core risk evaluation, budget invariants, and reputation scoring pure and decoupled from protocol transport adapters (x402/AP2).
+- **Machine-Readable Reason Codes (Invariant #4)**:
+  - Every denial onchain or offchain MUST return a standardized, non-zero `ReasonCode` (`ERR_NONE = 0` through `ERR_SIGNATURE_INVALID = 9`). Silent failure is strictly prohibited.
 
 ---
 
-## 2. Monad Parallel EVM & Onchain Clearing Physics
+## 2. Monad Parallel EVM Onchain Physics
 
-### A. Non-Custodial Delivery vs. Payment (DvP)
-- **Settlement Contract**: `ComputeCLOBSettlement.sol` on Monad Testnet (Chain ID `10143`, 400ms block time, 800ms deterministic finality).
-- **Atomic Batch Clearing**:
-  $$\text{BuyerEscrow} \xrightarrow{\text{transfer}} \text{SellerPayout} + \text{ProtocolFee}, \quad \text{Mint}(\text{ComputeToken}, \; \text{Buyer}, \; \text{DurationSeconds})$$
-- **Dynamic Indices & Uncoupled State**: User positions are indexed by user address. Global storage slots are never updated on user micro-transactions, preventing worker thread aborts across Monad parallel execution pipelines.
+### A. Disjoint Storage Slot Partitioning
+- **Settlement Chain**: Monad Testnet (Chain ID `10143`, 400ms block time, 800ms deterministic finality).
+- **Optimistic Concurrency Optimization**:
+  - All policy structs (`PackedPolicy`) and runtime spend states (`PackedState`) are partitioned strictly by `agent` address.
+  - Storage slots are packed into single 32-byte words (128-bit spend + 32-bit timestamp + 32-bit count + 64-bit nonce) to minimize `SLOAD`/`SSTORE` operations and prevent parallel worker abort loops.
 
-### B. Parametric SLA Staking & 3-of-5 Threshold Oracle
-- **Vault Contract**: `ParametricSLAVault.sol`.
-- **Node Operator Collateral**: Node operators bond native MON collateral to guarantee 99.50% uptime and <50ms ping latency.
-- **Oracle Consensus**: `computex-oracle` (port 9002) samples physical server metrics (`libc getloadavg`, `/proc/meminfo`, TCP ping) and emits EIP-712 attestations. If 3-of-5 threshold oracles report a breach, automated parametric slashing reimburses affected buyers.
+### B. O(1) Short-Circuit Kill Switch
+- Any agent marked with `killSwitch = true` aborts evaluation in $O(1)$ time without computing expensive sliding window arithmetic.
 
-### C. Cryptographic Capacity Vouchers (ERC-1155)
-- **Token Contract**: `ComputeToken.sol`.
-- Upon trade clearing, buyers receive onchain vouchers representing exact seconds of GPU capacity, granting authenticated SSH and WireGuard access.
+### C. Cancun Transient Reentrancy Protection
+- Protected by `TransientReentrancyGuard.sol` utilizing EVM Cancun/Prague transient storage (`tstore`/`tload`), touching zero persistent slots and eliminating cross-thread write-lock contention.
 
 ---
 
-## 3. Rust CLOB Matching Engine & WebSocket Transport
+## 3. x402 & AP2 Payment Protocol Adaptation
 
-- **Engine Location**: `crates/computex-engine` (listening on port 9101).
-- **Execution Physics**: Microsecond in-memory limit order book with Write-Ahead Logging (`memmap2`) for crash-consistent replay.
-- **EIP-712 Order Verification**:
-  - Orders are signed by the user's authentic wallet (`eth_signTypedData_v4`).
-  - Rust engine verifies signatures using `k256` / `secp256k1` before entering the matching loop.
-  - Senders must match maker address; orders outside valid nonces or expirations are instantly rejected.
+- **Middleware Location**: `packages/x402-middleware`.
+- Standardized HTTP 402 Payment Required negotiation:
+  - Returns `WWW-Authenticate: x402` and `X-402-Payment-Required` challenge headers.
+  - Verifies EIP-712 cryptographic signatures on Monad Testnet (`10143`) in sub-50 microseconds.
+  - Automatically translates onchain reason codes into machine-readable HTTP 403 Forbidden bodies with remediation instructions.
 
 ---
 
 ## 4. Official Privy Authentication & Public Marketing Gateway
 
-- **Live Privy SDK**: Official `@privy-io/react-auth` mounted at the root level via `PrivyAuthProvider.tsx`.
+- **Live Privy SDK**: Official `@privy-io/react-auth` mounted at root level via `PrivyAuthProvider.tsx`.
 - **Official App ID**: `cmton65ao004l0cl11tgmwiah`
 - **Supported Chains**: Monad Testnet (`10143`).
-- **Headless Email OTP & Web3 Wallets**:
-  - `useLoginWithEmail` dispatches authentic 6-digit OTP codes directly through Privy's live servers.
-  - Injected wallets (`window.ethereum`) and embedded wallets are linked directly to user roles.
-- **Public Landing Page Standard**:
-  - Unauthenticated users land on a high-converting marketing screen.
-  - **Zero Technical Debug Leaks**: Never leak internal port numbers (`9101`, `9002`), contract hex addresses, or backend debug logs onto the login/landing page. Display only enterprise value metrics: 400ms finality, 99.50% SLA guarantee, Tier-1 GPU availability, 0% intermediary fee.
+- **Zero Technical Debug Leaks**: Never leak internal port numbers, raw contract addresses, or backend debug logs onto the login/landing page. Display only institutional metrics: 400ms finality, O(1) kill-switch, x402 & AP2 compatibility, and non-custodial safety.
 
 ---
 
-## 5. Docker, Alpine & Tooling Standards
-
-1. **Docker Container Builds**:
-   - `docker/Dockerfile.web` uses Node 24 on Alpine Linux.
-   - To prevent `node-gyp` failures on native addons (`utf-8-validate`, `bufferutil` pulled in by Web3 SDKs), Alpine builders MUST install build dependencies:
-     ```dockerfile
-     RUN apk add --no-cache python3 make g++
-     RUN npm ci --ignore-scripts
-     ```
-2. **Modern Toolchain Versions**:
-   - React 19.x & Vite 8.x
-   - Viem 2.x
-   - Foundry Solidity 0.8.28+
-   - Rust 1.84+ (Edition 2021)
-
----
-
-## 6. Directory Structure & Architecture Boundaries
+## 5. Directory Structure & Architecture Boundaries
 
 ```
-ScoreFi/
-├── AGENTS.md                         # This file (Authoritative ComputeX Engineering Instructions)
+AgentGuard/
+├── AGENTS.md                         # Authoritative AgentGuard Engineering Instructions
+├── README.md                         # Public repository overview & quickstart
 ├── docker/
 │   ├── Dockerfile.web                # High-performance Alpine Nginx container
-│   ├── Dockerfile.engine             # Rust CLOB matching engine container
-│   ├── Dockerfile.oracle             # Rust telemetry & SLA oracle container
+│   ├── Dockerfile.gateway            # Node/TypeScript x402 payment gateway
+│   ├── nginx.conf                    # Nginx reverse proxy configuration
 │   └── docker-compose.yml            # Multi-service production orchestration
-├── contracts/                        # Foundry workspace (Solidity 0.8.28+)
+├── contracts/                        # Foundry workspace (Solidity 0.8.36 Cancun)
 │   ├── src/
-│   │   ├── core/ComputeCLOBSettlement.sol   # Monad atomic DvP clearing & escrow
-│   │   ├── core/ComputeToken.sol            # ERC-1155 tokenized capacity vouchers
-│   │   └── core/ParametricSLAVault.sol      # 3-of-5 threshold SLA staking vault
-│   └── test/computex-contracts.test.mjs     # Production contract unit & invariant test suite
-├── crates/
-│   ├── computex-engine/              # Microsecond Rust CLOB matching engine (Port 9101)
-│   └── computex-oracle/              # Physical hardware telemetry oracle (Port 9002)
+│   │   ├── interfaces/
+│   │   │   ├── IPolicyEngine.sol        # Structs, reason codes, policy interface
+│   │   │   ├── IReputationRegistry.sol  # Outcome logging & EWMA scoring
+│   │   │   └── IAgentWalletGuard.sol    # Delegated execution hook
+│   │   ├── core/
+│   │   │   ├── PolicyEngine.sol         # Monad disjoint storage policy evaluator
+│   │   │   ├── ReputationRegistry.sol   # Incremental trust scoring & slashing
+│   │   │   └── AgentWalletGuard.sol     # EIP-712 gated payment forwarder
+│   │   └── libraries/
+│   │       └── TransientReentrancyGuard.sol # Cancun tstore lock
+│   └── test/
+│       └── agentguard-contracts.test.mjs # Complete contract unit & invariant test suite
 ├── apps/
-│   └── web/                          # Production Vite + React 19 DePIN Terminal
-│       ├── src/
-│       │   ├── components/
-│       │   │   ├── LandingPage.tsx          # Public marketing & public stats screen
-│       │   │   ├── InlinePrivyAuth.tsx      # Live Privy App ID cmton65ao004l0cl11tgmwiah
-│       │   │   ├── PrivyAuthProvider.tsx    # Root Privy provider (Monad 10143)
-│       │   │   ├── Terminal.tsx             # Interactive CLOB trading terminal
-│       │   │   ├── TelemetryRadar.tsx       # Live hardware telemetry probe
-│       │   │   ├── buyer/BuyerPortal.tsx    # Dedicated Buyer UI (Marketplace, Escrow, Instances)
-│       │   │   ├── buyer/CredentialDelivery.tsx # Zero-mock cryptographic credential delivery
-│       │   │   ├── seller/SellerPortal.tsx  # Dedicated Seller UI (Fleet, Asks, Staking, Earnings)
-│       │   │   ├── common/ErrorBoundary.tsx # Isolated crash boundary & recovery
-│       │   │   ├── common/NotificationDrawer.tsx # Live settlements & fills drawer
-│       │   │   └── fintech/FintechHeader.tsx # Streamlined tabs & Account/Balance popover
-│       │   ├── context/MarketplaceContext.tsx # Strict role exclusivity & session persistence
-│       │   ├── context/ToastContext.tsx      # Real-time portal toasts with Monad Explorer links
-│       │   ├── context/ThemeContext.tsx      # Light/Dark mode state synchronization
-│       │   ├── hooks/useFocusTrap.ts        # WCAG-compliant modal focus trapping
-│       │   ├── hooks/useWeb3Wallet.ts       # Real Web3 wallet connection & zero-mock balances
-│       │   └── hooks/useComputeContracts.ts # Viem contract interfaces (ComputeCLOB, SLA)
-│       └── test/frontend.test.mjs           # Unit tests (EIP-712, depth math, role exclusivity)
-└── packages/
-    └── shared-types/                 # Shared TypeScript interfaces
+│   └── web/                          # Production React 19 + Vite 8 Control Plane
+│       └── src/
+│           ├── components/
+│           │   ├── LandingPage.tsx          # Public marketing & stats screen
+│           │   └── dashboard/
+│           │       ├── FleetOverview.tsx    # Active agents table & instant kill switch
+│           │       ├── PolicyStudio.tsx     # Visual policy authoring interface
+│           │       ├── RogueAgentSimulator.tsx # Interactive 3-scenario live testbench
+│           │       └── AuditLedger.tsx      # Verifiable onchain reason code trail
+│           └── hooks/
+│               ├── useWeb3Wallet.ts         # Real Monad wallet connection
+│               └── usePolicyContracts.ts    # Viem contract interfaces
+├── packages/
+│   ├── shared-types/                 # Canonical TypeScript domain interfaces
+│   └── x402-middleware/              # HTTP 402 payment negotiation & error mapper
+├── services/
+│   └── gateway/                      # Real x402 gateway (services/gateway/README.md
+│                                      # explains why it's not an npm workspace yet)
+└── scripts/
+    └── agentguard-live-demo.mjs         # Automated end-to-end live CLI demonstration
 ```
 
 ---
 
-## 7. Merge-Blocking Quality Gates
+## 6. Merge-Blocking Quality Gates
 
-1. **Deterministic Unit Tests**: 100% pass rate across contracts and frontend test suites:
+1. **Deterministic Tests**: 100% pass rate:
    ```bash
-   node --test contracts/test/computex-contracts.test.mjs apps/web/test/frontend.test.mjs
+   npm test
    ```
-2. **Production Build Success**: Sub-second zero-error Vite production build:
+2. **Production Build**: Sub-second zero-error Vite production build:
    ```bash
-   npm run build --workspace=@computex/web
+   npm run build
    ```
 3. **Zero-Mock Verification**:
-   - `grep -r "Math.random" apps/web/src` must return 0 results.
-   - `grep -r "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" apps/web/src` must return 0 results.
-   - All balance fallbacks must be `0.0000`, never hardcoded positive constants.
-4. **No Placeholders**: Never commit truncated code, fake ellipses (`...`), or mock bypasses.
+   - `grep -rn "Math.random" apps/web/src` must return 0 runtime matches.
+   - `grep -rn "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" apps/web/src` must return 0 matches.

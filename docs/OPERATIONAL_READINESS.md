@@ -1,128 +1,46 @@
-# ComputeX Operational Readiness & Physical Runtime Specification
+# AgentGuard Operational Readiness & Production Specification
 
-This document details the production hardware, operating system, and container deployment requirements to maintain sub-microsecond matching latency and deterministic WAL persistence under peak load.
+> **Status: target operating model, not yet live.** No AgentGuard contract has been deployed to Monad testnet or mainnet yet (see `docs/GAP_ANALYSIS.md`). The SLA/SLO targets below are the design goal for when a real deployment exists, not measurements of a running system.
 
----
-
-## 1. Physical Memory Locking (`mlock`)
-
-### Objective & Architecture
-The ComputeX Core Execution Engine writes incoming limit orders and fills directly to an append-only memory-mapped Write-Ahead Log (`memmap2`). Under heavy system RAM contention or background I/O spikes, default Linux kernel virtual memory subsystems may swap or page-out unreferenced `mmap` pages to disk swap space, introducing millisecond-scale page-fault latency spikes ($1000\times$ degradation).
-
-### Implementation
-- **Source Module**: `crates/computex-engine/src/wal.rs`
-- **System Call**: `libc::mlock(self.mmap.as_ptr() as *const libc::c_void, self.capacity)`
-- **Activation**: Enabled automatically when `COMPUTEX_ENABLE_MLOCK=true` or `COMPUTEX_ENABLE_MLOCK=1`.
-- **Clean Teardown**: Upon engine termination or crash interception, `Drop` invokes `libc::munlock` after final WAL `msync`.
-
-### Container & Host Configuration
-To execute `mlock`, the runtime environment requires elevated capabilities and unlimited locked memory limits:
-
-```yaml
-# docker-compose.yml snippet
-computex-engine:
-  cap_add:
-    - SYS_NICE
-    - IPC_LOCK
-  ulimits:
-    memlock:
-      soft: -1
-      hard: -1
-```
-
-On bare-metal Linux hosts, configure `/etc/security/limits.conf`:
-```text
-computex   soft   memlock   unlimited
-computex   hard   memlock   unlimited
-```
+This document details the production deployment, infrastructure requirements, and operational SLAs for running AgentGuard on Monad Parallel EVM.
 
 ---
 
-## 2. Dedicated Physical CPU Core Affinity
+## 1. Gateway & Control Plane Architecture
 
-### Objective & Architecture
-Operating system schedulers frequently migrate active threads across different physical CPU cores. Such context switches invalidate L1/L2 instruction and data caches, introduce TLB shootdowns, and degrade the matching loop latency from 373ns to several microseconds.
-
-### Implementation
-- **Source Module**: `crates/computex-engine/src/affinity.rs`
-- **System Call**: `libc::sched_setaffinity` with `libc::cpu_set_t`
-- **Activation**: Controlled via the `COMPUTEX_CPU_CORE` environment variable (e.g., `COMPUTEX_CPU_CORE=0`).
-- **Cross-Platform Safety**: On macOS and development platforms, non-Linux execution logs a diagnostic note without failing startup.
-
-### Container & Host Configuration
-Pin the container and matching process to an isolated physical core:
-
-```yaml
-# docker-compose.yml snippet
-computex-engine:
-  cpuset: "0" # Restricts container execution exclusively to physical core 0
-  environment:
-    - COMPUTEX_CPU_CORE=0
-```
-
-On bare-metal Linux hosts using `systemd` or `taskset`:
-```bash
-taskset -c 0 /usr/local/bin/computex-engine
-```
-
-For ultra-low latency setups, configure Linux kernel boot parameters:
-```text
-isolcpus=0 nohz_full=0 rcu_nocbs=0
-```
+The production environment consists of two primary services:
+1. **AgentGuard x402 Payment Gateway (`agentguard-gateway`)**, implemented at
+   `services/gateway` (see `services/gateway/README.md`):
+   - Node.js microservice issuing x402 challenges, verifying EIP-712 spend
+     request signatures, pre-flight-simulating against `PolicyEngine.evaluate`,
+     and relaying settlement to `AgentWalletGuard.executeGatedPayment`.
+   - Resource requirements: 2 vCPU, 2GB RAM per replica, horizontally scalable behind a load balancer.
+   - Target latency: **< 5ms p99 for offchain signature verification** (pure
+     cryptography, no I/O) — but the pre-flight `evaluate` policy simulation is
+     an RPC round-trip to Monad, not offchain compute, so it should be budgeted
+     separately (target **< 50ms p99**, dependent on RPC provider latency and
+     geographic distance to the nearest Monad RPC node) rather than folded into
+     the same 5ms figure.
+2. **AgentGuard Web Control Plane (`agentguard-web`)**:
+   - Ultra-fast static container served by Alpine Nginx with brotli/gzip compression and strict CSP headers.
+   - Direct connection to Monad Testnet RPC (`https://testnet-rpc.monad.xyz`) via Viem 2.x.
 
 ---
 
-## 3. Empirical Performance Profile
+## 2. Monad RPC Connectivity & Network Reliability
 
-| Metric | Target SLA | Measured Benchmark Result |
-| :--- | :--- | :--- |
-| **In-Memory Matching Latency** | $< 3\mu\text{s}$ | **373 ns (0.373 µs)** |
-| **Order Book Matching Throughput** | $> 1,000,000\text{ ops/sec}$ | **2,678,673 ops/sec (~2.68M ops/sec)** |
-| **Zero-Copy WAL Append Throughput** | $> 10,000,000\text{ writes/sec}$ | **27,032,206 writes/sec (1.65 GB/sec)** |
-| **Disaster Recovery WAL Replay** | $< 50\text{ms}$ | **596 µs (0.596 ms)** |
-| **Monad Intra-Block Settlement** | $400\text{ms}$ finality | Enforced on Chain ID `10143` |
+- **Chain ID**: 10143 (Monad Testnet)
+- **Block Time**: 400ms
+- **Deterministic Finality**: 2 blocks (800ms)
+- **RPC Resiliency**: Gateway instances must configure fallback RPC nodes with automated failover to prevent transaction dropouts during transient network partitions.
 
 ---
 
-## 4. Network Socket Tuning & Slow Consumer Isolation
+## 3. High-Priority Metrics & Alerting
 
-### TCP Socket Optimization (`TCP_NODELAY`)
-- In high-frequency order placement, Nagle's algorithm accumulates small packets into larger buffers, adding up to 40ms of transmission delay.
-- The matching engine explicitly enforces `stream.set_nodelay(true)` on every accepted TCP connection in `crates/computex-engine/src/server.rs`, guaranteeing immediate packet dispatch.
-
-### Slow Consumer Isolation (`broadcast::RecvError::Lagged`)
-- Under peak burst traffic, remote clients on cellular or high-latency connections may fail to drain their WebSocket buffers fast enough.
-- ComputeX handles `broadcast::RecvError::Lagged(skipped)` without dropping client connections. The consumer skips directly to the newest L2 depth snapshot or trade without blocking the in-memory engine or dropping the session.
-
----
-
-## 5. Telemetry REST API & Multi-Tier Gateway Architecture
-
-### End-to-End Zero-Mock Routing
-- **`computex-oracle` HTTP Service**: Exposes a zero-allocation REST API on port `9002` serving `/v1/telemetry/latest/:id` and health checks.
-- **Nginx Gateway (`nginx.conf`)**: Proxies authenticated `/api/v1/` traffic to the API gateway. Telemetry is workspace-authorized there and the oracle remains private to the service network.
-
----
-
-## 6. Linux Kernel `sysctl` High-Frequency Tuning
-
-For bare-metal production hosts running high-concurrency order gateways:
-
-```bash
-# /etc/sysctl.d/99-computex.conf
-
-# Increase maximum incoming connection backlog
-net.core.somaxconn = 65535
-
-# Increase socket read/write buffer boundaries
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-
-# Increase memory map count for large WAL allocations
-vm.max_map_count = 262144
-
-# Reduce swap aggression to zero for deterministic memory performance
-vm.swappiness = 0
-```
+| Metric | Target | Alert Threshold | Escalation Action |
+| :--- | :--- | :--- | :--- |
+| Gateway Latency (p99) | < 10ms | > 50ms for 2m | Scale gateway replicas |
+| Monad Settlement Latency | < 800ms | > 2000ms | Check RPC node sync status |
+| ReasonCode Spikes (Code 5) | Baseline | 50 denials / 1m | Notify agent operator of runaway loop |
+| Kill Switch Execution Latency | < 800ms | > 1200ms | Escalate to on-call blockchain engineer |
