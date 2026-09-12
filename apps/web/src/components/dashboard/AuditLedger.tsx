@@ -1,7 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { CheckCircle2, XCircle, ExternalLink, ShieldAlert, Download, Search, Filter } from 'lucide-react';
-import { type PolicyDecision, ReasonCode, REASON_CODE_MESSAGES } from '@agentguard/shared-types';
+import { CheckCircle2, XCircle, ExternalLink, Download, Search } from 'lucide-react';
+import { type PolicyDecision, ReasonCode } from '@agentguard/shared-types';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
+import { Card } from '../common/Card';
+import { Button } from '../common/Button';
+import { SegmentedControl } from '../common/SegmentedControl';
 
 export interface AuditRecord {
   id: string;
@@ -16,6 +19,12 @@ export interface AuditRecord {
 interface AuditLedgerProps {
   records: AuditRecord[];
 }
+
+const DECISION_FILTERS = [
+  { value: 'ALL', label: 'ALL' },
+  { value: 'ALLOW', label: 'ALLOW' },
+  { value: 'DENY', label: 'DENY' },
+] as const;
 
 export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
   const [decisionFilter, setDecisionFilter] = useState<'ALL' | 'ALLOW' | 'DENY'>('ALL');
@@ -86,70 +95,43 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 font-sans">
+    <Card padding="none" className="font-sans">
       {/* Table Header & Controls */}
-      <div className="flex flex-col space-y-3 border-b border-slate-200/80 px-6 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+      <div className="flex flex-col space-y-3 border-b border-card-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
         <div>
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-            Verifiable Policy Audit Trail
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <h2 className="text-base font-semibold text-fg">Verifiable Policy Audit Trail</h2>
+          <p className="text-xs text-fg-muted">
             Machine-readable reason codes emitted by Monad `PolicyEngine` for every agent spend evaluation.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Search Box */}
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-fg-subtle" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tx, agent, reason..."
-              className="rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-900 outline-none focus:border-[#254BFF] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              className="rounded-xl border border-card-border bg-card py-1.5 pl-8 pr-3 text-xs text-fg outline-none focus:border-primary"
             />
           </div>
 
-          {/* Decision Filter Pills */}
-          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-800">
-            {(['ALL', 'ALLOW', 'DENY'] as const).map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setDecisionFilter(filter)}
-                className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
-                  decisionFilter === filter
-                    ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-700 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            aria-label="Filter audit records by decision"
+            options={DECISION_FILTERS}
+            value={decisionFilter}
+            onChange={setDecisionFilter}
+          />
 
-          {/* Export Dropdown / Buttons */}
           {records.length > 0 && (
             <div className="flex items-center space-x-1">
-              <button
-                type="button"
-                onClick={handleExportJSON}
-                className="inline-flex items-center space-x-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 transition-colors"
-                title="Export audit trail as JSON"
-              >
-                <Download className="h-3 w-3" />
-                <span>JSON</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleExportCSV}
-                className="inline-flex items-center space-x-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 transition-colors"
-                title="Export audit trail as CSV"
-              >
-                <Download className="h-3 w-3" />
-                <span>CSV</span>
-              </button>
+              <Button variant="secondary" size="sm" leftIcon={<Download className="h-3 w-3" />} onClick={handleExportJSON} title="Export audit trail as JSON">
+                JSON
+              </Button>
+              <Button variant="secondary" size="sm" leftIcon={<Download className="h-3 w-3" />} onClick={handleExportCSV} title="Export audit trail as CSV">
+                CSV
+              </Button>
             </div>
           )}
         </div>
@@ -157,9 +139,9 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
 
       {filteredRecords.length === 0 ? (
         <div className="p-12 text-center">
-          <CheckCircle2 className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" />
-          <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-white">No Evaluation Records</h3>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-fg-subtle" />
+          <h3 className="mt-4 text-sm font-semibold text-fg">No Evaluation Records</h3>
+          <p className="mt-1 text-xs text-fg-muted">
             {records.length === 0
               ? 'Trigger a transaction in the Rogue Agent Simulator or submit an x402 payment intent to view live audit traces.'
               : 'No audit records match the current filter or search criteria.'}
@@ -167,8 +149,8 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
-            <thead className="border-b border-slate-200/80 bg-slate-50/70 text-xs font-semibold text-slate-500 uppercase dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">
+          <table className="w-full text-left text-sm text-fg-muted">
+            <thead className="border-b border-card-border bg-card-muted text-xs font-semibold text-fg-muted uppercase">
               <tr>
                 <th scope="col" className="px-6 py-3">Decision & Reason</th>
                 <th scope="col" className="px-6 py-3">Agent</th>
@@ -178,31 +160,27 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                 <th scope="col" className="px-6 py-3 text-right">Monad Explorer</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800">
+            <tbody className="divide-y divide-card-border">
               {filteredRecords.map((rec) => {
                 const isAllow = rec.decision.decision === 'ALLOW';
                 return (
-                  <tr key={rec.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <tr key={rec.id} className="hover:bg-card-muted transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-2">
                         {isAllow ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                          <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
                         ) : (
-                          <XCircle className="h-4 w-4 text-rose-500 shrink-0" />
+                          <XCircle className="h-4 w-4 text-danger shrink-0" />
                         )}
                         <div>
                           <span
                             className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${
-                              isAllow
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                              isAllow ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'
                             }`}
                           >
                             {rec.decision.decision}
                           </span>
-                          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                            {rec.decision.reasonMessage}
-                          </p>
+                          <p className="mt-0.5 text-[11px] text-fg-muted">{rec.decision.reasonMessage}</p>
                         </div>
                       </div>
                     </td>
@@ -215,12 +193,12 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                       {rec.merchant.slice(0, 6)}...{rec.merchant.slice(-4)}
                     </td>
 
-                    <td className="px-6 py-4 font-mono text-xs font-semibold text-slate-900 dark:text-white">
+                    <td className="px-6 py-4 font-mono text-xs font-semibold text-fg">
                       {(Number(rec.amountWei) / 1e18).toFixed(4)} MON
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      <span className="font-mono text-xs font-semibold text-fg-muted">
                         ERR_{rec.decision.reasonCode} ({ReasonCode[rec.decision.reasonCode]})
                       </span>
                     </td>
@@ -230,7 +208,7 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                         href={`${MONAD_EXPLORER_URL}/tx/${rec.txHash}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center space-x-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                        className="inline-flex items-center space-x-1 text-xs font-semibold text-primary hover:underline"
                       >
                         <span>{rec.txHash.slice(0, 8)}...</span>
                         <ExternalLink className="h-3 w-3" />
@@ -243,6 +221,6 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
           </table>
         </div>
       )}
-    </div>
+    </Card>
   );
 };

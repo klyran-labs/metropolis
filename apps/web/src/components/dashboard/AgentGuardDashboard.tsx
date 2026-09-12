@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { type Address } from 'viem';
-import { Shield, Sliders, Play, FileText, RefreshCw, AlertTriangle, ExternalLink, Layers, Plus } from 'lucide-react';
+import { Shield, Sliders, Play, FileText, ExternalLink, Layers, Plus } from 'lucide-react';
 import { FleetOverview } from './FleetOverview';
 import { PolicyStudio } from './PolicyStudio';
 import { RogueAgentSimulator } from './RogueAgentSimulator';
@@ -16,10 +16,20 @@ import {
   type PolicyDecision,
 } from '@agentguard/shared-types';
 import { MONAD_EXPLORER_URL, CONTRACT_ADDRESSES } from '../../config/contracts';
+import { Button } from '../common/Button';
+import { NavTabs } from '../common/NavTabs';
+
+const DASHBOARD_TABS = [
+  { value: 'fleet', label: 'Agent Fleet', icon: Shield },
+  { value: 'lifecycle', label: 'Lifecycle Pipeline', icon: Layers },
+  { value: 'studio', label: 'Policy Studio', icon: Sliders },
+  { value: 'simulator', label: 'Rogue Agent Simulator', icon: Play },
+  { value: 'audit', label: 'Audit Ledger', icon: FileText },
+] as const;
 
 export const AgentGuardDashboard: React.FC = () => {
   const { address: connectedUser, balanceMon } = useWeb3Wallet();
-  const { policy, state, reputation, loading, error, refresh, writeLoading, setPolicyOnchain, setKillSwitchOnchain, evaluatePolicy } = usePolicyContracts(connectedUser);
+  const { policy, state, reputation, loading, error, refresh, setPolicyOnchain, setKillSwitchOnchain, evaluatePolicy } = usePolicyContracts(connectedUser);
   const [activeTab, setActiveTab] = useState<'fleet' | 'lifecycle' | 'studio' | 'simulator' | 'audit'>('fleet');
   const [selectedAgentAddress, setSelectedAgentAddress] = useState<Address | null>(connectedUser);
   const [auditRecords, setAuditRecords] = useState<AuditRecord[]>([]);
@@ -67,36 +77,31 @@ export const AgentGuardDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Navigation Bar */}
-      <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 border-b border-slate-200/80 pb-4 dark:border-slate-800">
+      <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 border-b border-card-border pb-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+          <h1 className="text-xl font-bold text-fg">
             AgentGuard: Agentic Risk & Spend Control Plane
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-fg-muted">
             Monad Parallel EVM (Chain ID 10143) • Non-Custodial Budget Enforcement • x402 / AP2 Ready
           </p>
         </div>
 
         <div className="flex items-center space-x-2">
-          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 font-mono text-xs text-slate-700 shadow-xs dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          <div className="rounded-xl border border-card-border bg-card px-3 py-1.5 font-mono text-xs text-fg-muted shadow-xs">
             <span>Treasury: </span>
-            <span className="font-bold text-slate-900 dark:text-white">{balanceMon} MON</span>
+            <span className="font-bold text-fg">{balanceMon} MON</span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsOnboardingOpen(true)}
-            className="inline-flex items-center space-x-1.5 rounded-xl bg-[#254BFF] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#1D40DF] transition cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Register Agent</span>
-          </button>
+          <Button variant="primary" size="sm" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => setIsOnboardingOpen(true)}>
+            Register Agent
+          </Button>
 
           <a
             href={`${MONAD_EXPLORER_URL}/address/${CONTRACT_ADDRESSES.policyEngine}`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center space-x-1 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-blue-600 shadow-xs hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-blue-400"
+            className="inline-flex items-center space-x-1 rounded-xl border border-card-border bg-card px-3 py-1.5 text-xs font-semibold text-primary shadow-xs hover:bg-card-muted"
           >
             <span>PolicyEngine on Monad</span>
             <ExternalLink className="h-3 w-3" />
@@ -104,96 +109,40 @@ export const AgentGuardDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Navigation Pills */}
-      <div className="flex space-x-2 border-b border-slate-200/80 pb-3 dark:border-slate-800">
-        <button
-          type="button"
-          onClick={() => setActiveTab('fleet')}
-          className={`inline-flex items-center space-x-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
-            activeTab === 'fleet'
-              ? 'bg-[#254BFF] text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Shield className="h-4 w-4" />
-          <span>Agent Fleet ({agents.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('lifecycle')}
-          className={`inline-flex items-center space-x-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
-            activeTab === 'lifecycle'
-              ? 'bg-[#254BFF] text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          <span>Lifecycle Pipeline</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('studio')}
-          className={`inline-flex items-center space-x-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
-            activeTab === 'studio'
-              ? 'bg-[#254BFF] text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Sliders className="h-4 w-4" />
-          <span>Policy Studio</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('simulator')}
-          className={`inline-flex items-center space-x-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
-            activeTab === 'simulator'
-              ? 'bg-[#254BFF] text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Play className="h-4 w-4" />
-          <span>Rogue Agent Simulator</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('audit')}
-          className={`inline-flex items-center space-x-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
-            activeTab === 'audit'
-              ? 'bg-[#254BFF] text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <FileText className="h-4 w-4" />
-          <span>Audit Ledger ({auditRecords.length})</span>
-        </button>
-      </div>
+      <NavTabs
+        aria-label="Dashboard sections"
+        options={DASHBOARD_TABS.map((tab) => ({
+          ...tab,
+          label: tab.value === 'fleet' ? `Agent Fleet (${agents.length})` : tab.value === 'audit' ? `Audit Ledger (${auditRecords.length})` : tab.label,
+        }))}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
       {!connectedUser && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+        <div className="rounded-2xl border border-warning/30 bg-warning-subtle p-5 text-sm text-fg">
           Connect a Monad wallet to read or manage agent policies. No fleet, balances, reputation, or audit records are shown until an authenticated wallet and live contract state are available.
         </div>
       )}
       {connectedUser && loading && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300" aria-busy="true">
+        <div className="rounded-2xl border border-card-border bg-card p-5 text-sm text-fg-muted" aria-busy="true">
           Reading policy, spend state, and reputation from Monad…
         </div>
       )}
       {connectedUser && error && (
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-danger/30 bg-danger-subtle p-5 text-sm text-danger" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => void refresh()} className="rounded-xl border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-950/60">Retry</button>
+          <Button variant="outline-danger" size="sm" onClick={() => void refresh()}>Retry</Button>
         </div>
       )}
       {connectedUser && !loading && !error && agents.length === 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900">
-          <Shield className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
-          <h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-white">No agent policy configured</h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500 dark:text-slate-400">Register an agent wallet and authorize the policy transaction. AgentGuard will show it here only after the deployed PolicyEngine confirms the write.</p>
-          <button type="button" onClick={() => setIsOnboardingOpen(true)} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#254BFF] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1D40DF]">Register agent</button>
+        <div className="rounded-2xl border border-card-border bg-card p-8 text-center">
+          <Shield className="mx-auto h-10 w-10 text-fg-subtle" />
+          <h2 className="mt-3 text-base font-semibold text-fg">No agent policy configured</h2>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-fg-muted">Register an agent wallet and authorize the policy transaction. AgentGuard will show it here only after the deployed PolicyEngine confirms the write.</p>
+          <Button variant="primary" size="md" className="mt-5" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => setIsOnboardingOpen(true)}>
+            Register agent
+          </Button>
         </div>
       )}
 
