@@ -5,46 +5,45 @@ export const MONAD_CHAIN_ID = APP_CONFIG.chainId;
 export const MONAD_RPC_URL = APP_CONFIG.rpcUrl;
 export const MONAD_EXPLORER_URL = 'https://testnet.monadexplorer.com';
 
-// Deployed contract addresses on Monad Testnet (Chain ID 10143)
+// Deployed AgentGuard contract addresses on Monad Testnet (Chain ID 10143)
 export const CONTRACT_ADDRESSES = {
-  computeCLOB: APP_CONFIG.contracts.clobSettlement,
-  computeToken: APP_CONFIG.contracts.computeToken,
-  slaVault: APP_CONFIG.contracts.slaVault,
+  policyEngine: APP_CONFIG.contracts.policyEngine,
+  reputationRegistry: APP_CONFIG.contracts.reputationRegistry,
+  agentWalletGuard: APP_CONFIG.contracts.agentWalletGuard,
   usdcToken: APP_CONFIG.contracts.usdcToken,
 };
 
-export const COMPUTE_CLOB_ABI = parseAbi([
-  'function depositEscrow() external payable',
-  'function withdrawEscrow(uint256 amount) external',
-  'function depositToken(address token, uint256 amount) external',
-  'function withdrawToken(address token, uint256 amount) external',
-  'function escrowBalances(address account) external view returns (uint256)',
-  'function tokenEscrows(address account, address token) external view returns (uint256)',
-  'function cancelOrder(uint256 nonce) external',
-  'function protocolFeeBps() external view returns (uint256)',
-  'function currentBatchSequenceId() external view returns (uint256)',
-  'event EscrowDeposited(address indexed depositor, uint256 amount)',
-  'event EscrowWithdrawn(address indexed withdrawer, uint256 amount)',
-  'event TokenEscrowDeposited(address indexed account, address indexed token, uint256 amount)',
-  'event TokenEscrowWithdrawn(address indexed account, address indexed token, uint256 amount)',
-  'event OrderCancelled(address indexed maker, uint256 indexed nonce)',
-  'event BatchSettled(uint256 indexed batchSequenceId, uint256 tradesCount)',
-  'event TradeSettled(bytes32 indexed tradeHash, uint256 indexed tokenId, address indexed maker, address taker, uint256 executionPricePerSec, uint256 fillAmount, uint256 totalCost)',
+export const POLICY_ENGINE_ABI = parseAbi([
+  'function setPolicy(address agent, (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled) policy) external',
+  'function setKillSwitch(address agent, bool active) external',
+  'function setMerchantWhitelist(address agent, address merchant, bool allowed) external',
+  'function evaluate((address agent, address merchant, uint256 amount, bytes32 category, uint256 timestamp, uint256 deadline, uint256 nonce) req) external view returns ((bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp))',
+  'function evaluateAndSpend((address agent, address merchant, uint256 amount, bytes32 category, uint256 timestamp, uint256 deadline, uint256 nonce) req) external returns ((bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp))',
+  'function getAgentPolicy(address agent) external view returns ((uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled))',
+  'function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce)',
+  'function isMerchantWhitelisted(address agent, address merchant) external view returns (bool)',
+  'function isNonceUsed(address agent, uint256 nonce) external view returns (bool)',
+  'event PolicySet(address indexed agent, uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool whitelistEnabled)',
+  'event KillSwitchUpdated(address indexed agent, bool active)',
+  'event MerchantWhitelistUpdated(address indexed agent, address indexed merchant, bool allowed)',
+  'event SpendEvaluated(address indexed agent, address indexed merchant, uint256 amount, bool allowed, uint8 reasonCode)',
+  'event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow)',
 ]);
 
-export const COMPUTE_TOKEN_ABI = parseAbi([
-  'function balanceOf(address account, uint256 id) external view returns (uint256)',
-  'function balanceOfBatch(address[] calldata accounts, uint256[] calldata ids) external view returns (uint256[] memory)',
-  'function isApprovedForAll(address account, address operator) external view returns (bool)',
-  'function uri(uint256 id) external view returns (string memory)',
+export const REPUTATION_REGISTRY_ABI = parseAbi([
+  'function recordOutcome(address agent, address counterparty, uint8 outcome, uint256 amount) external',
+  'function getMetrics(address agent) external view returns ((uint32 scoreBps, uint32 totalTransactions, uint32 settledCount, uint32 slashedCount, uint32 disputedCount, uint32 lastUpdatedTimestamp))',
+  'function getScore(address agent) external view returns (uint32 scoreBps)',
+  'function isTrusted(address agent, uint32 minScoreBps) external view returns (bool)',
+  'event OutcomeRecorded(address indexed agent, address indexed counterparty, uint8 outcome, uint256 amount, uint32 newScoreBps)',
 ]);
 
-export const PARAMETRIC_SLA_VAULT_ABI = parseAbi([
-  'function bondedStakes(uint256 instanceId) external view returns (uint256)',
-  'function bondStake(uint256 instanceId) external payable',
-  'function circuitBreakerPaused() external view returns (bool)',
-  'event StakeBonded(uint256 indexed instanceId, address indexed provider, uint256 amount)',
-  'event CollateralSlashed(uint256 indexed instanceId, address indexed aggrievedBuyer, uint256 refundAmount, uint256 keeperReward, uint256 burnAmount)',
+export const AGENT_WALLET_GUARD_ABI = parseAbi([
+  'function executeGatedPayment((address agent, address merchant, uint256 amount, bytes32 category, uint256 timestamp, uint256 deadline, uint256 nonce) req, bytes signature, address token, bytes extraCallData) external payable returns (bool)',
+  'function getPolicyEngine() external view returns (address)',
+  'function getReputationRegistry() external view returns (address)',
+  'event PaymentExecuted(address indexed agent, address indexed merchant, uint256 amount, uint256 nonce, address token)',
+  'event PaymentBlocked(address indexed agent, address indexed merchant, uint256 amount, uint256 nonce, uint8 reasonCode)',
 ]);
 
 export const ERC20_ABI = parseAbi([
@@ -55,22 +54,9 @@ export const ERC20_ABI = parseAbi([
   'function symbol() external view returns (string)',
 ]);
 
-export const EIP712_DOMAIN = {
-  name: 'ComputeX_CLOB',
+export const AGENTGUARD_EIP712_DOMAIN = {
+  name: 'AgentGuard_PolicyEngine',
   version: '1',
   chainId: MONAD_CHAIN_ID,
-  verifyingContract: CONTRACT_ADDRESSES.computeCLOB,
-} as const;
-
-export const ORDER_TYPES = {
-  Order: [
-    { name: 'maker', type: 'address' },
-    { name: 'isBid', type: 'bool' },
-    { name: 'pricePerSec', type: 'uint256' },
-    { name: 'amount', type: 'uint256' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'expiry', type: 'uint256' },
-    { name: 'tokenId', type: 'uint256' },
-    { name: 'ecdhPublicKey', type: 'bytes' },
-  ],
+  verifyingContract: CONTRACT_ADDRESSES.agentWalletGuard,
 } as const;

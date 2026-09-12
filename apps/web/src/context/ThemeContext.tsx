@@ -18,7 +18,7 @@ export interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-const STORAGE_KEY = 'COMPUTEX_UI_THEME';
+const STORAGE_KEY = 'AGENTGUARD_UI_THEME';
 
 /** Reads the persisted theme preference or system preference as fallback. */
 function resolveInitialTheme(): Theme {

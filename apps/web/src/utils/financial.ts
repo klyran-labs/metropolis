@@ -1,6 +1,3 @@
-const WEI_PER_MON = 1_000_000_000_000_000_000n;
-const SECONDS_PER_HOUR = 3_600n;
-
 /** Format an exact native-token amount from wei, without floating point math. */
 export function formatMonAmount(amountWei: string | bigint, decimals = 4): string {
   return formatUnitsAmount(amountWei, 18, decimals);
@@ -17,28 +14,19 @@ export function formatUnitsAmount(amountBaseUnits: string | bigint, tokenDecimal
   return `${whole}.${fraction}`;
 }
 
-/** Calculate an exact MON commitment from a wei/second rate and duration. */
-export function formatMonCommitment(pricePerSecond: string | bigint, amountSeconds: string | bigint, decimals = 4): string {
-  return formatMonAmount(BigInt(pricePerSecond) * BigInt(amountSeconds), decimals);
-}
-
-/** Format a wei/second price as an exact, fixed four-decimal MON/hour value. */
-export function formatMonHourlyRate(pricePerSecond: string | bigint): string {
-  const hourlyWei = BigInt(pricePerSecond) * SECONDS_PER_HOUR;
-  const whole = hourlyWei / WEI_PER_MON;
-  const fraction = (hourlyWei % WEI_PER_MON).toString().padStart(18, '0').slice(0, 4);
-  return `${whole}.${fraction}`;
-}
-
-/** Format a capacity duration without converting the source seconds to Number. */
-export function formatCapacityHours(amountSeconds: string | bigint, decimals = 2): string {
-  const seconds = BigInt(amountSeconds);
-  const scale = 10n ** BigInt(decimals);
-  const scaled = (seconds * scale) / SECONDS_PER_HOUR;
-  const whole = scaled / scale;
-  if (decimals === 0) return whole.toString();
-  const fraction = (scaled % scale).toString().padStart(decimals, '0');
-  return `${whole}.${fraction}`;
+/**
+ * Format true basis points on a 0-10,000 scale (e.g. 9850 -> "98.50%").
+ *
+ * NOT for `scoreBps` from ReputationRegistry: despite the field's name, it is
+ * on a 0-1,000,000 parts-per-million scale (see docs/ADR/0004 and
+ * docs/GAP_ANALYSIS.md). This function is currently unused in the app; if you
+ * reach for it to format a reputation score, use `value / 10_000` (as
+ * FleetOverview.tsx and LifecycleStudio.tsx already do correctly), not this
+ * function's `/ 100` — that would be off by 100x.
+ */
+export function formatBps(bps: number | bigint): string {
+  const val = Number(bps);
+  return `${(val / 100).toFixed(2)}%`;
 }
 
 /** Format a non-negative ratio without converting monetary values to Number. */

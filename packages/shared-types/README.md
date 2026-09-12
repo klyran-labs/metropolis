@@ -1,17 +1,19 @@
-# @computex/shared-types
+# @agentguard/shared-types
 
-Universal TypeScript domain interfaces and value objects for **ComputeX** on Monad.
+Universal TypeScript domain interfaces, EIP-712 schemas, and value objects for **AgentGuard: Agentic Risk & Spend Control Layer for Monad Metropolis**.
 
 ---
 
-## Exports
+## Domain Models
 
-- `ComputeOrder`: Standard EIP-712 order message structure.
-- `ExecutionMatchPayload`: Executed match trade representation.
-- `L2BookLevel` & `L2DepthSnapshot`: L2 order book depth ladders.
-- `NodeTelemetryReport`: Physical GPU metrics (utilization, VRAM, thermals, ping, uptime PPM).
-- `SLAPolicyRecord` & `SlashAttestationPayload`: Parametric SLA insurance structures.
-- `DecryptedCredentialConfig`: Plaintext node connection parameters.
+- `SpendPolicy`: Packed onchain spend policy (`maxPerTx`, `maxPerWindow`, `windowSeconds`, `maxVelocity`, `killSwitch`, `whitelistEnabled`).
+- `SpendRequest`: EIP-712 spend request payload (`agent`, `merchant`, `amount`, `category`, `timestamp`, `deadline`, `nonce`).
+- `PolicyDecision`: Evaluation decision with `allowed`, `allowedAmount`, `reasonCode`, and `evaluatedAtTimestamp`.
+- `ReasonCode`: Machine-readable typed decision codes (0 to 9) including `ERR_NONE`, `ERR_KILL_SWITCH`, `ERR_MAX_PER_TX`, `ERR_MAX_PER_WINDOW`, `ERR_VELOCITY_EXCEEDED`, `ERR_MERCHANT_NOT_ALLOWED`, `ERR_BUDGET_DEPLETED`, `ERR_EXPIRED`, `ERR_NONCE_REUSED`, `ERR_SIGNATURE_INVALID`.
+- `AgentSpendState`: Monad-optimized single-slot state representation.
+- `ReputationSummary`: Dynamic reputation metrics (`rollingScoreBps`, `totalTransactions`, `settledCount`, `slashedCount`).
+- `AGENTGUARD_EIP712_DOMAIN`: Canonical EIP-712 domain for Monad Testnet (Chain ID `10143`).
+- `SPEND_REQUEST_TYPES`: EIP-712 typing for clear signing.
 
 ---
 

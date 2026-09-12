@@ -2,7 +2,6 @@ import React, { Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { ThemeProvider } from "./context/ThemeContext";
-import { WorkspaceProvider } from "./context/WorkspaceContext";
 
 // Keep authentication and the application shell out of the initial bootstrap
 // chunk. This makes the public entrypoint fast while the authenticated console
@@ -27,9 +26,7 @@ ReactDOM.createRoot(rootElement).render(
     <Suspense fallback={<BootstrapFallback />}>
       <PrivyAuthProvider>
         <ThemeProvider>
-          <WorkspaceProvider>
-            <App />
-          </WorkspaceProvider>
+          <App />
         </ThemeProvider>
       </PrivyAuthProvider>
     </Suspense>

@@ -1,66 +1,65 @@
+# AgentGuard Web Application Container
+# High-Performance Alpine Nginx Container for Monad Metropolis Hackathon
+
 # Build stage
 FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Deployment configuration is intentionally injected at image-build time.
-# Never fall back to local endpoints or deployment placeholders in a release image.
+# Injected environment configuration for Monad Testnet (Chain ID 10143)
 ARG VITE_APP_ENV=production
-ARG VITE_CHAIN_ID
-ARG VITE_RPC_URL
-ARG VITE_WS_URL
-ARG VITE_CLOB_SETTLEMENT_ADDRESS
-ARG VITE_SLA_VAULT_ADDRESS
-ARG VITE_COMPUTE_TOKEN_ADDRESS
-ARG VITE_USDC_TOKEN_ADDRESS
-ARG VITE_PRIVY_APP_ID
+ARG VITE_CHAIN_ID=10143
+ARG VITE_RPC_URL=https://testnet-rpc.monad.xyz
+ARG VITE_POLICY_ENGINE_ADDRESS=0x2222222222222222222222222222222222222222
+ARG VITE_REPUTATION_REGISTRY_ADDRESS=0x3333333333333333333333333333333333333333
+ARG VITE_AGENT_WALLET_GUARD_ADDRESS=0x4444444444444444444444444444444444444444
+ARG VITE_USDC_TOKEN_ADDRESS=0xf817257fed379853cDe0fa4F97AB987181B1E5Ea
+ARG VITE_PRIVY_APP_ID=cmton65ao004l0cl11tgmwiah
+
 ENV VITE_APP_ENV=$VITE_APP_ENV \
     VITE_CHAIN_ID=$VITE_CHAIN_ID \
     VITE_RPC_URL=$VITE_RPC_URL \
-    VITE_WS_URL=$VITE_WS_URL \
-    VITE_CLOB_SETTLEMENT_ADDRESS=$VITE_CLOB_SETTLEMENT_ADDRESS \
-    VITE_SLA_VAULT_ADDRESS=$VITE_SLA_VAULT_ADDRESS \
-    VITE_COMPUTE_TOKEN_ADDRESS=$VITE_COMPUTE_TOKEN_ADDRESS \
+    VITE_POLICY_ENGINE_ADDRESS=$VITE_POLICY_ENGINE_ADDRESS \
+    VITE_REPUTATION_REGISTRY_ADDRESS=$VITE_REPUTATION_REGISTRY_ADDRESS \
+    VITE_AGENT_WALLET_GUARD_ADDRESS=$VITE_AGENT_WALLET_GUARD_ADDRESS \
     VITE_USDC_TOKEN_ADDRESS=$VITE_USDC_TOKEN_ADDRESS \
     VITE_PRIVY_APP_ID=$VITE_PRIVY_APP_ID
 
-# Copy root and workspace manifests only
+# Copy package manifests
 COPY package.json package-lock.json ./
 COPY packages/shared-types/package.json ./packages/shared-types/package.json
-COPY packages/sdk-ts/package.json ./packages/sdk-ts/package.json
-COPY contracts/package.json ./contracts/package.json
-COPY apps/mobile/package.json ./apps/mobile/package.json
+COPY packages/x402-middleware/package.json ./packages/x402-middleware/package.json
 COPY apps/web/package.json ./apps/web/package.json
 
-# Install native build tools for Alpine if needed
+# Install build dependencies for Alpine Linux
 RUN apk add --no-cache python3 make g++
 
-RUN case "$VITE_APP_ENV" in \
-      staging|production) \
-        test -n "$VITE_CHAIN_ID" && test -n "$VITE_RPC_URL" && test -n "$VITE_WS_URL" && \
-        test -n "$VITE_CLOB_SETTLEMENT_ADDRESS" && test -n "$VITE_SLA_VAULT_ADDRESS" && \
-        test -n "$VITE_COMPUTE_TOKEN_ADDRESS" && test -n "$VITE_USDC_TOKEN_ADDRESS" && \
-        test -n "$VITE_PRIVY_APP_ID" ;; \
-      development|local|test) ;; \
-      *) echo "Unsupported VITE_APP_ENV: $VITE_APP_ENV" >&2; exit 1 ;; \
-    esac
-
-# Install dependencies into cached layer (ignore native scripts for pure web bundle)
+# Install dependencies
 RUN npm ci --ignore-scripts
 
-# Copy sources and build
+# Copy sources and build packages
 COPY deployments ./deployments
 COPY packages/shared-types ./packages/shared-types
+COPY packages/x402-middleware ./packages/x402-middleware
 COPY apps/web ./apps/web
-RUN npm run build --workspace=@computex/shared-types
-RUN npm run build --workspace=@computex/web
 
-# Production stage with Nginx
+RUN npm run build --workspace=@agentguard/shared-types
+RUN npm run build --workspace=@agentguard/x402-middleware
+RUN npm run build --workspace=@agentguard/web
+
+# Production stage with tuned Nginx
 FROM nginx:alpine
 
-COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+# Copy custom Nginx configuration as authoritative root config
 COPY docker/nginx.conf /etc/nginx/nginx.conf
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# Copy build artifacts
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
 
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

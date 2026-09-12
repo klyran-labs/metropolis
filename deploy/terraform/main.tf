@@ -20,12 +20,12 @@ variable "monad_chain_id" {
   default     = 10143
 }
 
-resource "kubernetes_namespace" "computex" {
+resource "kubernetes_namespace" "agentguard" {
   metadata {
-    name = "computex"
+    name = "agentguard"
     labels = {
       environment = var.environment
-      system      = "computex-depin"
+      system      = "agentguard-agentic-risk"
     }
   }
 }

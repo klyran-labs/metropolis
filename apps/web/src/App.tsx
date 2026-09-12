@@ -3,7 +3,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { LandingPage } from './components/LandingPage';
 
 // Keep the authenticated console behind a hard loading boundary. Public
-// visitors do not download marketplace, wallet, order-book, or provider-fleet
+// visitors do not download agent fleet management, simulation, or wallet
 // code until Privy confirms an authenticated session.
 const AuthenticatedConsole = React.lazy(() => import('./AuthenticatedConsole'));
 

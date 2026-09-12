@@ -12,7 +12,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   ComputeX Design Token System
+   AgentGuard Design Token System
    All semantic color tokens are defined here. Components reference these
    tokens via Tailwind's `dark:` prefix (class-based dark mode).
    NEVER hardcode raw hex values in component JSX — use these tokens or
@@ -159,7 +159,7 @@
 .border-primary { border-color: var(--primary); }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Fintech Card Components
+   AgentGuard Card Components
    ═══════════════════════════════════════════════════════════════════════ */
 
 .pro-card {
@@ -225,7 +225,7 @@
   animation: fadeInUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Suppress ugly default number spin buttons for sleek fintech styling */
+/* Suppress default number spin buttons for sleek input styling */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;

@@ -1,9 +1,9 @@
 {
-  "name": "@computex/web",
+  "name": "@agentguard/web",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "ComputeX Sub-Millisecond DePIN Trading Terminal on Monad",
+  "description": "AgentGuard Agentic Risk & Spend Control Plane on Monad",
   "scripts": {
     "dev": "vite --port 3110",
     "build": "vite build",
@@ -13,7 +13,8 @@
     "test": "node --test test/frontend.test.mjs"
   },
   "dependencies": {
-    "@computex/shared-types": "^1.0.0",
+    "@agentguard/shared-types": "^1.0.0",
+    "@agentguard/x402-middleware": "*",
     "@privy-io/react-auth": "^3.40.0",
     "@vitejs/plugin-react": "^6.1.1",
     "clsx": "^2.1.1",

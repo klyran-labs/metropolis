@@ -1,8 +1,8 @@
 {
-  "name": "@computex/shared-types",
+  "name": "@agentguard/shared-types",
   "version": "1.0.0",
   "type": "module",
-  "description": "Universal TypeScript interfaces and domain types for ComputeX protocol",
+  "description": "Universal TypeScript interfaces and domain types for AgentGuard on Monad Metropolis",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -19,6 +19,7 @@
     "test": "echo 'shared-types: ok'"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
   }
 }

@@ -10,55 +10,35 @@ import {
   RefreshCw,
   X,
   ShieldCheck,
-  Cpu,
-  Server,
+  ShieldAlert,
+  Bot,
   Zap,
   CheckCircle2,
-  Building2,
 } from 'lucide-react';
-import { UserRole } from '../context/MarketplaceContext';
-import { useWorkspace } from '../context/WorkspaceContext';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
-export type UserIntent = 'buy_gpus' | 'provide_hardware';
+export type UserIntent = 'risk_controller' | 'agent_developer';
 
 export const InlinePrivyAuth: React.FC = () => {
-  const { setRole } = useWorkspace();
-  const login = (role: UserRole, _email?: string) => setRole(role === 'seller' ? 'seller' : 'buyer');
-
   const { user: privyUser, authenticated: isPrivyAuthenticated } = usePrivy();
   const { wallets } = useWallets();
   const { login: loginWithPrivy } = useLogin({
-    onComplete: ({ user }) => {
-      const walletAddress = user?.wallet?.address || wallets?.[0]?.address;
-      login(selectedRole, user?.email?.address || walletAddress || undefined);
+    onComplete: () => {
+      setError(null);
     },
     onError: (err) => {
       setError(typeof err === 'string' ? err : (err as any)?.message || 'Wallet authentication failed.');
     },
   });
 
-  // Modal ref for focus trap
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // 1. User Intent state
-  const [selectedIntent, setSelectedIntent] = useState<UserIntent>('buy_gpus');
-  const [selectedRole, setSelectedRole] = useState<UserRole>('buyer');
-
-  useEffect(() => {
-    if (selectedIntent === 'provide_hardware') {
-      setSelectedRole('seller');
-    } else {
-      setSelectedRole('buyer');
-    }
-  }, [selectedIntent]);
-
+  const [selectedIntent, setSelectedIntent] = useState<UserIntent>('risk_controller');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [error, setError] = useState<string | null>(null);
 
-  // Unselected by default for enterprise compliance
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [isConnectingWallet, setIsConnectingWallet] = useState(false);
@@ -69,11 +49,9 @@ export const InlinePrivyAuth: React.FC = () => {
     onEscape: () => setShowTermsModal(false),
   });
 
-  // Live Privy Headless Email OTP Authentication
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
-    onComplete: ({ user }) => {
-      const emailAddress = user?.email?.address || email.trim();
-      login(selectedRole, emailAddress);
+    onComplete: () => {
+      setError(null);
     },
     onError: (err) => {
       setError(typeof err === 'string' ? err : (err as any)?.message || 'Email verification failed.');
@@ -83,18 +61,10 @@ export const InlinePrivyAuth: React.FC = () => {
   const isSendingCode = emailState.status === 'sending-code';
   const isSubmittingCode = emailState.status === 'submitting-code';
 
-  useEffect(() => {
-    if (isPrivyAuthenticated && privyUser) {
-      const emailAddr = privyUser.email?.address;
-      const walletAddr = privyUser.wallet?.address || wallets?.[0]?.address;
-      login(selectedRole, emailAddr || walletAddr || undefined);
-    }
-  }, [isPrivyAuthenticated, privyUser, wallets, selectedRole, login]);
-
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreedToTerms) {
-      setError('Please review and accept the Service Agreement & SLA terms to proceed.');
+      setError('Please review and accept the Risk Governance & Security Policy to proceed.');
       return;
     }
     if (!email || !email.includes('@')) {
@@ -128,7 +98,7 @@ export const InlinePrivyAuth: React.FC = () => {
 
   const handleWalletConnect = async () => {
     if (!agreedToTerms) {
-      setError('Please review and accept the Service Agreement & SLA terms to proceed.');
+      setError('Please review and accept the Risk Governance & Security Policy to proceed.');
       return;
     }
     setError(null);
@@ -148,16 +118,16 @@ export const InlinePrivyAuth: React.FC = () => {
       {/* Step 1: User Objective Selection */}
       <div className="mb-6">
         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
-          Choose your workspace
+          Select control console profile
         </label>
-        <div role="radiogroup" aria-label="Workspace type" className="grid grid-cols-1 gap-2">
+        <div role="radiogroup" aria-label="Workspace profile" className="grid grid-cols-1 gap-2">
           <button
             type="button"
             role="radio"
-            aria-checked={selectedIntent === 'buy_gpus'}
-            onClick={() => setSelectedIntent('buy_gpus')}
+            aria-checked={selectedIntent === 'risk_controller'}
+            onClick={() => setSelectedIntent('risk_controller')}
             className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-              selectedIntent === 'buy_gpus'
+              selectedIntent === 'risk_controller'
                 ? 'bg-blue-50/70 dark:bg-blue-950/40 border-[#254BFF] dark:border-blue-500 text-[#254BFF] dark:text-blue-400 shadow-xs'
                 : 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
             }`}
@@ -165,30 +135,30 @@ export const InlinePrivyAuth: React.FC = () => {
             <div className="flex items-center space-x-3">
               <div
                 className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  selectedIntent === 'buy_gpus'
+                  selectedIntent === 'risk_controller'
                     ? 'bg-[#254BFF] text-white'
                     : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'
                 }`}
               >
-                <Cpu className="w-4 h-4" />
+                <ShieldCheck className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-xs font-bold block">Customer workspace</span>
+                <span className="text-xs font-bold block">Risk Controller Profile</span>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                  Compare and procure verified capacity for AI, batch, and production workloads
+                  Author spend policies, manage agent velocity ceilings, and toggle onchain kill switches
                 </span>
               </div>
             </div>
-            {selectedIntent === 'buy_gpus' && <CheckCircle2 className="w-4 h-4 text-[#254BFF] dark:text-blue-400 shrink-0" />}
+            {selectedIntent === 'risk_controller' && <CheckCircle2 className="w-4 h-4 text-[#254BFF] dark:text-blue-400 shrink-0" />}
           </button>
 
           <button
             type="button"
             role="radio"
-            aria-checked={selectedIntent === 'provide_hardware'}
-            onClick={() => setSelectedIntent('provide_hardware')}
+            aria-checked={selectedIntent === 'agent_developer'}
+            onClick={() => setSelectedIntent('agent_developer')}
             className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-              selectedIntent === 'provide_hardware'
+              selectedIntent === 'agent_developer'
                 ? 'bg-purple-50/70 dark:bg-purple-950/40 border-purple-600 dark:border-purple-500 text-purple-700 dark:text-purple-300 shadow-xs'
                 : 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
             }`}
@@ -196,21 +166,21 @@ export const InlinePrivyAuth: React.FC = () => {
             <div className="flex items-center space-x-3">
               <div
                 className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  selectedIntent === 'provide_hardware'
+                  selectedIntent === 'agent_developer'
                     ? 'bg-purple-600 text-white'
                     : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'
                 }`}
               >
-                <Server className="w-4 h-4" />
+                <Bot className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-xs font-bold block">Provider workspace</span>
+                <span className="text-xs font-bold block">Agent Developer Profile</span>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                  Register fleet capacity, manage listings, and track settlements
+                  Integrate x402 HTTP 402 middleware, test rogue agent simulations, and inspect EIP-712 proofs
                 </span>
               </div>
             </div>
-            {selectedIntent === 'provide_hardware' && (
+            {selectedIntent === 'agent_developer' && (
               <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
             )}
           </button>
@@ -246,7 +216,7 @@ export const InlinePrivyAuth: React.FC = () => {
               </span>
             </div>
 
-            {/* Terms & SLA Disclosure Agreement (Unselected by default) */}
+            {/* Terms & SLA Disclosure Agreement */}
             <div className="flex items-start space-x-2.5 pt-1">
               <input
                 type="checkbox"
@@ -266,9 +236,9 @@ export const InlinePrivyAuth: React.FC = () => {
                   onClick={() => setShowTermsModal(true)}
                   className="text-[#254BFF] dark:text-blue-400 hover:underline font-semibold cursor-pointer"
                 >
-                  Enterprise Master Service Agreement
+                  AgentGuard Risk Governance & Security Policy
                 </button>{' '}
-                and a policy-defined 99.50% SLA target.
+                and Monad onchain policy parameters.
               </div>
             </div>
 
@@ -284,7 +254,7 @@ export const InlinePrivyAuth: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <span>Continue to Workspace</span>
+                  <span>Continue to Console</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -298,32 +268,31 @@ export const InlinePrivyAuth: React.FC = () => {
 
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
-                Verification Code
+                Passcode
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  maxLength={6}
                   required
+                  maxLength={6}
                   autoComplete="one-time-code"
                   inputMode="numeric"
-                  pattern="[0-9]{6}"
                   value={code}
                   onChange={(e) => {
                     setCode(e.target.value.replace(/\D/g, ''));
                     setError(null);
                   }}
-                  placeholder="123456"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-[#254BFF] text-base text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#254BFF]/10 transition-all font-mono tracking-widest text-center"
+                  placeholder="000000"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-[#254BFF] text-center tracking-widest text-lg font-mono font-bold text-slate-900 dark:text-slate-100 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-[#254BFF]/10 transition-all"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isSubmittingCode}
-              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-[#254BFF] hover:bg-[#1D40DF] transition shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
+              disabled={isSubmittingCode || code.length < 6}
+              className="w-full py-3 px-4 rounded-full text-xs font-bold text-white bg-[#254BFF] hover:bg-[#1D40DF] transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-2"
             >
               {isSubmittingCode ? (
                 <>
@@ -331,91 +300,102 @@ export const InlinePrivyAuth: React.FC = () => {
                   <span>Verifying Passcode...</span>
                 </>
               ) : (
-                <>
-                  <span>Authenticate & Enter Workspace</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
+                <span>Verify & Enter Console</span>
               )}
             </button>
 
-            <div className="text-center">
+            <div className="flex items-center justify-between text-xs pt-1">
               <button
                 type="button"
-                onClick={() => setStep('email')}
-                className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium cursor-pointer"
+                onClick={() => {
+                  setStep('email');
+                  setCode('');
+                  setError(null);
+                }}
+                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
               >
-                ← Use a different email
+                Change email
+              </button>
+              <button
+                type="button"
+                onClick={handleSendCode}
+                disabled={isSendingCode}
+                className="text-[#254BFF] dark:text-blue-400 hover:underline flex items-center space-x-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSendingCode ? 'animate-spin' : ''}`} />
+                <span>Resend code</span>
               </button>
             </div>
           </form>
         )}
 
-        {/* Secondary Web3 Wallet Path */}
-        <div className="mt-4 text-center">
+        {/* Error Notification */}
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl flex items-start space-x-2.5 text-xs text-red-700 dark:text-red-400">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Alternative Authentication: Web3 Wallet */}
+        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-700/60">
           {!showWalletOption ? (
             <button
               type="button"
               onClick={() => setShowWalletOption(true)}
-              className="text-xs text-slate-500 dark:text-slate-400 hover:text-[#254BFF] dark:hover:text-blue-400 font-medium transition cursor-pointer"
+              className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
-              Sign in with a wallet instead
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Connect with Web3 Wallet instead</span>
             </button>
           ) : (
-            <div className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-200/80 dark:border-slate-700 space-y-2.5">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                Connect MetaMask, Rabby, or Hardware Wallet
-              </span>
+            <div className="space-y-3">
               <button
                 type="button"
                 onClick={handleWalletConnect}
                 disabled={isConnectingWallet}
-                className="w-full py-2.5 px-4 rounded-full bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold transition flex items-center justify-center space-x-2 cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-full border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/70 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
               >
                 {isConnectingWallet ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-[#254BFF]" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Wallet className="w-4 h-4 text-[#254BFF]" />
+                  <Wallet className="w-4 h-4 text-[#254BFF] dark:text-blue-400" />
                 )}
-                <span>Connect Wallet</span>
+                <span>Connect MetaMask / Phantom / WalletConnect</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowWalletOption(false)}
+                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+              >
+                Back to email login
               </button>
             </div>
           )}
         </div>
-
-        {/* Error Message Display with role=alert */}
-        {error && (
-          <div
-            role="alert"
-            aria-live="assertive"
-            className="mt-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center space-x-2 text-rose-800 dark:text-rose-200 text-xs"
-          >
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
-            <span>{error}</span>
-          </div>
-        )}
       </div>
 
-      {/* Step 3: What happens after sign-in */}
-      <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-700">
+      {/* Trust & Institutional Security Badges */}
+      <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-700/80">
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-2">
-          Workspace Onboarding Sequence
+          Enterprise Security Assurances
         </span>
         <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 dark:text-slate-400">
           <div className="flex items-center space-x-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
-            <span>1. Identity Verification</span>
+            <span>Monad Parallel EVM (400ms)</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
-            <span>2. Add protected funds</span>
+            <span>O(1) Instant Kill Switch</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
-            <span>3. Choose compute capacity</span>
+            <span>x402 / AP2 Agent Protocol</span>
           </div>
           <div className="flex items-center space-x-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-[#254BFF] dark:text-blue-400 shrink-0" />
-            <span>4. Verified Ingress Access</span>
+            <span>Disjoint State Isolation</span>
           </div>
         </div>
       </div>
@@ -436,7 +416,7 @@ export const InlinePrivyAuth: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="w-5 h-5 text-[#254BFF] dark:text-blue-400" />
                 <h3 id="terms-modal-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  ComputeX Enterprise SLA & Master Agreement
+                  AgentGuard Risk Governance & Security Policy
                 </h3>
               </div>
               <button
@@ -450,17 +430,17 @@ export const InlinePrivyAuth: React.FC = () => {
             </div>
 
             <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300 max-h-72 overflow-y-auto pr-2 leading-relaxed">
-              <p className="font-semibold text-slate-900 dark:text-slate-100">1. Non-Custodial Delivery vs. Payment</p>
+              <p className="font-semibold text-slate-900 dark:text-slate-100">1. Non-Custodial Monad Parallel EVM Guard</p>
               <p className="text-slate-500 dark:text-slate-400">
-                Compute capacity commitments settle directly peer-to-peer. Trading balances are held in non-custodial smart contracts and disbursed as verified capacity seconds are delivered.
+                Agent funds remain in user-controlled smart contracts. Every transaction requires valid EIP-712 agent signatures evaluated against deterministic onchain risk policies.
               </p>
-              <p className="font-semibold text-slate-900 dark:text-slate-100">2. 99.50% Hardware SLA Performance</p>
+              <p className="font-semibold text-slate-900 dark:text-slate-100">2. Programmable Agent Velocity & Rate Controls</p>
               <p className="text-slate-500 dark:text-slate-400">
-                Compute providers stake native collateral. If node health, power, or latency deviates beyond SLA thresholds, automated adjustments credit tenant balances.
+                Spend is capped per transaction, per rolling time window, and by transaction count. Exceeding velocity thresholds results in deterministic transaction denial with machine-readable reason codes.
               </p>
-              <p className="font-semibold text-slate-900 dark:text-slate-100">3. Verified Host Provisioning</p>
+              <p className="font-semibold text-slate-900 dark:text-slate-100">3. Instant O(1) Onchain Kill Switch</p>
               <p className="text-slate-500 dark:text-slate-400">
-                Nodes undergo cryptographic sanitization and evidence-backed wipes prior to and following tenant allocations.
+                Administrators can freeze compromised or misbehaving agents immediately with an O(1) single-SSTORE kill switch that aborts all subsequent payments before executing any math.
               </p>
             </div>
 

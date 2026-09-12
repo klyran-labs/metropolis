@@ -1,25 +1,21 @@
 {
-  "name": "computex-monorepo",
+  "name": "agentguard-monorepo",
   "version": "1.0.0",
   "private": true,
-  "description": "ComputeX: Sub-Millisecond DePIN Compute Marketplace on Monad",
+  "description": "AgentGuard: Agentic Risk & Spend Control Layer for Monad Metropolis",
   "workspaces": [
     "packages/*",
-    "services/*",
     "apps/*",
     "contracts"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs",
     "lint": "npm run lint --workspaces --if-present",
-    "validate:erc7730": "node scripts/validate-erc7730.mjs",
-    "validate:erc7730:schema": "python3 scripts/validate-erc7730-schema.py",
-    "verify:ui-contract": "node scripts/verify-ui-contract.mjs",
-    "verify:marketplace-scale": "node scripts/verify-marketplace-scale.mjs",
     "clean": "npm run clean --workspaces --if-present"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
   }
 }
