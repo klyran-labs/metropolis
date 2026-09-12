@@ -1,15 +1,8 @@
 import React, { useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import {
-  X,
-  Bell,
-  CheckCircle2,
-  ExternalLink,
-  ShieldCheck,
-  AlertCircle,
-  Activity,
-} from 'lucide-react';
-import { MONAD_EXPLORER_URL } from '../../config/contracts';
+import { X, Bell } from 'lucide-react';
+import { ActivityFeed } from './ActivityFeed';
+import { Button } from './Button';
 
 interface NotificationDrawerProps {
   isOpen: boolean;
@@ -38,20 +31,20 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
           role="dialog"
           aria-modal="true"
           aria-labelledby="drawer-title"
-          className="w-screen max-w-md bg-card border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col justify-between animate-fade-in-up"
+          className="w-screen max-w-md bg-card border-l border-card-border shadow-2xl flex flex-col justify-between animate-fade-in-up"
         >
           {/* Header */}
-          <div className="p-6 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+          <div className="p-6 border-b border-card-border flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-primary">
+              <div className="w-8 h-8 rounded-xl bg-primary-subtle flex items-center justify-center text-primary">
                 <Bell className="w-4 h-4" />
               </div>
               <div>
-                <h3 id="drawer-title" className="text-base font-bold text-slate-900 dark:text-slate-100">
+                <h3 id="drawer-title" className="text-base font-bold text-fg">
                   Activity & Notifications
                 </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Real-time settlement and service activity
+                <p className="text-[11px] text-fg-muted">
+                  Real events decoded from PolicyEngine on Monad
                 </p>
               </div>
             </div>
@@ -59,7 +52,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
               type="button"
               onClick={onClose}
               aria-label="Close drawer"
-              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
+              className="p-2 rounded-full hover:bg-card-muted text-fg-subtle hover:text-fg transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -67,50 +60,28 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, 
 
           {/* Body Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {/* System Status Banner */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-xs">
+            <div className="p-3.5 rounded-2xl bg-card-muted border border-card-border flex items-center justify-between text-xs">
               <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  AgentGuard Connected
-                </span>
+                <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                <span className="font-semibold text-fg">AgentGuard Connected</span>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-card border border-card-border text-fg-muted">
                 Monad 10143
               </span>
             </div>
 
-            {/* Activity Stream */}
             <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-fg-muted">
                 Recent Onchain Policy Events
               </h4>
-
-              <div className="p-3.5 rounded-2xl bg-card border border-card-border shadow-xs space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="font-bold text-slate-900 dark:text-slate-100">Policy Initialized</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Monad (10143)</span>
-                </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                  PolicyEngine & ReputationRegistry operational with disjoint storage partitioning.
-                </p>
-              </div>
+              <ActivityFeed limit={20} emptyMessage="No policy events recorded onchain yet — this fills in as agents get registered, spend evaluated, or kill switches flipped." />
             </div>
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between text-xs text-slate-500">
+          <div className="p-4 border-t border-card-border bg-card-muted flex items-center justify-between text-xs text-fg-muted">
             <span className="text-[11px]">AgentGuard Policy Engine Active</span>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-full bg-card border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
-            >
-              Close
-            </button>
+            <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
           </div>
         </div>
       </div>
