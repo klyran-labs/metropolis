@@ -1,0 +1,66 @@
+# Build stage
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# Deployment configuration is intentionally injected at image-build time.
+# Never fall back to local endpoints or deployment placeholders in a release image.
+ARG VITE_APP_ENV=production
+ARG VITE_CHAIN_ID
+ARG VITE_RPC_URL
+ARG VITE_WS_URL
+ARG VITE_CLOB_SETTLEMENT_ADDRESS
+ARG VITE_SLA_VAULT_ADDRESS
+ARG VITE_COMPUTE_TOKEN_ADDRESS
+ARG VITE_USDC_TOKEN_ADDRESS
+ARG VITE_PRIVY_APP_ID
+ENV VITE_APP_ENV=$VITE_APP_ENV \
+    VITE_CHAIN_ID=$VITE_CHAIN_ID \
+    VITE_RPC_URL=$VITE_RPC_URL \
+    VITE_WS_URL=$VITE_WS_URL \
+    VITE_CLOB_SETTLEMENT_ADDRESS=$VITE_CLOB_SETTLEMENT_ADDRESS \
+    VITE_SLA_VAULT_ADDRESS=$VITE_SLA_VAULT_ADDRESS \
+    VITE_COMPUTE_TOKEN_ADDRESS=$VITE_COMPUTE_TOKEN_ADDRESS \
+    VITE_USDC_TOKEN_ADDRESS=$VITE_USDC_TOKEN_ADDRESS \
+    VITE_PRIVY_APP_ID=$VITE_PRIVY_APP_ID
+
+# Copy root and workspace manifests only
+COPY package.json package-lock.json ./
+COPY packages/shared-types/package.json ./packages/shared-types/package.json
+COPY packages/sdk-ts/package.json ./packages/sdk-ts/package.json
+COPY contracts/package.json ./contracts/package.json
+COPY apps/mobile/package.json ./apps/mobile/package.json
+COPY apps/web/package.json ./apps/web/package.json
+
+# Install native build tools for Alpine if needed
+RUN apk add --no-cache python3 make g++
+
+RUN case "$VITE_APP_ENV" in \
+      staging|production) \
+        test -n "$VITE_CHAIN_ID" && test -n "$VITE_RPC_URL" && test -n "$VITE_WS_URL" && \
+        test -n "$VITE_CLOB_SETTLEMENT_ADDRESS" && test -n "$VITE_SLA_VAULT_ADDRESS" && \
+        test -n "$VITE_COMPUTE_TOKEN_ADDRESS" && test -n "$VITE_USDC_TOKEN_ADDRESS" && \
+        test -n "$VITE_PRIVY_APP_ID" ;; \
+      development|local|test) ;; \
+      *) echo "Unsupported VITE_APP_ENV: $VITE_APP_ENV" >&2; exit 1 ;; \
+    esac
+
+# Install dependencies into cached layer (ignore native scripts for pure web bundle)
+RUN npm ci --ignore-scripts
+
+# Copy sources and build
+COPY deployments ./deployments
+COPY packages/shared-types ./packages/shared-types
+COPY apps/web ./apps/web
+RUN npm run build --workspace=@computex/shared-types
+RUN npm run build --workspace=@computex/web
+
+# Production stage with Nginx
+FROM nginx:alpine
+
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

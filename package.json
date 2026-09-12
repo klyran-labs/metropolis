@@ -1,0 +1,25 @@
+{
+  "name": "computex-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ComputeX: Sub-Millisecond DePIN Compute Marketplace on Monad",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "contracts"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "validate:erc7730": "node scripts/validate-erc7730.mjs",
+    "validate:erc7730:schema": "python3 scripts/validate-erc7730-schema.py",
+    "verify:ui-contract": "node scripts/verify-ui-contract.mjs",
+    "verify:marketplace-scale": "node scripts/verify-marketplace-scale.mjs",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

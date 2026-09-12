@@ -1,0 +1,14 @@
+{
+  "chainId": 10143,
+  "name": "Monad Testnet",
+  "blockTimeMs": 400,
+  "finalityDepthBlocks": 2,
+  "finalityTimeMs": 800,
+  "rpcUrl": "https://testnet-rpc.monad.xyz",
+  "wsUrl": "wss://testnet-rpc.monad.xyz",
+  "nativeCurrency": {
+    "name": "Monad",
+    "symbol": "MON",
+    "decimals": 18
+  }
+}

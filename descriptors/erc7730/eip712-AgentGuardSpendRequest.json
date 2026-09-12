@@ -1,0 +1,35 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+  "context": {
+    "$id": "AgentGuard Agent Spend Request",
+    "eip712": {
+      "domain": {
+        "name": "AgentGuard_PolicyEngine",
+        "version": "1",
+        "chainId": 10143,
+        "verifyingContract": "0x4444444444444444444444444444444444444444"
+      }
+    }
+  },
+  "metadata": {
+    "owner": "AgentGuard",
+    "info": { "url": "https://agentguard.network" }
+  },
+  "display": {
+    "formats": {
+      "SpendRequest(address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint256 nonce)": {
+        "$id": "AgentGuard Gated Spend Authorization",
+        "intent": "Authorize an agentic spend payment subject to onchain risk policy",
+        "fields": [
+          { "path": "agent", "label": "Agent Identity", "format": "addressName" },
+          { "path": "merchant", "label": "Recipient Merchant", "format": "addressName" },
+          { "path": "amount", "label": "Spend Amount", "format": "unit", "params": { "base": "MON", "decimals": 18 } },
+          { "path": "category", "label": "Spend Category Hash", "format": "raw" },
+          { "path": "timestamp", "label": "Request Timestamp", "format": "date", "params": { "encoding": "timestamp" } },
+          { "path": "deadline", "label": "Authorization Deadline", "format": "date", "params": { "encoding": "timestamp" } },
+          { "path": "nonce", "label": "Agent Replay Nonce", "format": "raw" }
+        ]
+      }
+    }
+  }
+}

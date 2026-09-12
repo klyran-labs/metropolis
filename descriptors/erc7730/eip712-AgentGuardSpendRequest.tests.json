@@ -1,0 +1,48 @@
+{
+  "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-tests-v2.schema.json",
+  "descriptor": "eip712-AgentGuardSpendRequest.json",
+  "tests": [
+    {
+      "id": "valid-spend-request-clear-signing",
+      "input": {
+        "domain": {
+          "name": "AgentGuard_PolicyEngine",
+          "version": "1",
+          "chainId": 10143,
+          "verifyingContract": "0x4444444444444444444444444444444444444444"
+        },
+        "primaryType": "SpendRequest",
+        "types": {
+          "EIP712Domain": [
+            { "name": "name", "type": "string" },
+            { "name": "version", "type": "string" },
+            { "name": "chainId", "type": "uint256" },
+            { "name": "verifyingContract", "type": "address" }
+          ],
+          "SpendRequest": [
+            { "name": "agent", "type": "address" },
+            { "name": "merchant", "type": "address" },
+            { "name": "amount", "type": "uint256" },
+            { "name": "category", "type": "bytes32" },
+            { "name": "timestamp", "type": "uint256" },
+            { "name": "deadline", "type": "uint256" },
+            { "name": "nonce", "type": "uint256" }
+          ]
+        },
+        "message": {
+          "agent": "0x1111111111111111111111111111111111111111",
+          "merchant": "0x8888888888888888888888888888888888888888",
+          "amount": "5000000000000000000",
+          "category": "0x636f6d707574652d696e666572656e6365000000000000000000000000000000",
+          "timestamp": "1741500000",
+          "deadline": "1741503600",
+          "nonce": "1"
+        }
+      },
+      "expected": {
+        "intent": "Authorize an agentic spend payment subject to onchain risk policy",
+        "screenCount": 7
+      }
+    }
+  ]
+}

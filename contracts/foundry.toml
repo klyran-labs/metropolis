@@ -1,0 +1,23 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.36"
+optimizer = true
+optimizer_runs = 20000
+via_ir = true
+evm_version = "cancun"
+
+[profile.default.fuzz]
+runs = 5000
+max_test_rejects = 65536
+
+[profile.default.invariant]
+runs = 500
+depth = 128
+fail_on_revert = false
+
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+local_anvil = "http://127.0.0.1:8545"
+local_solonet = "http://127.0.0.1:8080"

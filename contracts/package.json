@@ -1,0 +1,14 @@
+{
+  "name": "@agentguard/contracts",
+  "version": "1.0.0",
+  "description": "AgentGuard Parallel EVM Smart Contracts for Monad",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vvv",
+    "test:js-parity": "node --test test/agentguard-contracts.test.mjs"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
+    "typescript": "^5.9.3"
+  }
+}

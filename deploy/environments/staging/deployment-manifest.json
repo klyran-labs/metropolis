@@ -1,0 +1,30 @@
+{
+  "environment": "staging",
+  "version": "1.0.0",
+  "chainId": 10143,
+  "rpcEndpoints": [
+    "https://staging-rpc.monad.xyz"
+  ],
+  "contracts": {
+    "policyEngine": {
+      "address": "0x2222222222222222222222222222222222222222",
+      "version": "1.0.0"
+    },
+    "reputationRegistry": {
+      "address": "0x3333333333333333333333333333333333333333",
+      "version": "1.0.0"
+    },
+    "agentWalletGuard": {
+      "address": "0x4444444444444444444444444444444444444444",
+      "version": "1.0.0"
+    }
+  },
+  "treasuryAddress": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  "riskModel": {
+    "defaultMaxPerTxWei": "10000000000000000000",
+    "defaultMaxPerWindowWei": "50000000000000000000",
+    "defaultWindowSeconds": 3600,
+    "defaultMaxVelocity": 10,
+    "slashingPenaltyBps": 1500
+  }
+}

@@ -1,0 +1,41 @@
+# Rust build output
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Node dependencies & builds
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# LMDB local data
+*.mdb
+*.mdb-lock
+services/indexer-risk-engine/data/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Foundry / Solc artifacts
+broadcast/
+cache/
+out/
+
+# OS / Editor metadata
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
