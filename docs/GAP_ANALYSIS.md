@@ -1,5 +1,7 @@
 # AgentGuard — Implementation Review vs. Plan (2026-09-12)
 
+> **Status: findings 1.1–1.6 and the §2 items addressed the same day, in the commits immediately following this document's own commit** (`git log` from `feat: AgentGuard onchain core` through `chore: add Tier-1 repository scaffolding`). See [`CHANGELOG.md`](../CHANGELOG.md) for the fix-by-fix summary and [`docs/ARCHITECTURE_DIAGRAMS.md`](ARCHITECTURE_DIAGRAMS.md) for the new diagrams. This document is kept as-written (not edited to erase the findings) because it's the honest record of what was wrong and why each fix was needed — read it as history, not as a current-state report. What's still genuinely open: BudgetPool/Org hierarchy, ERC-4337 accounts, an executed (not just authored) `forge test` run, and any actual deployment — none of that changed.
+
 Reviewed: uploaded plan `agentic-spend-control-plan.md` against the working tree at
 `/Users/rahul/development/github/ScoreFi` (product renamed **AgentGuard**; repo/npm
 workspace name still `ScoreFi`/`agentguard-monorepo`). Method: read every contract,
