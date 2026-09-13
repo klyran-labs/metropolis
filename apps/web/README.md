@@ -4,27 +4,50 @@ The official **AgentGuard** Enterprise Web Control Plane for Agentic Payments on
 
 ---
 
+# @agentguard/web
+
+The official **AgentGuard** Enterprise Web Control Plane for Agentic Payments on Monad Parallel EVM. Built with React 19, Vite 8, TailwindCSS v4, React Router v7, and Viem 2.x.
+
+---
+
 ## Agent Risk Control Architecture
 
 AgentGuard provides real-time control, monitoring, and safety rails for autonomous AI agents executing onchain payments:
 
-### 1. 🛡️ Fleet Overview & Telemetry
-- Real-time agent monitoring table displaying active spend policies, current window utilization, and velocity tracking.
-- Instant $O(1)$ onchain kill switch buttons to immediately freeze compromised or malfunctioning agents.
-- Live Monad block status and sub-second finality monitoring.
+### 1. 🛡️ Fleet Overview & Principle of Least Privilege (PoLP)
+- **Tenant Scope Isolation**: Users default to the **`My Agents`** view showing only agents registered by or assigned to their account, eliminating cross-tenant data leakage.
+- **Network Fleet View**: Privileged administrative and compliance view available to authorized enterprise roles (`super_admin`, `org_admin`, `security_auditor`).
+- **Real-Time Telemetry**: Active spend policies, rolling window utilization, and velocity tracking.
+- **Instant $O(1)$ Kill Switch**: Freeze compromised or malfunctioning agents onchain in a single transaction with sub-second Monad finality.
+- **Honest Enterprise Empty States**: When an operator has 0 agents, renders clean onboarding guidance with zero synthetic or mock placeholders.
 
-### 2. 📋 Policy Studio
+### 2. 🔑 Self-Serve Agent Provisioning & Key Vault
+- **Dual-Mode Onboarding**:
+  - **Client-Side Key Generation**: Generates cryptographically secure secp256k1 keypairs locally in the browser via Web Crypto (`crypto.getRandomValues`). Provides a one-time copyable `.env` snippet (`AGENT_PRIVATE_KEY`) for autonomous headless agent runtimes.
+  - **Bring-Your-Own (BYO) Agent Address**: Register existing agent smart contract or EOA addresses.
+- **User-Scoped Vault (`agentVault.ts`)**: Persists tenant-scoped agent addresses and metadata in browser storage isolated by the connected operator's address.
+
+### 3. 👥 Enterprise Role-Based Access Control (RBAC)
+Governed by `RbacContext.tsx` with 6 granular enterprise personas:
+- **`agent_developer`** *(Default Authenticated Role)*: Can provision new agents, author policies for owned agents, and toggle emergency kill switches.
+- **`org_admin`**: Full organization control, fleet management, and policy authoring.
+- **`super_admin`**: Global system governance and contract administration.
+- **`security_auditor`**: Fleet-wide risk telemetry and immutable audit log review.
+- **`finance_operator`**: Treasury balance monitoring and spend reconciliation.
+- **`viewer`**: Restricted read-only view.
+
+### 4. 📋 Policy Studio
 - Visual policy authoring interface for configuring per-transaction maximums, rolling window caps, window duration, velocity limits, and merchant whitelists.
-- Instant single-transaction updates to Monad's `PolicyEngine` contract.
+- Instant single-transaction updates packed into Monad's disjoint storage slots via `PolicyEngine.sol`.
 
-### 3. 🧪 Rogue Agent Simulator
+### 5. 🧪 Rogue Agent Simulator
 - Interactive testbench simulating realistic agent attack and failure scenarios:
-  1. **Authorized Payment**: Normal operation under all risk limits.
-  2. **Compromised Burst Attack**: Rapid-fire payment requests tripping velocity rate limiting (ReasonCode 5).
-  3. **Treasury Drain Attempt**: Excessive single payment exceeding per-tx ceiling (ReasonCode 3).
+  1. **Authorized Payment**: Normal operation under all risk limits (`ERR_NONE = 0`).
+  2. **Compromised Burst Attack**: Rapid-fire payment requests tripping velocity rate limiting (`ERR_VELOCITY_EXCEEDED = 4`).
+  3. **Treasury Drain Attempt**: Excessive single payment exceeding per-tx ceiling (`ERR_MAX_PER_TX = 2`).
 - Real-time verification of machine-readable error codes and onchain rejection logs.
 
-### 4. 📜 Audit Ledger
+### 6. 📜 Audit Ledger
 - Cryptographic event audit trail capturing every spend evaluation, gated payment execution, and blocked transaction.
 - Verifiable proof links to Monad Testnet block explorer (`https://testnet.monadexplorer.com`).
 
@@ -51,3 +74,4 @@ In compliance with repository `AGENTS.md` policy:
 - No hardcoded fallback addresses (`0x70997970C51812dc3A010C7d01b50e0d17dc79C8`).
 - No synthetic balances or fake random math (`Math.random`).
 - All empty states render honest zero balances (`0.0000 MON`) with actionable call-to-actions.
+

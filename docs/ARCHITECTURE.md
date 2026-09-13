@@ -10,7 +10,7 @@ AgentGuard is governed by four core architectural mandates:
 
 1. **Strict Zero-Mock Mandate**: All fleet states, window spends, reputation metrics, and risk decisions derive from onchain contract calls or authentic EIP-712 cryptographic proofs.
 2. **Disjoint Per-Agent State Partitioning**: To eliminate Monad parallel EVM worker abort loops under optimistic concurrency control (OCC), each agent's execution state is packed into a single disjoint 32-byte storage slot (`PackedState`). Concurrent payments by different agents never touch overlapping storage keys.
-3. **Instant $O(1)$ Short-Circuit Kill Switch**: When an agent is compromised or trips safety thresholds, an administrator or authorized automated watcher sets `killSwitch = true`. All subsequent transactions by that agent abort in $O(1)$ time with typed `ReasonCode.KILL_SWITCH_ACTIVE` before running loop or arithmetic checks.
+3. **Instant $O(1)$ Short-Circuit Kill Switch**: When an agent is compromised or trips safety thresholds, an administrator or authorized automated watcher sets `killSwitch = true`. All subsequent transactions by that agent abort in $O(1)$ time with typed `ReasonCode.ERR_KILL_SWITCH` before running loop or arithmetic checks.
 4. **Non-Custodial Delivery vs. Payment (DvP)**: Agent treasury funds remain non-custodial in smart contracts. Payments clear atomically only if pre-transaction risk conditions, rolling velocity limits, and recipient whitelists are satisfied.
 
 ---
@@ -24,7 +24,7 @@ AgentGuard is governed by four core architectural mandates:
 │  ┌─────────────────────────────────┐   HTTP 402 Challenge/Response    ┌──────────────────────────────┐  │
 │  │   Autonomous Agent Client       │◄────────────────────────────────►│   AgentGuard x402 / AP2 Gateway │  │
 │  │   • LLM / ReAct / Tool Runner   │   PAYMENT-REQUIRED (x402)        │   • EIP-712 Signer Recovery  │  │
-│  │   • Private Key in HSM / KMS    │   EIP-712 SpendRequest           │   • Pre-flight Policy Sim    │  │
+│  │   • Private Key in KMS/TEE/Env  │   EIP-712 SpendRequest           │   • Pre-flight Policy Sim    │  │
 │  │   • Signs Typed SpendRequests   │                                  │   • Forward to Monad RPC     │  │
 │  └────────────────┬────────────────┘                                  └──────────────┬───────────────┘  │
 │                   │                                                                  │                  │
@@ -53,6 +53,7 @@ AgentGuard is governed by four core architectural mandates:
 │  ┌────────────────────────────────────────────────┴──────────────────────────────────────────────────┐  │
 │  │                                   AgentGuard Web Control Plane                                       │  │
 │  │   • React 19 + Tailwind CSS v4                                                                    │  │
+│  │   • Tenant Isolation & PoLP (`My Agents` vs `Network Fleet`)                                      │  │
 │  │   • Fleet Overview & Real-Time Velocity Gauges                                                    │  │
 │  │   • Visual Policy Studio                                                                          │  │
 │  │   • Interactive Rogue Agent Simulator                                                             │  │
@@ -92,20 +93,20 @@ Reentrancy protection in `AgentWalletGuard.sol` uses transient storage opcodes:
 
 ## 4. Machine-Readable Reason Codes
 
-AgentGuard returns standardized integer reason codes (`ReasonCode`) to enable autonomous agent error-handling without parsing brittle string revert messages:
+AgentGuard returns standardized integer reason codes (`ReasonCode`) defined in [`IPolicyEngine.sol`](../contracts/src/interfaces/IPolicyEngine.sol) to enable autonomous agent error-handling without parsing brittle string revert messages:
 
 | Code | Identifier | Explanation | Agent Mitigation Action |
 | :--- | :--- | :--- | :--- |
-| `0` | `SUCCESS` | Request permitted and recorded | Proceed with payment execution |
-| `1` | `POLICY_NOT_FOUND` | No policy configured for agent | Request policy provisioning from owner |
-| `2` | `KILL_SWITCH_ACTIVE` | Agent manually or automatically frozen | Enter safe mode; alert operator |
-| `3` | `EXCEEDS_TX_LIMIT` | Requested amount exceeds `maxPerTx` | Split payment into smaller chunks |
-| `4` | `EXCEEDS_WINDOW_LIMIT` | Rolling window spend limit reached | Back off until rolling window expires |
-| `5` | `EXCEEDS_VELOCITY` | Too many transactions within window | Rate limit request dispatch |
-| `6` | `MERCHANT_NOT_WHITELISTED` | Destination address not whitelisted | Request merchant whitelisting |
-| `7` | `NONCE_ALREADY_USED` | Replay protection failure | Increment nonce and re-sign |
-| `8` | `DEADLINE_EXPIRED` | Request timestamp past deadline | Generate fresh signature |
-| `9` | `UNAUTHORIZED_SIGNER` | Recovered signer does not match agent | Verify signing key credentials |
+| `0` | `ERR_NONE` | Request permitted and recorded | Proceed with payment execution |
+| `1` | `ERR_KILL_SWITCH` | Agent kill switch is tripped/active | Enter safe mode; notify human supervisor |
+| `2` | `ERR_MAX_PER_TX` | Requested amount exceeds `maxPerTx` | Split payment into smaller chunks |
+| `3` | `ERR_MAX_PER_WINDOW` | Rolling window spend limit reached | Back off until rolling window expires |
+| `4` | `ERR_VELOCITY_EXCEEDED` | Maximum transaction frequency in window exceeded | Throttle / rate limit request dispatch |
+| `5` | `ERR_MERCHANT_NOT_ALLOWED` | Destination address not in whitelist | Request merchant whitelisting |
+| `6` | `ERR_BUDGET_DEPLETED` | Organizational/pool budget exhausted | Await treasury refill or budget extension |
+| `7` | `ERR_EXPIRED` | Request timestamp past deadline | Generate fresh signature with new deadline |
+| `8` | `ERR_NONCE_REUSED` | Replay protection failure / out-of-order nonce | Increment nonce and re-sign |
+| `9` | `ERR_SIGNATURE_INVALID` | EIP-712 cryptographic signature invalid or signer unauthorized | Verify agent private key & signature parameters |
 
 ---
 
@@ -119,3 +120,57 @@ When an agent requests a protected API resource without payment:
    `PAYMENT-SIGNATURE: x402 req=base64(json) sig=0x...`
 4. **Onchain Dispatch**: Gateway verifies signature and dispatches `executeGatedPayment` on Monad.
 5. **Sub-second Settlement**: Monad finalizes the block in 400ms, transferring funds to the merchant and updating the agent's reputation score.
+
+---
+
+## 6. Multi-Tenant Architecture & Principle of Least Privilege (PoLP)
+
+AgentGuard implements strict tenant scoping to uphold the Principle of Least Privilege across enterprise environments:
+
+### A. Tenant Isolation Model
+- **`My Agents` (Default Isolated View)**: Shows exclusively the agents registered, owned, or assigned to the authenticated operator. New users starting without agents see a clean, zero-mock onboarding state with no data leakage from other tenants.
+- **`Network Fleet` (Administrative Global View)**: Visible only to global administrative and compliance roles (`super_admin`, `org_admin`, `security_auditor`) for fleet-wide telemetry, network risk analysis, and macro policy monitoring.
+- **Role-Based Access Control (RBAC)**:
+  - `agent_developer`: Default authenticated role. Empowered with self-serve agent provisioning, policy authoring for owned agents, and dedicated kill-switch toggle authority.
+  - `org_admin` / `super_admin`: Full global fleet management, global kill-switch, and tenant governance.
+  - `security_auditor` / `finance_operator` / `viewer`: Read-only telemetry and audit trail access with appropriate execution boundaries.
+
+---
+
+## 7. Autonomous Agent Key Management & Lifecycle Architecture
+
+### A. Architectural Separation: Human Operator vs. Autonomous Agent
+A foundational principle of AgentGuard is that **agents cannot share private keys with human operators**:
+- **Human Controller (Privy Embedded / External Wallet)**: Used for governance, policy creation, kill-switch tripping, and administrative treasury management.
+- **Autonomous Agent (Dedicated Keypair)**: Operates independently in machine runtimes, headless microservices, or TEE enclaves to sign x402 HTTP requests and EIP-712 micro-settlements without manual human prompts.
+
+```
+┌───────────────────────────────────────────────────────────┐
+│               1. HUMAN CONTROLLER (Privy)                 │
+│  • Authenticates via Email / Passkey / Social             │
+│  • Configures PolicyEngine on Monad:                      │
+│    setPolicy(agentAddress, maxPerTx, maxPerWindow, ...)   │
+│  • Holds Emergency Kill Switch Authority                  │
+└─────────────────────────────┬─────────────────────────────┘
+                              │ Registers Policy for
+                              ▼
+┌───────────────────────────────────────────────────────────┐
+│              2. AUTONOMOUS AGENT KEYPAIR                  │
+│  • Distinct address: 0xAgent...                           │
+│  • Provisioned client-side via Web Crypto or KMS/TEE      │
+│  • Signs typed EIP-712 SpendRequests autonomously         │
+│  • Executed via AgentWalletGuard on Monad (Chain 10143)   │
+└───────────────────────────────────────────────────────────┘
+```
+
+### B. Client-Side Non-Custodial Key Generation
+During agent onboarding in the Web Control Plane:
+1. `generatePrivateKey()` uses browser Web Crypto (`crypto.getRandomValues`) to produce a cryptographically secure secp256k1 keypair locally.
+2. The private key is displayed to the developer **once** alongside an exported `.env` configuration snippet.
+3. The address and metadata are saved to the user-scoped tenant store (`agentVault.ts`) in browser storage. The browser does NOT act as an ongoing transaction signer for the agent; the agent signs independently in its own runtime.
+
+### C. Enterprise Signer & Openfort / OpenSigner Readiness
+For institutional and high-assurance deployments, AgentGuard is engineered to interface directly with headless key management infrastructure:
+- **Openfort / OpenSigner**: Headless smart accounts with session keys and programmable spending limits.
+- **AWS KMS / Google Cloud KMS**: HSM-backed secp256k1 keys for enterprise microservices.
+- **TEE Enclaves (e.g., AWS Nitro, Flashbots SGX)**: Confidential compute environments where autonomous LLM agents sign EIP-712 payloads with verifiable code integrity.

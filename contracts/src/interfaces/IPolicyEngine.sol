@@ -39,6 +39,16 @@ interface IPolicyEngine {
         uint256 nonce;
     }
 
+    struct BudgetPool {
+        bytes32 poolId;
+        bytes32 orgId;
+        uint128 totalBudget;
+        uint128 spentBudget;
+        uint32 windowSeconds;
+        uint32 windowStart;
+        bool active;
+    }
+
     struct PolicyDecision {
         bool allowed;
         uint256 allowedAmount;
@@ -60,8 +70,14 @@ interface IPolicyEngine {
     event MerchantWhitelistUpdated(address indexed agent, address indexed merchant, bool allowed);
     event SpendEvaluated(address indexed agent, address indexed merchant, uint256 amount, bool allowed, ReasonCode reasonCode);
     event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow);
+    event BudgetPoolCreated(bytes32 indexed poolId, bytes32 indexed orgId, uint128 totalBudget, uint32 windowSeconds);
+    event AgentAssignedToPool(address indexed agent, bytes32 indexed poolId);
+    event BudgetPoolSpent(bytes32 indexed poolId, uint128 amount, uint128 totalSpent);
 
     function setPolicy(address agent, SpendPolicy calldata policy) external;
+    function batchSetPolicies(address[] calldata agents, SpendPolicy[] calldata policies) external;
+    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds) external;
+    function assignAgentToPool(address agent, bytes32 poolId) external;
     function setKillSwitch(address agent, bool active) external;
     function setAuthorizedCaller(address caller, bool allowed) external;
     function setMerchantWhitelist(address agent, address merchant, bool allowed) external;
@@ -69,4 +85,6 @@ interface IPolicyEngine {
     function evaluateAndSpend(SpendRequest calldata req) external returns (PolicyDecision memory);
     function getAgentPolicy(address agent) external view returns (SpendPolicy memory);
     function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce);
+    function getBudgetPool(bytes32 poolId) external view returns (BudgetPool memory);
+    function getAgentPoolId(address agent) external view returns (bytes32);
 }

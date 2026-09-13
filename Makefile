@@ -1,10 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract test-contracts test-web test-middleware test-gateway demo build-packages build-web build-gateway docker-up docker-down docker-logs clean help
+.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway demo build-packages build-web build-gateway docker-up docker-down docker-logs clean help
 
 all: lint build test
 
-lint: verify-production-integrity verify-ui-contract typecheck
+lint: verify-production-integrity verify-ui-contract verify-theme-contract typecheck
 	@echo "All static analysis & typecheck quality gates passed!"
 
 typecheck:
@@ -24,6 +24,10 @@ verify-production-integrity:
 verify-ui-contract:
 	@echo "=== Verifying production UI interaction contract ==="
 	@node scripts/verify-ui-contract.mjs
+
+verify-theme-contract:
+	@echo "=== Verifying config-driven design system & theme contract ==="
+	@node scripts/verify-theme-contract.mjs
 
 build: build-packages build-web build-gateway
 	@echo "=== Build Completed Successfully ==="
@@ -55,12 +59,12 @@ test-middleware:
 	@node --test packages/x402-middleware/test/middleware.test.mjs
 
 build-gateway:
-	@echo "=== Building AgentGuard x402 Gateway (services/gateway) ==="
-	@npx tsc -p services/gateway/tsconfig.json
+	@echo "=== Building AgentGuard High-Throughput Rust Gateway ==="
+	@cargo build --release --manifest-path services/gateway/Cargo.toml
 
-test-gateway: build-gateway
-	@echo "=== Running AgentGuard x402 Gateway Tests (real HTTP server) ==="
-	@node --test services/gateway/test/gateway.test.mjs
+test-gateway:
+	@echo "=== Running AgentGuard High-Throughput Rust Gateway Tests ==="
+	@cargo test --manifest-path services/gateway/Cargo.toml
 
 demo:
 	@echo "=== Running AgentGuard Live Simulation & Verification Demo ==="
@@ -71,15 +75,31 @@ run-web:
 	@cd apps/web && npm run dev
 
 docker-up:
-	@echo "=== Starting AgentGuard Multi-Service Production Stack ==="
+	@echo "=== Starting AgentGuard Local Devnet Stack ==="
 	@docker compose -f docker/docker-compose.yml up --build -d
 
 docker-down:
-	@echo "=== Stopping AgentGuard Docker Stack ==="
+	@echo "=== Stopping AgentGuard Local Devnet Stack ==="
 	@docker compose -f docker/docker-compose.yml down
 
 docker-logs:
 	@docker compose -f docker/docker-compose.yml logs -f
+
+docker-testnet-up:
+	@echo "=== Starting AgentGuard Monad Testnet Stack ==="
+	@docker compose -f docker/docker-compose.testnet.yml up --build -d
+
+docker-testnet-down:
+	@echo "=== Stopping AgentGuard Monad Testnet Stack ==="
+	@docker compose -f docker/docker-compose.testnet.yml down
+
+docker-prod-up:
+	@echo "=== Starting AgentGuard Production Stack ==="
+	@docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up --build -d
+
+docker-prod-down:
+	@echo "=== Stopping AgentGuard Production Stack ==="
+	@docker compose -f docker/docker-compose.prod.yml down
 
 clean:
 	@rm -rf apps/web/dist packages/shared-types/dist packages/x402-middleware/dist

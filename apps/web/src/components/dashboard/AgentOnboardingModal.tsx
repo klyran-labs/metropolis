@@ -1,13 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { type Address, parseEther, isAddress } from 'viem';
-import { X, Plus, Bot, AlertCircle, Cpu, Globe, Database, DollarSign } from 'lucide-react';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import {
+  X,
+  Plus,
+  Bot,
+  AlertCircle,
+  Cpu,
+  Globe,
+  Database,
+  DollarSign,
+  Key,
+  Zap,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  ShieldCheck,
+} from 'lucide-react';
 import { type SpendPolicy } from '@agentguard/shared-types';
 import { Button } from '../common/Button';
 
 interface AgentOnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRegisterAgent: (input: { name: string; role: string; policy: SpendPolicy }) => void | Promise<void>;
+  onRegisterAgent: (input: {
+    name: string;
+    role: string;
+    policy: SpendPolicy;
+    privateKey?: `0x${string}`;
+    saveToVault?: boolean;
+  }) => void | Promise<void>;
 }
 
 interface AgentTemplate {
@@ -77,7 +101,14 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
   const [agentName, setAgentName] = useState(AGENT_TEMPLATES[0].name);
   const [agentRole, setAgentRole] = useState(AGENT_TEMPLATES[0].role);
+  const [walletMode, setWalletMode] = useState<'generate' | 'import'>('generate');
   const [agentAddress, setAgentAddress] = useState<string>('');
+  const [generatedPrivateKey, setGeneratedPrivateKey] = useState<`0x${string}` | null>(null);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedEnv, setCopiedEnv] = useState(false);
+  const [saveToVault, setSaveToVault] = useState(true);
+
   const [maxPerTx, setMaxPerTx] = useState(AGENT_TEMPLATES[0].defaultMaxPerTx);
   const [maxPerWindow, setMaxPerWindow] = useState(AGENT_TEMPLATES[0].defaultMaxPerWindow);
   const [windowSeconds, setWindowSeconds] = useState(AGENT_TEMPLATES[0].defaultWindowSeconds.toString());
@@ -85,6 +116,22 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
   const [whitelistEnabled, setWhitelistEnabled] = useState(AGENT_TEMPLATES[0].whitelistEnabled);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Generate keypair in browser using secure Web Crypto
+  const handleGenerateKeypair = () => {
+    const privKey = generatePrivateKey();
+    const account = privateKeyToAccount(privKey);
+    setGeneratedPrivateKey(privKey);
+    setAgentAddress(account.address);
+    setCopiedKey(false);
+    setCopiedEnv(false);
+  };
+
+  useEffect(() => {
+    if (isOpen && walletMode === 'generate' && !generatedPrivateKey) {
+      handleGenerateKeypair();
+    }
+  }, [isOpen, walletMode]);
 
   if (!isOpen) return null;
 
@@ -99,6 +146,21 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
     setMaxVelocity(template.defaultVelocity.toString());
     setWhitelistEnabled(template.whitelistEnabled);
     setErrorMessage(null);
+  };
+
+  const handleCopyEnv = () => {
+    const envSnippet = `# AgentGuard Autonomous Agent Credentials\n# Settlement Chain: Monad Testnet (Chain ID: 10143)\nAGENT_WALLET_ADDRESS=${agentAddress}\nAGENT_PRIVATE_KEY=${generatedPrivateKey || ''}\nAGENTGUARD_GATEWAY_URL=https://gateway.agentguard.io\n`;
+    navigator.clipboard.writeText(envSnippet);
+    setCopiedEnv(true);
+    setTimeout(() => setCopiedEnv(false), 2000);
+  };
+
+  const handleCopyPrivateKey = () => {
+    if (generatedPrivateKey) {
+      navigator.clipboard.writeText(generatedPrivateKey);
+      setCopiedKey(true);
+      setTimeout(() => setCopiedKey(false), 2000);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -146,7 +208,13 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
 
     setSubmitting(true);
     try {
-      await onRegisterAgent({ name: agentName.trim() || 'Autonomous Agent', role: agentRole.trim() || 'General Agent', policy: newPolicy });
+      await onRegisterAgent({
+        name: agentName.trim() || 'Autonomous Agent',
+        role: agentRole.trim() || 'General Agent',
+        policy: newPolicy,
+        privateKey: walletMode === 'generate' ? generatedPrivateKey || undefined : undefined,
+        saveToVault: walletMode === 'generate' && saveToVault,
+      });
       onClose();
     } catch (error: any) {
       setErrorMessage(error?.message || 'Policy transaction failed. No local agent record was created.');
@@ -183,7 +251,7 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
               Provision New Autonomous Agent
             </h2>
             <p className="text-xs text-fg-muted">
-              Bind a disjoint storage slot & risk policy on Monad Parallel EVM (10143).
+              Bind an isolated policy partition with autonomous spend guardrails.
             </p>
           </div>
         </div>
@@ -255,22 +323,152 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
             </div>
           </div>
 
+          {/* Keypair Generation & Wallet Association Mode Selector */}
           <div>
-            <div className="flex items-center justify-between">
-              <label htmlFor="agent-address-input" className="text-xs font-semibold text-fg">
-                Agent Wallet Address (EVM)
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-fg">
+                Agent Wallet Provisioning
               </label>
-              <span className="text-[11px] text-fg-subtle">Use an existing agent wallet</span>
+              <div className="flex items-center gap-1.5 bg-card-muted p-0.5 rounded-lg border border-card-border">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletMode('generate');
+                    if (!generatedPrivateKey) handleGenerateKeypair();
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                    walletMode === 'generate'
+                      ? 'bg-card text-fg shadow-xs border border-card-border'
+                      : 'text-fg-muted hover:text-fg'
+                  }`}
+                >
+                  <Zap className="h-3 w-3 text-amber-500" />
+                  <span>Generate Keypair</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWalletMode('import')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                    walletMode === 'import'
+                      ? 'bg-card text-fg shadow-xs border border-card-border'
+                      : 'text-fg-muted hover:text-fg'
+                  }`}
+                >
+                  <Key className="h-3 w-3 text-primary" />
+                  <span>Import Address</span>
+                </button>
+              </div>
             </div>
-            <input
-              id="agent-address-input"
-              type="text"
-              value={agentAddress}
-              onChange={(e) => setAgentAddress(e.target.value)}
-              placeholder="0x..."
-              required
-              className="mt-1 w-full rounded-xl border border-card-border bg-card px-3 py-2 font-mono text-xs text-fg outline-none focus:border-primary"
-            />
+
+            {walletMode === 'generate' ? (
+              <div className="rounded-2xl border border-card-border bg-card-muted/60 p-4 space-y-3">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="agent-address-input" className="text-[11px] font-semibold text-fg">
+                      Generated Agent Address (Monad EOA)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateKeypair}
+                      title="Regenerate new keypair"
+                      className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary-hover font-medium cursor-pointer"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      <span>Regenerate</span>
+                    </button>
+                  </div>
+                  <input
+                    id="agent-address-input"
+                    type="text"
+                    value={agentAddress}
+                    readOnly
+                    className="mt-1 w-full rounded-xl border border-card-border bg-card px-3 py-2 font-mono text-xs text-fg outline-none select-all"
+                  />
+                </div>
+
+                {/* Cryptographic Key Vault Card */}
+                {generatedPrivateKey && (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Key className="h-3.5 w-3.5 text-amber-500" />
+                        <span className="text-[11px] font-bold text-amber-400">
+                          Autonomous Agent Private Key
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setShowPrivateKey(!showPrivateKey)}
+                          className="p-1 text-fg-muted hover:text-fg transition cursor-pointer rounded"
+                          title={showPrivateKey ? 'Hide Private Key' : 'Show Private Key'}
+                        >
+                          {showPrivateKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCopyPrivateKey}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-card border border-card-border text-[10px] font-mono text-fg hover:border-primary transition cursor-pointer"
+                        >
+                          {copiedKey ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          <span>{copiedKey ? 'Copied' : 'Copy Key'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCopyEnv}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary text-white text-[10px] font-semibold hover:bg-primary-hover transition cursor-pointer shadow-xs"
+                        >
+                          {copiedEnv ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                          <span>{copiedEnv ? 'Copied .env' : 'Copy .env'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="font-mono text-[11px] bg-card/80 border border-card-border rounded-lg px-2.5 py-1.5 text-fg select-all break-all">
+                      {showPrivateKey ? generatedPrivateKey : `${generatedPrivateKey.slice(0, 10)}••••••••••••••••••••••••••••••••••••••••••••••••${generatedPrivateKey.slice(-8)}`}
+                    </div>
+
+                    <div className="flex items-start gap-2 pt-1">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-fg-muted leading-relaxed">
+                        <strong className="text-fg">Non-Custodial Safeguard:</strong> Derived client-side via Web Crypto. Never sent to any server. Copy this key into your bot's execution runtime (e.g. LangChain, ElizaOS, or Python worker).
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-card-border/50">
+                      <input
+                        id="save-vault-checkbox"
+                        type="checkbox"
+                        checked={saveToVault}
+                        onChange={(e) => setSaveToVault(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-card-border text-primary focus:ring-primary"
+                      />
+                      <label htmlFor="save-vault-checkbox" className="text-[10px] text-fg cursor-pointer select-none">
+                        Save backup to this browser's local credentials vault
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="agent-address-input" className="text-xs font-semibold text-fg">
+                    Agent Account Address
+                  </label>
+                  <span className="text-[11px] text-fg-subtle">Use an existing agent wallet</span>
+                </div>
+                <input
+                  id="agent-address-input"
+                  type="text"
+                  value={agentAddress}
+                  onChange={(e) => setAgentAddress(e.target.value)}
+                  placeholder="0x..."
+                  required
+                  className="mt-1 w-full rounded-xl border border-card-border bg-card px-3 py-2 font-mono text-xs text-fg outline-none focus:border-primary"
+                />
+              </div>
+            )}
           </div>
 
           {/* Risk Invariant Controls */}

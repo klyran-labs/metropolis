@@ -2,6 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPublicClient, http, type Address } from 'viem';
 import { MONAD_CHAIN_ID, MONAD_RPC_URL, CONTRACT_ADDRESSES, POLICY_ENGINE_ABI, REPUTATION_REGISTRY_ABI } from '../config/contracts';
 import { type FleetAgent, type SpendPolicy, type AgentSpendState, type ReputationSummary } from '@agentguard/shared-types';
+import knownAgents from '@deployments/monad-testnet/agents.json';
+
+const AGENT_MANIFEST_MAP = new Map<string, { name: string; role: string }>();
+if (Array.isArray(knownAgents)) {
+  for (const item of knownAgents) {
+    if (item.address) {
+      AGENT_MANIFEST_MAP.set(item.address.toLowerCase(), { name: item.name, role: item.role });
+    }
+  }
+}
 
 const publicClient = createPublicClient({
   chain: { id: MONAD_CHAIN_ID, name: 'Monad Testnet', nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 }, rpcUrls: { default: { http: [MONAD_RPC_URL] } } },
@@ -9,10 +19,11 @@ const publicClient = createPublicClient({
 });
 
 async function readOneAgent(address: Address): Promise<FleetAgent | null> {
-  const [policyRes, stateRes, metricsRes] = await Promise.all([
+  const [policyRes, stateRes, metricsRes, poolIdRes] = await Promise.all([
     publicClient.readContract({ address: CONTRACT_ADDRESSES.policyEngine, abi: POLICY_ENGINE_ABI, functionName: 'getAgentPolicy', args: [address] }).catch(() => null),
     publicClient.readContract({ address: CONTRACT_ADDRESSES.policyEngine, abi: POLICY_ENGINE_ABI, functionName: 'getAgentState', args: [address] }).catch(() => null),
     publicClient.readContract({ address: CONTRACT_ADDRESSES.reputationRegistry, abi: REPUTATION_REGISTRY_ABI, functionName: 'getMetrics', args: [address] }).catch(() => null),
+    publicClient.readContract({ address: CONTRACT_ADDRESSES.policyEngine, abi: POLICY_ENGINE_ABI, functionName: 'getAgentPoolId', args: [address] }).catch(() => null),
   ]);
 
   if (!policyRes) return null;
@@ -53,16 +64,25 @@ async function readOneAgent(address: Address): Promise<FleetAgent | null> {
     }
   }
 
+  const poolId = poolIdRes && typeof poolIdRes === 'string' && poolIdRes !== '0x0000000000000000000000000000000000000000000000000000000000000000'
+    ? (poolIdRes as `0x${string}`)
+    : null;
+
+  const manifestInfo = AGENT_MANIFEST_MAP.get(address.toLowerCase());
+  const name = manifestInfo?.name || `Agent wallet ${address.slice(0, 6)}…${address.slice(-4)}`;
+  const role = manifestInfo?.role || 'Autonomous Operational Agent';
+
   return {
     id: address.toLowerCase(),
-    name: `Agent wallet ${address.slice(0, 6)}…${address.slice(-4)}`,
+    name,
     address,
-    role: 'Registered onchain policy',
+    role,
     policy,
     state,
     reputation,
     status: policy.killSwitch ? 'REVOKED' : 'ACTIVE',
     recentEvaluations: [],
+    poolId,
   };
 }
 

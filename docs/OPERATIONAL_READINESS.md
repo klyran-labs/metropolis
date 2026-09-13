@@ -11,16 +11,13 @@ This document details the production deployment, infrastructure requirements, an
 The production environment consists of two primary services:
 1. **AgentGuard x402 Payment Gateway (`agentguard-gateway`)**, implemented at
    `services/gateway` (see `services/gateway/README.md`):
-   - Node.js microservice issuing x402 challenges, verifying EIP-712 spend
-     request signatures, pre-flight-simulating against `PolicyEngine.evaluate`,
-     and relaying settlement to `AgentWalletGuard.executeGatedPayment`.
-   - Resource requirements: 2 vCPU, 2GB RAM per replica, horizontally scalable behind a load balancer.
-   - Target latency: **< 5ms p99 for offchain signature verification** (pure
-     cryptography, no I/O) — but the pre-flight `evaluate` policy simulation is
-     an RPC round-trip to Monad, not offchain compute, so it should be budgeted
-     separately (target **< 50ms p99**, dependent on RPC provider latency and
-     geographic distance to the nearest Monad RPC node) rather than folded into
-     the same 5ms figure.
+   - High-throughput Rust microservice (built on Tokio, Axum, and Alloy-RS) issuing x402 challenges,
+     verifying EIP-712 spend request signatures in sub-50 microseconds, pre-flight-simulating against `PolicyEngine.evaluate`,
+     administering operator roles via Privy Server API, and relaying settlement to `AgentWalletGuard.executeGatedPayment`.
+   - Resource requirements: 2 vCPU, 2GB RAM per replica, horizontally scalable behind a load balancer (~14MB minimal Alpine runtime).
+   - Target latency: **< 1ms p99 for offchain signature verification** (compiled Rust cryptography, sub-50µs pure compute) —
+     while the pre-flight `evaluate` policy simulation involves a Monad RPC round-trip, budgeted separately
+     (target **< 50ms p99**, dependent on RPC provider latency and geographic proximity to Monad RPC nodes).
 2. **AgentGuard Web Control Plane (`agentguard-web`)**:
    - Ultra-fast static container served by Alpine Nginx with brotli/gzip compression and strict CSP headers.
    - Direct connection to Monad Testnet RPC (`https://testnet-rpc.monad.xyz`) via Viem 2.x.

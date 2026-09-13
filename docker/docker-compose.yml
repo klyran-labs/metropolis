@@ -1,4 +1,19 @@
 services:
+  monad-devnet:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: monad-devnet
+    restart: unless-stopped
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "10143", "--block-time", "1"]
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD-SHELL", "cast block-number --rpc-url http://127.0.0.1:8545 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - agentguard-network
+
   agentguard-web:
     build:
       context: ..
@@ -6,10 +21,10 @@ services:
       args:
         VITE_APP_ENV: production
         VITE_CHAIN_ID: "10143"
-        VITE_RPC_URL: https://testnet-rpc.monad.xyz
-        VITE_POLICY_ENGINE_ADDRESS: "0x2222222222222222222222222222222222222222"
-        VITE_REPUTATION_REGISTRY_ADDRESS: "0x3333333333333333333333333333333333333333"
-        VITE_AGENT_WALLET_GUARD_ADDRESS: "0x4444444444444444444444444444444444444444"
+        VITE_RPC_URL: ${VITE_RPC_URL:-http://127.0.0.1:8545}
+        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
         VITE_USDC_TOKEN_ADDRESS: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
         VITE_PRIVY_APP_ID: cmton65ao004l0cl11tgmwiah
     container_name: agentguard-web
@@ -23,6 +38,9 @@ services:
       interval: 15s
       timeout: 3s
       retries: 3
+    depends_on:
+      agentguard-gateway:
+        condition: service_healthy
     networks:
       - agentguard-network
 
@@ -32,25 +50,27 @@ services:
       dockerfile: docker/Dockerfile.gateway
     container_name: agentguard-gateway
     restart: unless-stopped
+    depends_on:
+      monad-devnet:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
       - NODE_ENV=production
       - PORT=8080
       - MONAD_CHAIN_ID=10143
-      - MONAD_RPC_URL=https://testnet-rpc.monad.xyz
-      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-0x2222222222222222222222222222222222222222}
-      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-0x3333333333333333333333333333333333333333}
-      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-0x4444444444444444444444444444444444444444}
+      - MONAD_RPC_URL=${MONAD_RPC_URL:-http://monad-devnet:8545}
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
       - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:-0xf817257fed379853cDe0fa4F97AB987181B1E5Ea}
       - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:-0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC}
-      # Intentionally NOT defaulted: without this, the gateway boots and
-      # serves challenges/policy simulation but returns 503 on settlement
-      # (see services/gateway/README.md). Supply it via a real secret store
-      # in production, never a checked-in default.
-      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY:-}
+      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      - PRIVY_APP_ID=${PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
+      - PRIVY_APP_SECRET=${PRIVY_APP_SECRET:-}
+      - INITIAL_SUPER_ADMIN_DIDS=${INITIAL_SUPER_ADMIN_DIDS:-}
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
       interval: 15s
       timeout: 3s
       retries: 3

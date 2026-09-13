@@ -31,6 +31,15 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         uint64 nonce;
     }
 
+    struct PackedBudgetPool {
+        bytes32 orgId;
+        uint128 totalBudget;
+        uint128 spentBudget;
+        uint32 windowSeconds;
+        uint32 windowStart;
+        bool active;
+    }
+
     // Monad-optimized disjoint storage slots: indexed strictly by agent address
     mapping(address => PackedPolicy) private _policies;
     mapping(address => PackedState) private _states;
@@ -38,6 +47,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     mapping(address => mapping(uint256 => bool)) private _usedNonces;
     mapping(address => address) public agentAdmin;
     mapping(address => bool) public authorizedCallers;
+    mapping(bytes32 => PackedBudgetPool) private _budgetPools;
+    mapping(address => bytes32) public agentBudgetPool;
 
     error Unauthorized();
     error ZeroAddress();
@@ -73,6 +84,76 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         if (caller == address(0)) revert ZeroAddress();
         authorizedCallers[caller] = allowed;
         emit AuthorizedCallerUpdated(caller, allowed);
+    }
+
+    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds) external override {
+        if (msg.sender != owner) revert Unauthorized();
+        if (poolId == bytes32(0)) revert InvalidPolicyParameters();
+        if (windowSeconds == 0) revert InvalidPolicyParameters();
+
+        _budgetPools[poolId] = PackedBudgetPool({
+            orgId: orgId,
+            totalBudget: totalBudget,
+            spentBudget: 0,
+            windowSeconds: windowSeconds,
+            windowStart: uint32(block.timestamp),
+            active: true
+        });
+
+        emit BudgetPoolCreated(poolId, orgId, totalBudget, windowSeconds);
+    }
+
+    function assignAgentToPool(address agent, bytes32 poolId) external override onlyAgentOrAdmin(agent) {
+        if (agent == address(0)) revert ZeroAddress();
+        agentBudgetPool[agent] = poolId;
+        emit AgentAssignedToPool(agent, poolId);
+    }
+
+    function getBudgetPool(bytes32 poolId) external view override returns (BudgetPool memory) {
+        PackedBudgetPool memory p = _budgetPools[poolId];
+        return BudgetPool({
+            poolId: poolId,
+            orgId: p.orgId,
+            totalBudget: p.totalBudget,
+            spentBudget: p.spentBudget,
+            windowSeconds: p.windowSeconds,
+            windowStart: p.windowStart,
+            active: p.active
+        });
+    }
+
+    function getAgentPoolId(address agent) external view override returns (bytes32) {
+        return agentBudgetPool[agent];
+    }
+
+    function batchSetPolicies(address[] calldata agents, SpendPolicy[] calldata policies) external override {
+        if (agents.length != policies.length) revert InvalidPolicyParameters();
+        for (uint256 i = 0; i < agents.length; i++) {
+            address agent = agents[i];
+            if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+            if (agent == address(0)) revert ZeroAddress();
+            SpendPolicy calldata policy = policies[i];
+            if (policy.windowSeconds == 0 || policy.maxVelocity == 0) revert InvalidPolicyParameters();
+
+            _policies[agent] = PackedPolicy({
+                maxPerTx: policy.maxPerTx,
+                maxPerWindow: policy.maxPerWindow,
+                windowSeconds: policy.windowSeconds,
+                maxVelocity: policy.maxVelocity,
+                killSwitch: policy.killSwitch,
+                whitelistEnabled: policy.whitelistEnabled,
+                isConfigured: true
+            });
+
+            emit PolicySet(
+                agent,
+                policy.maxPerTx,
+                policy.maxPerWindow,
+                policy.windowSeconds,
+                policy.maxVelocity,
+                policy.whitelistEnabled
+            );
+        }
     }
 
     function setPolicy(address agent, SpendPolicy calldata policy) external onlyAgentOrAdmin(agent) {
@@ -161,6 +242,26 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
                 reasonCode: ReasonCode.ERR_MERCHANT_NOT_ALLOWED,
                 evaluatedAtTimestamp: block.timestamp
             });
+        }
+
+        // 3.5 Check Org / Team Budget Pool
+        bytes32 poolId = agentBudgetPool[req.agent];
+        if (poolId != bytes32(0)) {
+            PackedBudgetPool memory pool = _budgetPools[poolId];
+            if (pool.active) {
+                uint128 poolSpent = pool.spentBudget;
+                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds)) {
+                    poolSpent = 0;
+                }
+                if (uint256(poolSpent) + req.amount > pool.totalBudget) {
+                    return PolicyDecision({
+                        allowed: false,
+                        allowedAmount: 0,
+                        reasonCode: ReasonCode.ERR_BUDGET_DEPLETED,
+                        evaluatedAtTimestamp: block.timestamp
+                    });
+                }
+            }
         }
 
         // 4. Check maxPerTx
@@ -255,6 +356,19 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         state.nonce = uint64(req.nonce);
 
         emit SpendRecorded(req.agent, req.amount, spentInWindow, txCountInWindow);
+
+        bytes32 poolId = agentBudgetPool[req.agent];
+        if (poolId != bytes32(0)) {
+            PackedBudgetPool storage pool = _budgetPools[poolId];
+            if (pool.active) {
+                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds)) {
+                    pool.spentBudget = 0;
+                    pool.windowStart = uint32(block.timestamp);
+                }
+                pool.spentBudget = uint128(uint256(pool.spentBudget) + req.amount);
+                emit BudgetPoolSpent(poolId, uint128(req.amount), pool.spentBudget);
+            }
+        }
     }
 
     function getAgentPolicy(address agent) external view override returns (SpendPolicy memory) {

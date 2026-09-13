@@ -20,28 +20,30 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = 'AGENTGUARD_UI_THEME';
 
-/** Reads the persisted theme preference or system preference as fallback. */
+/** Reads the persisted theme preference, defaulting strictly to dark for institutional fintech control plane. */
 function resolveInitialTheme(): Theme {
+  if (typeof window === 'undefined') return 'dark';
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
+    if (saved === 'light' || saved === 'dark') return saved;
   } catch {
-    // localStorage may be blocked in certain environments
+    // quiet fallback
   }
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light';
+  return 'dark';
 }
 
-/** Applies/removes the `dark` class on <html> for Tailwind's class-based dark mode. */
+/** Applies or removes the `dark` class on <html> and sets colorScheme for Tailwind & browser. */
 function applyThemeToDocument(theme: Theme) {
+  if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (theme === 'dark') {
     root.classList.add('dark');
     document.body?.classList.add('dark');
+    root.style.colorScheme = 'dark';
   } else {
     root.classList.remove('dark');
     document.body?.classList.remove('dark');
+    root.style.colorScheme = 'light';
   }
 }
 

@@ -11,6 +11,7 @@ export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonE
   loading?: boolean;
   loadingLabel?: string;
   leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
   fullWidth?: boolean;
 }
 
@@ -46,6 +47,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       loading = false,
       loadingLabel,
       leftIcon,
+      rightIcon,
       fullWidth = false,
       disabled,
       className = '',
@@ -73,6 +75,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           <>
             {leftIcon}
             {children}
+            {rightIcon}
           </>
         )}
       </button>

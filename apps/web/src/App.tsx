@@ -8,8 +8,8 @@ import { LandingPage } from './components/LandingPage';
 const AuthenticatedConsole = React.lazy(() => import('./AuthenticatedConsole'));
 
 const BootstrapFallback: React.FC = () => (
-  <main aria-busy="true" className="min-h-screen bg-[#F3F5FA] p-6 dark:bg-[#0c1020]">
-    <div className="mx-auto h-24 max-w-7xl animate-pulse rounded-[28px] bg-white/80 dark:bg-slate-800/80" />
+  <main aria-busy="true" className="min-h-screen bg-app p-6">
+    <div className="mx-auto h-24 max-w-7xl animate-pulse rounded-[28px] bg-card/80 border border-card-border" />
   </main>
 );
 

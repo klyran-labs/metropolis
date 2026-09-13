@@ -53,7 +53,33 @@ Act as a **Principal Web3 Fintech & Agentic Systems Architect**. Optimize for ma
 
 ---
 
-## 5. Directory Structure & Architecture Boundaries
+## 5. Multi-Tenancy, Tenant Isolation & Non-Custodial Key Lifecycle
+
+### A. Principle of Least Privilege (PoLP) Across UI
+- **Strict Tenant Boundary**: By default, every connected user operates within their isolated tenant scope (`fleetScope = 'my_agents'`).
+- **Zero Cross-Tenant Leakage**: A tenant only views and manages agents they registered or control (`agentAdmin == user.address` or provisioned in the user's session/vault). Third-party agent addresses, spend limits, and transaction patterns are strictly isolated to prevent counterparty reconnaissance.
+- **Global Network Oversight**: The global network roster (`fleetScope = 'network'`) is an explicit toggle reserved for protocol-wide auditing and verified `super_admin` operations.
+
+### B. Autonomous Agent Signer vs. Human Controller Separation
+- **Signer Separation**:
+  - The **human controller** connects via Privy / Web3 (`0xUser`) and exercises administrative authority (`setPolicy`, budget assignment, kill-switch).
+  - The **autonomous agent** possesses its own distinct cryptographic keypair (`0xAgent`) used to sign programmatic EIP-712 spend requests in headless cloud environments.
+  - An autonomous bot MUST NEVER share or possess the human controller's master private key.
+- **In-Browser 1-Click Keypair Generation**:
+  - Generated client-side using Web Crypto (`viem/accounts` `generatePrivateKey()`) with zero server transit.
+  - Displays private credentials once with copyable `.env` snippets and an optional local encrypted browser vault (`agentVault.ts`).
+
+### C. Role-Based Access Control (RBAC) Hierarchy
+1. `super_admin`: Full root access, IAM governance, global pool allocation, and emergency freeze.
+2. `sec_ops`: Threat mitigation, risk telemetry, adversarial scenario testing, and kill-switch activation.
+3. `treasury`: Budget pool configuration, spend ceilings, and merchant whitelists.
+4. `fleet_devops`: Fleet orchestration, telemetry, and runtime monitoring.
+5. `agent_developer`: Default authenticated user role. Self-serve agent provisioning, policy authoring for owned agents, and kill-switch control.
+6. `auditor`: Default guest / unauthenticated role. Read-only compliance inspection, cryptographic ledger verification, and report export.
+
+---
+
+## 6. Directory Structure & Architecture Boundaries
 
 ```
 AgentGuard/
@@ -61,9 +87,13 @@ AgentGuard/
 ├── README.md                         # Public repository overview & quickstart
 ├── docker/
 │   ├── Dockerfile.web                # High-performance Alpine Nginx container
-│   ├── Dockerfile.gateway            # Node/TypeScript x402 payment gateway
+│   ├── Dockerfile.gateway            # Multi-stage optimized Rust gateway container
 │   ├── nginx.conf                    # Nginx reverse proxy configuration
-│   └── docker-compose.yml            # Multi-service production orchestration
+│   ├── docker-compose.yml            # Local devnet orchestration (Anvil + Gateway + Web)
+│   ├── docker-compose.testnet.yml    # Monad public testnet orchestration
+│   ├── docker-compose.prod.yml       # Hardened enterprise production orchestration
+│   ├── .env.testnet.example          # Testnet environment configuration template
+│   └── .env.production.example       # Production environment secrets template
 ├── contracts/                        # Foundry workspace (Solidity 0.8.36 Cancun)
 │   ├── src/
 │   │   ├── interfaces/
@@ -77,17 +107,26 @@ AgentGuard/
 │   │   └── libraries/
 │   │       └── TransientReentrancyGuard.sol # Cancun tstore lock
 │   └── test/
-│       └── agentguard-contracts.test.mjs # Complete contract unit & invariant test suite
+│       ├── PolicyEngine.t.sol           # Authoritative Foundry test suite
+│       ├── AgentWalletGuard.t.sol       # Foundry EIP-712 & execution test suite
+│       └── agentguard-contracts.test.mjs # Fast CI parity test suite
 ├── apps/
 │   └── web/                          # Production React 19 + Vite 8 Control Plane
 │       └── src/
 │           ├── components/
 │           │   ├── LandingPage.tsx          # Public marketing & stats screen
 │           │   └── dashboard/
-│           │       ├── FleetOverview.tsx    # Active agents table & instant kill switch
+│           │       ├── FleetOverview.tsx    # Tenant-isolated fleet table & instant kill switch
+│           │       ├── AgentOnboardingModal.tsx # 1-click Web Crypto keypair generator & vault
 │           │       ├── PolicyStudio.tsx     # Visual policy authoring interface
 │           │       ├── RogueAgentSimulator.tsx # Interactive 3-scenario live testbench
+│           │       ├── AccessManagementView.tsx # IAM operator directory & permissions
 │           │       └── AuditLedger.tsx      # Verifiable onchain reason code trail
+│           ├── context/
+│           │   ├── RbacContext.tsx          # Institutional 6-tier RBAC provider
+│           │   └── DashboardContext.tsx     # Tenant-scoped agent state & actions
+│           ├── utils/
+│           │   └── agentVault.ts            # Client-side agent credentials vault
 │           └── hooks/
 │               ├── useWeb3Wallet.ts         # Real Monad wallet connection
 │               └── usePolicyContracts.ts    # Viem contract interfaces
@@ -95,15 +134,15 @@ AgentGuard/
 │   ├── shared-types/                 # Canonical TypeScript domain interfaces
 │   └── x402-middleware/              # HTTP 402 payment negotiation & error mapper
 ├── services/
-│   └── gateway/                      # Real x402 gateway (services/gateway/README.md
-│                                      # explains why it's not an npm workspace yet)
+│   └── gateway/                      # High-throughput Rust Axum x402 payment gateway
 └── scripts/
-    └── agentguard-live-demo.mjs         # Automated end-to-end live CLI demonstration
+    ├── agentguard-live-demo.mjs         # Automated end-to-end live CLI demonstration
+    └── agentguard-fleet-demo.mjs        # 20-agent multi-scenario fleet simulation
 ```
 
 ---
 
-## 6. Merge-Blocking Quality Gates
+## 7. Merge-Blocking Quality Gates
 
 1. **Deterministic Tests**: 100% pass rate:
    ```bash

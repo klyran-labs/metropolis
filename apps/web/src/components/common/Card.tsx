@@ -25,9 +25,9 @@ export const Card: React.FC<CardProps> = ({
   ...rest
 }) => (
   <div
-    className={`rounded-2xl border border-card-border shadow-xs ${
+    className={`relative rounded-2xl border border-card-border shadow-xs backdrop-blur-xl ${
       muted ? 'bg-card-muted' : 'bg-card'
-    } ${PADDING_CLASSES[padding]} ${className}`}
+    } ${PADDING_CLASSES[padding]} before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/15 before:to-transparent print:break-inside-avoid print:shadow-none print:backdrop-blur-none print:border-slate-300 print:bg-white print:before:hidden ${className}`}
     {...rest}
   >
     {children}

@@ -67,10 +67,10 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
   };
 
   const borders = {
-    success: 'border-emerald-200 dark:border-emerald-900/60 bg-white/95 dark:bg-slate-900/95',
-    error: 'border-rose-200 dark:border-rose-900/60 bg-white/95 dark:bg-slate-900/95',
-    warning: 'border-amber-200 dark:border-amber-900/60 bg-white/95 dark:bg-slate-900/95',
-    info: 'border-blue-200 dark:border-blue-900/60 bg-white/95 dark:bg-slate-900/95',
+    success: 'border-emerald-500/30 bg-card/95',
+    error: 'border-rose-500/30 bg-card/95',
+    warning: 'border-amber-500/30 bg-card/95',
+    info: 'border-primary/30 bg-card/95',
   };
 
   const progressColors = {
@@ -90,9 +90,9 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
         <div className="flex items-start space-x-3">
           {icons[toast.type]}
           <div className="space-y-1">
-            <h4 className="font-bold text-slate-900 dark:text-slate-100 text-sm">{toast.title}</h4>
+            <h4 className="font-bold text-fg text-sm">{toast.title}</h4>
             {(toast.message || toast.description) && (
-              <p className="text-slate-600 dark:text-slate-300 leading-relaxed break-words">{toast.message || toast.description}</p>
+              <p className="text-fg-muted leading-relaxed break-words">{toast.message || toast.description}</p>
             )}
             {toast.txHash && (
               <a
@@ -111,14 +111,14 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss }) => {
           type="button"
           onClick={() => onDismiss(toast.id)}
           aria-label="Close notification"
-          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition p-1 cursor-pointer"
+          className="text-fg-muted hover:text-fg transition p-1 cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Progress countdown bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-100 dark:bg-slate-800">
+      <div className="absolute bottom-0 left-0 right-0 h-1 bg-card-muted">
         <div
           className={`h-full transition-all duration-75 ${progressColors[toast.type]}`}
           style={{ width: `${progress}%` }}

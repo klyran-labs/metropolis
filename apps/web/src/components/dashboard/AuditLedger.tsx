@@ -1,19 +1,21 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CheckCircle2, XCircle, ExternalLink, Download, Search } from 'lucide-react';
 import { type PolicyDecision, ReasonCode } from '@agentguard/shared-types';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
+import { Pagination } from '../common/Pagination';
 
 export interface AuditRecord {
   id: string;
-  txHash: `0x${string}`;
+  txHash?: `0x${string}`;
   agent: `0x${string}`;
   merchant: `0x${string}`;
   amountWei: bigint;
   decision: PolicyDecision;
   timestamp: bigint;
+  isSimulated?: boolean;
 }
 
 interface AuditLedgerProps {
@@ -29,6 +31,13 @@ const DECISION_FILTERS = [
 export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
   const [decisionFilter, setDecisionFilter] = useState<'ALL' | 'ALLOW' | 'DENY'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset pagination when searching or changing filters
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, decisionFilter]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((rec) => {
@@ -38,25 +47,32 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
-        rec.txHash.toLowerCase().includes(q) ||
+        (rec.txHash && rec.txHash.toLowerCase().includes(q)) ||
         rec.agent.toLowerCase().includes(q) ||
         rec.merchant.toLowerCase().includes(q) ||
-        rec.decision.reasonMessage.toLowerCase().includes(q);
+        rec.decision.reasonMessage.toLowerCase().includes(q) ||
+        `err_${rec.decision.reasonCode}`.includes(q);
 
       return matchesDecision && matchesSearch;
     });
   }, [records, decisionFilter, searchQuery]);
 
+  const paginatedRecords = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRecords.slice(start, start + pageSize);
+  }, [filteredRecords, currentPage, pageSize]);
+
   const handleExportJSON = () => {
     const exportData = records.map((rec) => ({
       id: rec.id,
-      txHash: rec.txHash,
+      txHash: rec.txHash || 'SIMULATED_DRY_RUN',
       agent: rec.agent,
       merchant: rec.merchant,
       amountWei: rec.amountWei.toString(),
       decision: rec.decision.decision,
       reasonCode: rec.decision.reasonCode,
       reasonMessage: rec.decision.reasonMessage,
+      isSimulated: Boolean(rec.isSimulated),
       timestamp: Number(rec.timestamp),
       isoTime: new Date(Number(rec.timestamp) * 1000).toISOString(),
     }));
@@ -71,10 +87,11 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
   };
 
   const handleExportCSV = () => {
-    const headers = ['ID', 'TxHash', 'Agent', 'Merchant', 'AmountWei', 'Decision', 'ReasonCode', 'ReasonMessage', 'Timestamp'];
+    const headers = ['ID', 'Type', 'TxHash', 'Agent', 'Merchant', 'AmountWei', 'Decision', 'ReasonCode', 'ReasonMessage', 'Timestamp'];
     const rows = records.map((rec) => [
       rec.id,
-      rec.txHash,
+      rec.isSimulated ? 'SIMULATION' : 'ONCHAIN',
+      rec.txHash || 'N/A',
       rec.agent,
       rec.merchant,
       rec.amountWei.toString(),
@@ -112,7 +129,7 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tx, agent, reason..."
+              placeholder="Search code, agent, hash..."
               className="rounded-xl border border-card-border bg-card py-1.5 pl-8 pr-3 text-xs text-fg outline-none focus:border-primary"
             />
           </div>
@@ -153,15 +170,16 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
             <thead className="border-b border-card-border bg-card-muted text-xs font-semibold text-fg-muted uppercase">
               <tr>
                 <th scope="col" className="px-6 py-3">Decision & Reason</th>
+                <th scope="col" className="px-6 py-3">Type</th>
                 <th scope="col" className="px-6 py-3">Agent</th>
                 <th scope="col" className="px-6 py-3">Merchant</th>
                 <th scope="col" className="px-6 py-3">Amount</th>
                 <th scope="col" className="px-6 py-3">Reason Code</th>
-                <th scope="col" className="px-6 py-3 text-right">Monad Explorer</th>
+                <th scope="col" className="px-6 py-3 text-right">Verification</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-card-border">
-              {filteredRecords.map((rec) => {
+              {paginatedRecords.map((rec) => {
                 const isAllow = rec.decision.decision === 'ALLOW';
                 return (
                   <tr key={rec.id} className="hover:bg-card-muted transition-colors">
@@ -185,6 +203,18 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                       </div>
                     </td>
 
+                    <td className="px-6 py-4">
+                      {rec.isSimulated ? (
+                        <span className="rounded-md bg-warning-subtle px-2 py-0.5 text-[10px] font-bold text-warning font-mono">
+                          SIMULATED
+                        </span>
+                      ) : (
+                        <span className="rounded-md bg-success-subtle px-2 py-0.5 text-[10px] font-bold text-success font-mono">
+                          ONCHAIN
+                        </span>
+                      )}
+                    </td>
+
                     <td className="px-6 py-4 font-mono text-xs">
                       {rec.agent.slice(0, 6)}...{rec.agent.slice(-4)}
                     </td>
@@ -203,16 +233,20 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                       </span>
                     </td>
 
-                    <td className="px-6 py-4 text-right">
-                      <a
-                        href={`${MONAD_EXPLORER_URL}/tx/${rec.txHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center space-x-1 text-xs font-semibold text-primary hover:underline"
-                      >
-                        <span>{rec.txHash.slice(0, 8)}...</span>
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
+                    <td className="px-6 py-4 text-right font-mono text-xs">
+                      {rec.txHash ? (
+                        <a
+                          href={`${MONAD_EXPLORER_URL}/tx/${rec.txHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center space-x-1 font-semibold text-primary hover:underline"
+                        >
+                          <span>{rec.txHash.slice(0, 8)}...</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        <span className="text-fg-subtle text-[11px]">Dry Run / View</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -221,6 +255,18 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
           </table>
         </div>
       )}
+
+      {/* Pagination Controls */}
+      <Pagination
+        currentPage={currentPage}
+        pageSize={pageSize}
+        totalItems={filteredRecords.length}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setCurrentPage(1);
+        }}
+      />
     </Card>
   );
 };

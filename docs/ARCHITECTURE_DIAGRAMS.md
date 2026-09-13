@@ -45,8 +45,8 @@ flowchart TB
 
     subgraph Offchain["Offchain — apps/, services/, packages/"]
         Web["agentguard-web<br/>(apps/web — React 19 + Vite,<br/>served by Nginx)"]
-        Gateway["agentguard-gateway<br/>(services/gateway — Node.js HTTP service)"]
-        Middleware["@agentguard/x402-middleware<br/>(packages/x402-middleware —<br/>challenge/verify/reject helpers, a library,<br/>imported by Gateway, not a service itself)"]
+        Gateway["agentguard-gateway<br/>(services/gateway — Rust Axum HTTP service,<br/>Tokio + Alloy-RS)"]
+        Middleware["@agentguard/x402-middleware<br/>(packages/x402-middleware —<br/>challenge/verify/reject helpers, a library,<br/>compatible with TypeScript agent runtimes)"]
         Types["@agentguard/shared-types<br/>(packages/shared-types —<br/>canonical domain types, reason codes)"]
     end
 
@@ -139,7 +139,7 @@ flowchart TB
         end
 
         subgraph GwPods["agentguard-gateway Deployment"]
-            GwPod["Node.js container<br/>services/gateway<br/>(2 vCPU / 2GB per replica, HPA)"]
+            GwPod["Rust Alpine container<br/>services/gateway<br/>(2 vCPU / 2GB per replica, HPA)"]
         end
     end
 

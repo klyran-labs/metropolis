@@ -26,13 +26,13 @@ export const KillSwitchConfirmDialog: React.FC<KillSwitchConfirmDialogProps> = (
   <ConfirmDialog
     isOpen={isOpen}
     tone={activating ? 'danger' : 'default'}
-    title={activating ? `Halt ${agentName}?` : `Restore ${agentName}?`}
+    title={activating ? `Suspend ${agentName}?` : `Restore ${agentName}?`}
     description={
       activating
-        ? 'This submits an onchain transaction that immediately blocks every future spend evaluation for this agent — an O(1) kill switch with no bypass. It takes effect on confirmation and does not require the agent to be misbehaving right now.'
-        : 'This submits an onchain transaction that re-enables spend evaluation for this agent under its existing policy limits. Confirm only if you have verified the agent is safe to resume.'
+        ? 'This will immediately suspend all outgoing payments and transaction authorizations for this agent. Once confirmed, any payment requests initiated by this agent will be blocked until manually restored.'
+        : 'This will re-enable payment authorizations for this agent under its configured spend limits. Confirm only if you have verified the agent is safe to resume operations.'
     }
-    confirmLabel={activating ? 'Activate kill switch' : 'Restore agent'}
+    confirmLabel={activating ? 'Suspend agent' : 'Restore agent'}
     onConfirm={onConfirm}
     onCancel={onCancel}
   />

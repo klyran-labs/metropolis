@@ -1,0 +1,98 @@
+# ==============================================================================
+# AgentGuard - Production Enterprise Compose Stack
+# Hardened for Monad Metropolis Production Infrastructure
+# Adheres strictly to AGENTS.md Zero-Mock, Low-Latency & Resource Governance Mandates
+# ==============================================================================
+
+services:
+  agentguard-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: agentguard-gateway-prod
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 1024M
+        reservations:
+          cpus: "0.50"
+          memory: 256M
+    ports:
+      - "${PORT_GATEWAY:-8080}:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - MONAD_CHAIN_ID=10143
+      - MONAD_RPC_URL=${MONAD_RPC_URL:?MONAD_RPC_URL is required for production}
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:?POLICY_ENGINE_ADDRESS is required for production}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:?REPUTATION_REGISTRY_ADDRESS is required for production}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:?AGENT_WALLET_GUARD_ADDRESS is required for production}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:?USDC_TOKEN_ADDRESS is required for production}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:?GATEWAY_MERCHANT_ADDRESS is required for production}
+      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY:?GATEWAY_RELAYER_PRIVATE_KEY is required for production}
+      - PRIVY_APP_ID=${PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
+      - PRIVY_APP_SECRET=${PRIVY_APP_SECRET:-}
+      - INITIAL_SUPER_ADMIN_DIDS=${INITIAL_SUPER_ADMIN_DIDS:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - agentguard-prod-network
+
+  agentguard-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        VITE_APP_ENV: production
+        VITE_CHAIN_ID: "10143"
+        VITE_RPC_URL: ${VITE_RPC_URL:?VITE_RPC_URL is required for production}
+        VITE_POLICY_ENGINE_ADDRESS: ${POLICY_ENGINE_ADDRESS:?POLICY_ENGINE_ADDRESS is required for production}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${REPUTATION_REGISTRY_ADDRESS:?REPUTATION_REGISTRY_ADDRESS is required for production}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${AGENT_WALLET_GUARD_ADDRESS:?AGENT_WALLET_GUARD_ADDRESS is required for production}
+        VITE_USDC_TOKEN_ADDRESS: ${USDC_TOKEN_ADDRESS:?USDC_TOKEN_ADDRESS is required for production}
+        VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
+    container_name: agentguard-web-prod
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    ports:
+      - "${PORT_WEB:-80}:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      agentguard-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - agentguard-prod-network
+
+networks:
+  agentguard-prod-network:
+    driver: bridge

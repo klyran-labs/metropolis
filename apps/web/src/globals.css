@@ -3,6 +3,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.02);
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
   --shadow-md: 0 2px 6px -1px rgba(0, 0, 0, 0.03), 0 1px 3px -1px rgba(0, 0, 0, 0.02);
@@ -11,7 +14,7 @@
   --shadow-2xl: 0 10px 24px -5px rgba(0, 0, 0, 0.06), 0 6px 10px -4px rgba(0, 0, 0, 0.02);
 
   /* Radius scale, mapped to the tokens below so rounded-card / rounded-pill work. */
-  --radius-card: 1.75rem;
+  --radius-card: 1.25rem;
   --radius-pill: 9999px;
 
   /*
@@ -63,48 +66,48 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 @layer base {
-  /* ── Light Mode Tokens ─────────────────────────────────────────── */
+  /* ── Default Light Mode Tokens (:root active when html has no .dark class) ── */
   :root {
-    /* Surface */
-    --background:           #f3f5fa;
-    --background-subtle:    #ffffff;
-    --card-bg:              #ffffff;
-    --card-bg-elevated:     #ffffff;
-    --card-bg-muted:        #f8fafc;
-    --card-border:          #e2e8f0;
-    --card-border-hover:    #254bff;
+    /* Surfaces: Institutional Slate-White Modern Executive Palette with subtle violet warmth */
+    --background:           #f8f9fd;   /* Soft slate-lavender canvas */
+    --background-subtle:    #ffffff;   /* Elevated workspace container */
+    --card-bg:              #ffffff;   /* Pure white card surface */
+    --card-bg-elevated:     #ffffff;   /* Elevated card surface */
+    --card-bg-muted:        #f3f4fa;   /* Subtle table/row/subpanel fill */
+    --card-border:          #e5e7f2;   /* Precision border */
+    --card-border-hover:    rgba(124, 58, 237, 0.4);
 
-    /* Brand */
-    --primary:              #254bff;
-    --primary-hover:        #1d40df;
-    --primary-subtle:       rgba(37, 75, 255, 0.08);
+    /* Brand: Material Design 3 Deep Royal Purple */
+    --primary:              #7c3aed;   /* Rich royal purple (high contrast WCAG AAA) */
+    --primary-hover:        #6d28d9;   /* Deep violet hover */
+    --primary-subtle:       rgba(124, 58, 237, 0.08);
 
     /* Accents */
     --accent-cyan:          #06b6d4;
     --accent-emerald:       #10b981;
     --accent-amber:         #f59e0b;
     --accent-rose:          #f43f5e;
-    --accent-purple:        #7c3aed;
+    --accent-purple:        #9333ea;
     --accent-orange:        #f97316;
 
     /* Semantic Status (single source of truth for badges, buttons, notices) */
     --success:               #10b981;
     --success-hover:         #059669;
-    --success-subtle:        rgba(16, 185, 129, 0.08);
+    --success-subtle:        rgba(16, 185, 129, 0.10);
     --warning:               #f59e0b;
     --warning-hover:         #d97706;
-    --warning-subtle:        rgba(245, 158, 11, 0.08);
-    --danger:                #f43f5e;
-    --danger-hover:          #e11d48;
-    --danger-subtle:         rgba(244, 63, 94, 0.08);
-    --info:                  #254bff;
-    --info-hover:            #1d40df;
-    --info-subtle:           rgba(37, 75, 255, 0.08);
+    --warning-subtle:        rgba(245, 158, 11, 0.10);
+    --danger:                #f8285a;
+    --danger-hover:          #d81a48;
+    --danger-subtle:         rgba(248, 40, 90, 0.10);
+    --info:                  #7c3aed;
+    --info-hover:            #6d28d9;
+    --info-subtle:           rgba(124, 58, 237, 0.10);
 
     /* Typography */
-    --foreground:           #0f172a;
-    --foreground-muted:     #64748b;
-    --foreground-subtle:    #94a3b8;
+    --foreground:           #0f172a;   /* High-contrast Slate-900 */
+    --foreground-muted:     #475569;   /* Crisp Slate-600 */
+    --foreground-subtle:    #94a3b8;   /* Subtle Slate-400 */
 
     /* Border Radius Tokens */
     --radius-card:          1.75rem;   /* 28px — main cards */
@@ -125,40 +128,113 @@
     /* Scrollbar */
     scrollbar-color: #cbd5e1 transparent;
     scrollbar-width: thin;
+    color-scheme: light;
   }
 
   /* ── Dark Mode Tokens (applied when <html class="dark">) ─────── */
   .dark {
-    --background:           #0c1020;
-    --background-subtle:    #111827;
-    --card-bg:              #151f32;
-    --card-bg-elevated:     #1a2640;
-    --card-bg-muted:        #0f1828;
-    --card-border:          rgba(255, 255, 255, 0.08);
-    --card-border-hover:    #254bff;
+    /* Surfaces: Matte Obsidian with Monad Midnight Amethyst Undertones */
+    --background:           #0b0c10;
+    --background-subtle:    #0f1017;
+    --card-bg:              #13141d;
+    --card-bg-elevated:     #191b26;
+    --card-bg-muted:        #0f1018;
+    --card-border:          #232536;
+    --card-border-hover:    rgba(131, 110, 249, 0.45);
 
-    --primary:              #3d63ff;
-    --primary-hover:        #254bff;
-    --primary-subtle:       rgba(61, 99, 255, 0.12);
+    /* Brand: Official Monad Amethyst & Electric Violet */
+    --primary:              #836ef9;
+    --primary-hover:        #9684fa;
+    --primary-subtle:       rgba(131, 110, 249, 0.15);
 
-    --success:               #34d399;
-    --success-hover:         #10b981;
-    --success-subtle:        rgba(52, 211, 153, 0.12);
-    --warning:               #fbbf24;
-    --warning-hover:         #f59e0b;
-    --warning-subtle:        rgba(251, 191, 36, 0.12);
-    --danger:                #fb7185;
-    --danger-hover:          #f43f5e;
-    --danger-subtle:         rgba(251, 113, 133, 0.12);
-    --info:                  #3d63ff;
-    --info-hover:            #254bff;
-    --info-subtle:           rgba(61, 99, 255, 0.12);
+    --success:               #10b981;
+    --success-hover:         #059669;
+    --success-subtle:        rgba(16, 185, 129, 0.12);
+    --warning:               #f59e0b;
+    --warning-hover:         #d97706;
+    --warning-subtle:        rgba(245, 158, 11, 0.12);
+    --danger:                #f8285a;
+    --danger-hover:          #d81a48;
+    --danger-subtle:         rgba(248, 40, 90, 0.12);
+    --info:                  #836ef9;
+    --info-hover:            #9684fa;
+    --info-subtle:           rgba(131, 110, 249, 0.15);
 
-    --foreground:           #f1f5f9;
-    --foreground-muted:     #94a3b8;
-    --foreground-subtle:    #64748b;
+    --foreground:           #ffffff;
+    --foreground-muted:     #9a9cae;
+    --foreground-subtle:    #56596e;
 
-    scrollbar-color: #334155 transparent;
+    scrollbar-color: #20222b transparent;
+    color-scheme: dark;
+  }
+
+  /* View Transition root styles for theme switching */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+  ::view-transition-old(root) {
+    z-index: 1;
+  }
+  ::view-transition-new(root) {
+    z-index: 9999;
+  }
+
+  /* Universal Light-Mode Compatibility Overrides for Hardcoded Hex Surfaces */
+  html:not(.dark) .bg-\[\#0c0d12\] {
+    background-color: var(--background) !important;
+  }
+  html:not(.dark) .bg-\[\#0f1015\] {
+    background-color: var(--background-subtle) !important;
+  }
+  html:not(.dark) .bg-\[\#14151a\] {
+    background-color: var(--card-bg) !important;
+  }
+  html:not(.dark) .bg-\[\#181920\] {
+    background-color: var(--card-bg-elevated) !important;
+  }
+  html:not(.dark) .bg-\[\#101116\],
+  html:not(.dark) .bg-\[\#0d0e12\],
+  html:not(.dark) .bg-\[\#0d0e13\],
+  html:not(.dark) .bg-\[\#0e0f14\],
+  html:not(.dark) .bg-\[\#1b1c24\],
+  html:not(.dark) .bg-\[\#171c26\],
+  html:not(.dark) .bg-\[\#12131a\],
+  html:not(.dark) .bg-slate-900 {
+    background-color: var(--card-bg-muted) !important;
+  }
+  html:not(.dark) .border-\[\#20222b\],
+  html:not(.dark) .divide-\[\#20222b\]\/70 > * {
+    border-color: var(--card-border) !important;
+  }
+  html:not(.dark) .border-\[\#232530\] {
+    border-color: var(--card-border) !important;
+  }
+  html:not(.dark) .text-zinc-300 {
+    color: var(--foreground) !important;
+  }
+  html:not(.dark) .text-zinc-400 {
+    color: var(--foreground-muted) !important;
+  }
+  html:not(.dark) .text-slate-100 {
+    color: var(--foreground) !important;
+  }
+  html:not(.dark) .text-\[\#9a9cae\] {
+    color: var(--foreground-muted) !important;
+  }
+  html:not(.dark) .text-\[\#787a8d\] {
+    color: var(--foreground-muted) !important;
+  }
+
+  /* Ensure primary and danger buttons maintain high-contrast crisp white typography across all themes */
+  .bg-primary,
+  .bg-danger,
+  button.bg-primary,
+  button.bg-danger,
+  a.bg-primary,
+  span.bg-primary {
+    color: #ffffff !important;
   }
 
   /* ── Base Element Styles ─────────────────────────────────────── */
@@ -169,7 +245,7 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: var(--font-sans);
     min-height: 100vh;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
@@ -237,7 +313,7 @@
 }
 
 .pro-card:hover {
-  border-color: rgba(37, 75, 255, 0.25);
+  border-color: rgba(124, 58, 237, 0.25);
   box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.04);
 }
 
@@ -324,11 +400,11 @@ input[type="number"] {
 
 ::view-transition-new(root) {
   z-index: 99999;
-  filter: drop-shadow(0 0 30px rgba(37, 75, 255, 0.35));
+  filter: drop-shadow(0 0 30px rgba(124, 58, 237, 0.35));
 }
 
 .dark::view-transition-new(root) {
-  filter: drop-shadow(0 0 38px rgba(56, 189, 248, 0.45));
+  filter: drop-shadow(0 0 38px rgba(131, 110, 249, 0.45));
 }
 
 /* Respect the user's motion preference across shell, loading, status, and
@@ -347,5 +423,130 @@ input[type="number"] {
   ::view-transition-old(root),
   ::view-transition-new(root) {
     display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   AgentGuard Enterprise Print Architecture
+   Ensures crystal-clear, executive-ready PDF & physical printouts:
+   - Strips application sidebars, navigation icons, footers, & action buttons
+   - Resets fixed/absolute full-screen viewport layout to natural document flow
+   - Forces high-contrast light theme tokens (pure white canvas, rich dark text)
+   - Eliminates page split cutoffs on cards, stat widgets, and table rows
+   - Enforces exact print-color-adjust for badges and status indicators
+   ═══════════════════════════════════════════════════════════════════════ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 16mm 18mm;
+  }
+
+  /* Force light theme tokens regardless of user's active dark mode */
+  :root,
+  .dark,
+  html,
+  body {
+    --background: #ffffff !important;
+    --background-subtle: #ffffff !important;
+    --card-bg: #ffffff !important;
+    --card-bg-elevated: #ffffff !important;
+    --card-bg-muted: #f8fafc !important;
+    --card-border: #e2e8f0 !important;
+    --foreground: #0f172a !important;
+    --foreground-muted: #334155 !important;
+    --foreground-subtle: #64748b !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Reset fixed full-screen layout containers */
+  #root,
+  #root > div,
+  .fixed,
+  .absolute {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  /* Completely suppress navigation chrome, ambient glows & interactive widgets */
+  aside,
+  footer,
+  nav,
+  header:not(.print-letterhead),
+  button:not(.print-keep),
+  [role="alert"],
+  [role="dialog"],
+  .pointer-events-none,
+  .print-hidden,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Clean page breaking */
+  .card,
+  .break-inside-avoid,
+  .print-avoid-break,
+  table tr,
+  article,
+  section,
+  .grid > div {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tbody tr {
+    page-break-inside: avoid !important;
+  }
+
+  /* Explicit deterministic page budgeting */
+  .print-page-break-before,
+  .print\:break-before-page {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  .print-page-break-after,
+  .print\:break-after-page {
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  /* Remove shadows and backdrops that look blurry when rasterized */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Clean, sharp borders for cards and tables */
+  .border,
+  [class*="border-"] {
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Ensure text links or badges don't look broken */
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
   }
 }

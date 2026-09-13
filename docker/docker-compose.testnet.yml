@@ -1,0 +1,71 @@
+# ==============================================================================
+# AgentGuard - Public Monad Testnet Compose Stack
+# Target: Monad Testnet (Chain ID 10143, 400ms block time, 800ms finality)
+# Adheres strictly to AGENTS.md Zero-Mock and Security Invariants
+# ==============================================================================
+
+services:
+  agentguard-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: agentguard-gateway-testnet
+    restart: unless-stopped
+    ports:
+      - "${PORT_GATEWAY:-8080}:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - MONAD_CHAIN_ID=10143
+      - MONAD_RPC_URL=${MONAD_RPC_URL:-https://testnet-rpc.monad.xyz}
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:-0xf817257fed379853cDe0fa4F97AB987181B1E5Ea}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS}
+      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY}
+      - PRIVY_APP_ID=${PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
+      - PRIVY_APP_SECRET=${PRIVY_APP_SECRET:-}
+      - INITIAL_SUPER_ADMIN_DIDS=${INITIAL_SUPER_ADMIN_DIDS:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - agentguard-testnet-network
+
+  agentguard-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        VITE_APP_ENV: testnet
+        VITE_CHAIN_ID: "10143"
+        VITE_RPC_URL: ${VITE_RPC_URL:-https://testnet-rpc.monad.xyz}
+        VITE_POLICY_ENGINE_ADDRESS: ${POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
+        VITE_USDC_TOKEN_ADDRESS: ${USDC_TOKEN_ADDRESS:-0xf817257fed379853cDe0fa4F97AB987181B1E5Ea}
+        VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
+    container_name: agentguard-web-testnet
+    restart: unless-stopped
+    ports:
+      - "${PORT_WEB:-3110}:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      agentguard-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-testnet-network
+
+networks:
+  agentguard-testnet-network:
+    driver: bridge

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useWeb3Wallet } from '../../hooks/useWeb3Wallet';
+import { useDashboard } from '../../context/DashboardContext';
 import { usePrivy } from '@privy-io/react-auth';
 import {
   Bell,
@@ -16,32 +17,68 @@ import {
   Sliders,
   Play,
   FileText,
+  Search,
+  Activity,
+  User,
+  Plus,
+  MessageSquare,
+  LayoutGrid,
 } from 'lucide-react';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { NotificationDrawer } from '../common/NotificationDrawer';
+import { CommandPalette } from '../common/CommandPalette';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
 
-const NAV_SECTIONS = [
-  { to: '/fleet', label: 'Fleet', icon: Shield },
-  { to: '/lifecycle', label: 'Lifecycle', icon: Layers },
-  { to: '/studio', label: 'Policy Studio', icon: Sliders },
-  { to: '/simulator', label: 'Simulator', icon: Play },
-  { to: '/audit', label: 'Audit', icon: FileText },
+export const NAV_SECTIONS = [
+  { to: '/fleet', label: 'Fleet Command', icon: Shield },
+  { to: '/pools', label: 'Budget Pools', icon: Layers },
+  { to: '/studio', label: 'Guardrail Studio', icon: Sliders },
+  { to: '/simulator', label: 'Risk Simulator', icon: Play },
+  { to: '/audit', label: 'Audit Trail', icon: FileText },
+  { to: '/compliance', label: 'Policy Invariants', icon: ShieldCheck },
 ] as const;
 
 export const AgentGuardHeader: React.FC = () => {
   const wallet = useWeb3Wallet();
+  const location = useLocation();
+  const { refreshRoster, balanceMon, openOnboarding } = useDashboard();
   const { logout: privyLogout, user } = usePrivy();
 
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isLiveSync, setIsLiveSync] = useState(true);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
+  const currentSection = NAV_SECTIONS.find((s) => location.pathname.startsWith(s.to)) || NAV_SECTIONS[0];
+
+  // Live Auto-Sync Heartbeat (4s interval)
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+    if (!isLiveSync) return;
+    const interval = setInterval(() => {
+      refreshRoster();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [isLiveSync, refreshRoster]);
+
+  // Global Cmd+K Keyboard Shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Close account dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
         setIsAccountOpen(false);
       }
     };
@@ -49,13 +86,11 @@ export const AgentGuardHeader: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleCopyAddress = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (wallet.address) {
-      navigator.clipboard.writeText(wallet.address);
-      setCopiedAddress(true);
-      setTimeout(() => setCopiedAddress(false), 2000);
-    }
+  const handleCopyAddress = () => {
+    if (!wallet.address) return;
+    navigator.clipboard.writeText(wallet.address);
+    setCopiedAddress(true);
+    setTimeout(() => setCopiedAddress(false), 2000);
   };
 
   const truncatedAddress = wallet.address
@@ -63,113 +98,140 @@ export const AgentGuardHeader: React.FC = () => {
     : 'Not Connected';
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/90 font-sans transition-colors">
-      <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Brand Header */}
-        <div className="flex items-center space-x-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-700 font-sans font-black text-white text-base shadow-sm shadow-primary/20">
-            AG
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-lg font-black tracking-tight text-slate-900 dark:text-white uppercase">
-              Agent<span className="text-primary">Guard</span>
-            </span>
-            <span className="hidden rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-600 border border-blue-200/60 dark:bg-blue-950/60 dark:text-blue-400 dark:border-blue-800/60 sm:inline-flex">
-              CONTROL PLANE
+    <header className="fixed top-0 left-0 lg:left-16 right-0 h-16 z-30 bg-card/95 border-b border-card-border backdrop-blur-xl font-sans select-none transition-all">
+      <div className="flex h-16 w-full items-center justify-between px-4 sm:px-6">
+        {/* Left: Breadcrumb & Section Tabs */}
+        <div className="flex items-center space-x-6 min-w-0">
+          {/* Breadcrumb */}
+          <div className="flex items-center space-x-2 shrink-0">
+            <span className="text-xs font-medium text-zinc-400 hidden sm:inline">AgentGuard</span>
+            <span className="text-zinc-600 hidden sm:inline">/</span>
+            <span className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5">
+              {currentSection.label}
+              <ChevronDown className="h-3 w-3 text-zinc-500" />
             </span>
           </div>
-        </div>
 
-        {/* Primary section navigation — floating pill group, deep-linkable routes */}
-        <nav aria-label="Dashboard sections" className="hidden lg:flex items-center gap-1 rounded-full border border-card-border bg-card-muted p-1">
-          {NAV_SECTIONS.map((section) => {
-            const Icon = section.icon;
-            return (
+          {/* Sub-Navigation Horizontal Tabs */}
+          <nav aria-label="Dashboard sub-navigation" className="hidden 2xl:flex items-center space-x-1 border-l border-zinc-800/80 pl-4">
+            {NAV_SECTIONS.map((section) => (
               <NavLink
                 key={section.to}
                 to={section.to}
                 className={({ isActive }) =>
-                  `inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                    isActive ? 'bg-primary text-white shadow-xs' : 'text-fg-muted hover:text-fg hover:bg-card'
+                  `px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'text-primary bg-primary/10 font-semibold'
+                      : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'
                   }`
                 }
               >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{section.label}</span>
+                {section.label}
               </NavLink>
-            );
-          })}
-        </nav>
+            ))}
+          </nav>
+        </div>
 
-        {/* Right Actions: Network, Notifications, Theme, Account */}
-        <div className="flex items-center space-x-3">
-          <span className="hidden xl:flex items-center space-x-1.5 rounded-full border border-card-border bg-card-muted px-3 py-1 text-xs font-semibold text-fg-muted">
-            <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
-            <span>Monad Testnet · 400ms finality</span>
-          </span>
+        {/* Right Actions: Register CTA, Treasury, Search, Live Sync, Notifications, Profile */}
+        <div className="flex items-center space-x-2.5 shrink-0">
+          {/* Primary Action Button (Get Started / Register Agent) */}
+          <button
+            type="button"
+            onClick={openOnboarding}
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white px-4 py-2 text-xs font-semibold shadow-sm shadow-primary/25 transition whitespace-nowrap cursor-pointer"
+          >
+            <span>Get Started</span>
+          </button>
 
-          <ThemeToggle />
+          {/* Real Treasury Monad Balance Pill */}
+          <div className="hidden xl:flex items-center gap-1.5 rounded-lg border border-card-border bg-card-muted px-2.5 py-1 text-xs font-mono whitespace-nowrap">
+            <span className="text-[10px] text-fg-subtle uppercase">Pool:</span>
+            <span className="font-semibold text-fg whitespace-nowrap">{balanceMon} MON</span>
+          </div>
 
+          {/* Search Icon Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            title="Search (⌘K)"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:text-fg hover:bg-card-muted transition-colors"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+
+          {/* Messages / Notifications Activity Trigger */}
+          <button
+            type="button"
+            onClick={() => setIsNotificationOpen(true)}
+            title="Activity Feed"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:text-fg hover:bg-card-muted transition-colors"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </button>
+
+          {/* Command Palette Trigger */}
+          <button
+            type="button"
+            title="Command Modules"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:text-fg hover:bg-card-muted transition-colors"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+
+          {/* Bell Notifications */}
           <button
             type="button"
             onClick={() => setIsNotificationOpen(true)}
             aria-label="View activity logs and notifications"
-            className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/80 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:text-fg hover:bg-card-muted transition-colors"
           >
             <Bell className="h-4 w-4" />
           </button>
 
-          {/* Account Popover */}
-          <div className="relative" ref={accountMenuRef}>
+          {/* Account Popover (Circular Avatar Trigger) */}
+          <div className="relative shrink-0" ref={accountMenuRef}>
             <button
               type="button"
               onClick={() => setIsAccountOpen(!isAccountOpen)}
-              className="flex items-center space-x-2.5 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-1.5 pr-3 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-xs"
+              aria-label="Operator Profile Menu"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary via-purple-600 to-indigo-700 text-white shadow-xs ring-2 ring-card-border hover:ring-primary transition-all cursor-pointer shrink-0 overflow-hidden"
             >
-              <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white dark:bg-slate-700 shadow-xs border border-slate-200/60 dark:border-slate-700 text-primary">
-                <Wallet className="h-3.5 w-3.5" />
-              </div>
-              <span className="hidden sm:inline font-mono">{truncatedAddress}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              <User className="h-4 w-4" />
             </button>
 
             {isAccountOpen && (
-              <div className="absolute right-0 mt-2 w-72 origin-top-right rounded-2xl border border-slate-200/80 bg-white p-3 shadow-xl backdrop-blur-lg dark:border-slate-700 dark:bg-slate-800/95 font-sans animate-fade-in-up z-50">
-                <div className="border-b border-slate-100 dark:border-slate-700 pb-3 mb-2 px-1">
-                  <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+              <div className="absolute right-0 mt-2 w-72 origin-top-right rounded-2xl border border-card-border bg-card p-3 shadow-2xl backdrop-blur-xl font-sans animate-fade-in-up z-50">
+                <div className="border-b border-card-border pb-3 mb-2 px-1">
+                  <div className="text-[11px] font-medium text-fg-muted">
                     Operator Identity
                   </div>
                   <div className="flex items-center justify-between mt-1">
-                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
+                    <span className="font-mono text-xs font-bold text-fg">
                       {truncatedAddress}
                     </span>
                     {wallet.address && (
                       <button
                         type="button"
                         onClick={handleCopyAddress}
-                        className="rounded-md p-1 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-                        title="Copy address"
+                        className="text-fg-muted hover:text-fg transition-colors"
+                        title="Copy Address"
                       >
                         {copiedAddress ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
                         ) : (
                           <Copy className="h-3.5 w-3.5" />
                         )}
                       </button>
                     )}
                   </div>
-                  {user?.email && (
-                    <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      {user.email.address}
-                    </div>
-                  )}
                 </div>
 
-                {/* Balance & Explorer Link */}
-                <div className="space-y-1 py-1">
-                  <div className="flex items-center justify-between px-2 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-xs">
-                    <span className="text-slate-500 dark:text-slate-400">Available MON</span>
-                    <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">
+                {/* Account Details & Balances */}
+                <div className="space-y-2 py-1">
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded-xl bg-card-muted text-xs">
+                    <span className="text-fg-muted">Personal Balance:</span>
+                    <span className="font-mono font-bold text-fg">
                       {wallet.balanceMon} MON
                     </span>
                   </div>
@@ -179,26 +241,26 @@ export const AgentGuardHeader: React.FC = () => {
                       href={`${MONAD_EXPLORER_URL}/address/${wallet.address}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-between px-2 py-2 rounded-xl text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                      className="flex items-center justify-between px-2.5 py-2 rounded-xl text-xs text-zinc-300 hover:bg-zinc-800/60 transition-colors"
                     >
                       <div className="flex items-center space-x-2">
                         <ShieldCheck className="h-3.5 w-3.5 text-primary" />
                         <span>View on Monad Explorer</span>
                       </div>
-                      <ExternalLink className="h-3 w-3 text-slate-400" />
+                      <ExternalLink className="h-3 w-3 text-zinc-500" />
                     </a>
                   )}
                 </div>
 
                 {/* Sign Out */}
-                <div className="border-t border-slate-100 dark:border-slate-700 pt-2 mt-2">
+                <div className="border-t border-zinc-800/80 pt-2 mt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setIsAccountOpen(false);
                       privyLogout();
                     }}
-                    className="flex w-full items-center space-x-2 rounded-xl px-2 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                    className="flex w-full items-center space-x-2 rounded-xl px-2 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-950/30 transition-colors cursor-pointer"
                   >
                     <LogOut className="h-3.5 w-3.5" />
                     <span>Disconnect Session</span>
@@ -213,6 +275,11 @@ export const AgentGuardHeader: React.FC = () => {
       <NotificationDrawer
         isOpen={isNotificationOpen}
         onClose={() => setIsNotificationOpen(false)}
+      />
+
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
       />
     </header>
   );

@@ -24,12 +24,12 @@ forge build
 forge test -vvv           # the authoritative contract test suite — real bytecode
 ```
 
-`services/gateway` is intentionally not an npm workspace yet (see
-`services/gateway/README.md` for why); build/test it directly:
+`services/gateway` is a high-throughput Rust microservice (see
+`services/gateway/README.md`); build and test it using Cargo:
 
 ```bash
-npx tsc -p services/gateway/tsconfig.json
-node --test services/gateway/test/gateway.test.mjs
+cargo test --manifest-path services/gateway/Cargo.toml
+cargo build --release --manifest-path services/gateway/Cargo.toml
 ```
 
 ## Workflow

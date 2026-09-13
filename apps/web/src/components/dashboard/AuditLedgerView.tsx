@@ -1,41 +1,55 @@
 import React, { useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useRecentActivity } from '../../hooks/usePolicyEvents';
+import { useDashboard } from '../../context/DashboardContext';
 import { AuditLedger, type AuditRecord } from './AuditLedger';
 import { Card } from '../common/Card';
 
 /**
- * /audit — self-sufficient: reads SpendEvaluated events directly from the
- * chain (fleet-wide, not scoped to the selected agent, since an audit trail
- * needs to cover everyone) rather than depending on a prop nobody ever
- * populated. Only decided evaluations become audit rows — no fabricated
- * "allowedAmount" or evaluation timestamp beyond what the event itself and
- * its owning block attest to.
+ * /audit — comprehensive and verifiable: reads SpendEvaluated events
+ * directly from Monad Testnet and merges real-time simulated intent evaluations
+ * from the local operator console with clear provenance tagging.
  */
 export const AuditLedgerView: React.FC = () => {
   const { events, loading, error, refresh } = useRecentActivity(undefined, 200);
+  const { simulatedRecords } = useDashboard();
 
-  const records: AuditRecord[] = useMemo(
-    () =>
-      events
-        .filter((e) => e.kind === 'SPEND_EVALUATED' && e.merchant !== undefined && e.amount !== undefined)
-        .map((e) => ({
-          id: e.id,
-          txHash: e.transactionHash,
-          agent: e.agent,
-          merchant: e.merchant as `0x${string}`,
-          amountWei: e.amount as bigint,
-          decision: {
-            decision: e.allowed ? 'ALLOW' : 'DENY',
-            allowedAmount: e.allowed ? (e.amount as bigint) : 0n,
-            reasonCode: e.reasonCode!,
-            reasonMessage: e.reasonMessage ?? '',
-            evaluatedAtTimestamp: e.timestamp ?? 0n,
-          },
-          timestamp: e.timestamp ?? 0n,
-        })),
-    [events]
-  );
+  const records: AuditRecord[] = useMemo(() => {
+    const onchainRecords: AuditRecord[] = events
+      .filter((e) => e.kind === 'SPEND_EVALUATED' && e.merchant !== undefined && e.amount !== undefined && e.agent !== undefined)
+      .map((e) => ({
+        id: e.id,
+        txHash: e.transactionHash,
+        agent: e.agent as `0x${string}`,
+        merchant: e.merchant as `0x${string}`,
+        amountWei: e.amount as bigint,
+        decision: {
+          decision: e.allowed ? 'ALLOW' : 'DENY',
+          allowedAmount: e.allowed ? (e.amount as bigint) : 0n,
+          reasonCode: e.reasonCode!,
+          reasonMessage: e.reasonMessage ?? '',
+          evaluatedAtTimestamp: e.timestamp ?? 0n,
+        },
+        timestamp: e.timestamp ?? 0n,
+        isSimulated: false,
+      }));
+
+    const dryRunRecords: AuditRecord[] = simulatedRecords.map((s) => ({
+      id: s.id,
+      txHash: s.txHash,
+      agent: s.agent,
+      merchant: s.merchant,
+      amountWei: s.amountWei,
+      decision: s.decision,
+      timestamp: s.timestamp,
+      isSimulated: true,
+    }));
+
+    return [...dryRunRecords, ...onchainRecords].sort((a, b) => {
+      if (b.timestamp === a.timestamp) return 0;
+      return b.timestamp > a.timestamp ? 1 : -1;
+    });
+  }, [events, simulatedRecords]);
 
   if (error) {
     return (

@@ -1,0 +1,27 @@
+[package]
+name = "agentguard-gateway"
+version = "1.0.0"
+edition = "2024"
+authors = ["AgentGuard Principal Systems Architects"]
+
+[dependencies]
+tokio = { version = "1.53", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+alloy = { version = "0.3", features = ["full", "signer-local"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hex = "0.4"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

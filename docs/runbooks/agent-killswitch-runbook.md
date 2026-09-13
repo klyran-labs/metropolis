@@ -7,9 +7,9 @@ This runbook defines the emergency procedure to freeze an autonomous AI agent wh
 
 ## 1. Detection & Verification
 1. Check the **Audit Ledger** in the AgentGuard Console or query `ReasonCode` frequency:
-   - Spike in `ReasonCode.EXCEEDS_VELOCITY` (5).
-   - Repeated `ReasonCode.EXCEEDS_TX_LIMIT` (3).
-   - Transactions sent to unwhitelisted merchant addresses.
+   - Spike in `ReasonCode.ERR_VELOCITY_EXCEEDED` (4).
+   - Repeated `ReasonCode.ERR_MAX_PER_TX` (2) or `ReasonCode.ERR_MAX_PER_WINDOW` (3).
+   - Transactions sent to unwhitelisted merchant addresses (`ReasonCode.ERR_MERCHANT_NOT_ALLOWED` (5)).
 2. Confirm the agent address: `0x...`
 
 ---
@@ -45,5 +45,5 @@ await client.writeContract({
 ---
 
 ## 3. Verification
-Verify that subsequent `evaluate()` calls for the agent immediately return `ReasonCode.KILL_SWITCH_ACTIVE` (2).
+Verify that subsequent `evaluate()` calls for the agent immediately return `ReasonCode.ERR_KILL_SWITCH` (1).
 Recovery time: < 800ms (1 Monad block).

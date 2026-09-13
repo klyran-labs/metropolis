@@ -29,11 +29,22 @@ console.log("Settlement Chain: Monad Parallel EVM (Chain ID: 10143)");
 console.log("Deterministic Finality: ~400ms | Storage Model: Disjoint Per-Agent Slots");
 console.log("--------------------------------------------------------------------------------\n");
 
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+let localContracts = {};
+const localContractsPath = resolve(process.cwd(), "deployments/local/contracts.json");
+if (existsSync(localContractsPath)) {
+  try {
+    localContracts = JSON.parse(readFileSync(localContractsPath, "utf-8"));
+  } catch {}
+}
+
 async function main() {
-  const verifyingContract = process.env.AGENTGUARD_WALLET_GUARD_ADDRESS;
+  const verifyingContract = process.env.AGENTGUARD_WALLET_GUARD_ADDRESS || localContracts.agentWalletGuard;
   if (!verifyingContract) throw new Error("AGENTGUARD_WALLET_GUARD_ADDRESS must be configured for the live demo");
-  const tokenAddress = process.env.AGENTGUARD_TOKEN_ADDRESS;
-  if (!tokenAddress) throw new Error("AGENTGUARD_TOKEN_ADDRESS must be configured for the live demo");
+  const tokenAddress = process.env.AGENTGUARD_TOKEN_ADDRESS || localContracts.usdcToken || "0x0000000000000000000000000000000000000000";
+
   // 1. Initialize Autonomous Agent Wallet
   const agentKey = generatePrivateKey();
   const agent = privateKeyToAccount(agentKey);

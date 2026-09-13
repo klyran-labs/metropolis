@@ -146,6 +146,7 @@ export function usePolicyContracts(agentAddress: Address | null) {
           killSwitch: nextPolicy.killSwitch,
           whitelistEnabled: nextPolicy.whitelistEnabled,
         }],
+        gas: 350000n,
       });
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
@@ -155,12 +156,104 @@ export function usePolicyContracts(agentAddress: Address | null) {
     }
   }, [fetchAgentData, getWalletClient]);
 
+  const batchSetPoliciesOnchain = useCallback(async (agents: Address[], policies: SpendPolicy[]) => {
+    setWriteLoading(true);
+    setError(null);
+    try {
+      const client = await getWalletClient();
+      const formattedPolicies = policies.map((p) => ({
+        maxPerTx: p.maxPerTx,
+        maxPerWindow: p.maxPerWindow,
+        windowSeconds: p.windowSeconds,
+        maxVelocity: p.maxVelocity,
+        killSwitch: p.killSwitch,
+        whitelistEnabled: p.whitelistEnabled,
+      }));
+      const hash = await client.writeContract({
+        address: CONTRACT_ADDRESSES.policyEngine,
+        abi: POLICY_ENGINE_ABI,
+        functionName: 'batchSetPolicies',
+        args: [agents, formattedPolicies],
+        gas: 600000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await fetchAgentData();
+      return hash;
+    } finally {
+      setWriteLoading(false);
+    }
+  }, [fetchAgentData, getWalletClient]);
+
+  const createBudgetPoolOnchain = useCallback(async (poolId: `0x${string}`, orgId: `0x${string}`, totalBudget: bigint, windowSeconds: number) => {
+    setWriteLoading(true);
+    setError(null);
+    try {
+      const client = await getWalletClient();
+      const hash = await client.writeContract({
+        address: CONTRACT_ADDRESSES.policyEngine,
+        abi: POLICY_ENGINE_ABI,
+        functionName: 'createBudgetPool',
+        args: [poolId, orgId, totalBudget, windowSeconds],
+        gas: 300000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      return hash;
+    } finally {
+      setWriteLoading(false);
+    }
+  }, [getWalletClient]);
+
+  const assignAgentToPoolOnchain = useCallback(async (agent: Address, poolId: `0x${string}`) => {
+    setWriteLoading(true);
+    setError(null);
+    try {
+      const client = await getWalletClient();
+      const hash = await client.writeContract({
+        address: CONTRACT_ADDRESSES.policyEngine,
+        abi: POLICY_ENGINE_ABI,
+        functionName: 'assignAgentToPool',
+        args: [agent, poolId],
+        gas: 200000n,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await fetchAgentData();
+      return hash;
+    } finally {
+      setWriteLoading(false);
+    }
+  }, [fetchAgentData, getWalletClient]);
+
+  const getBudgetPool = useCallback(async (poolId: `0x${string}`) => {
+    const res = await publicClient.readContract({
+      address: CONTRACT_ADDRESSES.policyEngine,
+      abi: POLICY_ENGINE_ABI,
+      functionName: 'getBudgetPool',
+      args: [poolId],
+    }) as any;
+    return {
+      poolId: res.poolId,
+      orgId: res.orgId,
+      name: `Pool ${res.poolId.slice(0, 8)}…`,
+      totalBudget: res.totalBudget,
+      spentBudget: res.spentBudget,
+      windowSeconds: res.windowSeconds,
+      windowStart: BigInt(res.windowStart),
+      active: res.active,
+    };
+  }, []);
+
   const setKillSwitchOnchain = useCallback(async (targetAgent: Address, active: boolean) => {
     setWriteLoading(true);
     setError(null);
     try {
       const client = await getWalletClient();
-      const hash = await client.writeContract({ address: CONTRACT_ADDRESSES.policyEngine, abi: POLICY_ENGINE_ABI, functionName: 'setKillSwitch', args: [targetAgent, active] });
+      const hash = await client.writeContract({
+        address: CONTRACT_ADDRESSES.policyEngine,
+        abi: POLICY_ENGINE_ABI,
+        functionName: 'setKillSwitch',
+        args: [targetAgent, active],
+        gas: 250000n,
+      });
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
       return hash;
@@ -194,6 +287,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
     refresh: fetchAgentData,
     writeLoading,
     setPolicyOnchain,
+    batchSetPoliciesOnchain,
+    createBudgetPoolOnchain,
+    assignAgentToPoolOnchain,
+    getBudgetPool,
     setKillSwitchOnchain,
     evaluatePolicy,
   };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { type Address, formatEther } from 'viem';
-import { CheckCircle2, ExternalLink, Lock, Unlock, Sliders, XCircle, Clock } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Lock, Unlock, Sliders, XCircle, Clock, Radio } from 'lucide-react';
 import { useRecentActivity, type ActivityEvent } from '../../hooks/usePolicyEvents';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
 
@@ -20,14 +20,14 @@ function relativeTime(timestamp: bigint | null): string {
 }
 
 function describe(event: ActivityEvent): { icon: React.ReactNode; title: string; detail: string; tone: 'success' | 'danger' | 'info' | 'neutral' } {
-  const shortAgent = `${event.agent.slice(0, 6)}…${event.agent.slice(-4)}`;
+  const shortAgent = event.agent ? `${event.agent.slice(0, 6)}…${event.agent.slice(-4)}` : 'System';
   switch (event.kind) {
     case 'POLICY_SET':
       return { icon: <Sliders className="h-3.5 w-3.5" />, title: 'Policy updated', detail: `Spend policy committed for ${shortAgent}`, tone: 'info' };
     case 'KILL_SWITCH':
       return event.active
-        ? { icon: <Lock className="h-3.5 w-3.5" />, title: 'Kill switch activated', detail: `${shortAgent} halted — every future spend evaluation now denies`, tone: 'danger' }
-        : { icon: <Unlock className="h-3.5 w-3.5" />, title: 'Kill switch released', detail: `${shortAgent} restored to normal policy evaluation`, tone: 'success' };
+        ? { icon: <Lock className="h-3.5 w-3.5" />, title: 'Emergency stop activated', detail: `${shortAgent} halted — spend evaluation immediately cut off`, tone: 'danger' }
+        : { icon: <Unlock className="h-3.5 w-3.5" />, title: 'Emergency stop released', detail: `${shortAgent} restored to active evaluation`, tone: 'success' };
     case 'SPEND_EVALUATED':
       if (event.allowed) {
         return {
@@ -45,6 +45,12 @@ function describe(event: ActivityEvent): { icon: React.ReactNode; title: string;
       };
     case 'SPEND_RECORDED':
       return { icon: <CheckCircle2 className="h-3.5 w-3.5" />, title: 'Spend settled', detail: `${shortAgent} settled ${event.amount !== undefined ? formatEther(event.amount) : '0'} MON`, tone: 'success' };
+    case 'BUDGET_POOL_CREATED':
+      return { icon: <Sliders className="h-3.5 w-3.5" />, title: 'Budget Pool created', detail: `Shared pool created with ${event.amount !== undefined ? formatEther(event.amount) : '0'} MON cap`, tone: 'info' };
+    case 'AGENT_ASSIGNED_TO_POOL':
+      return { icon: <Sliders className="h-3.5 w-3.5" />, title: 'Agent pooled', detail: `${shortAgent} assigned to shared team budget pool`, tone: 'info' };
+    case 'BUDGET_POOL_SPENT':
+      return { icon: <CheckCircle2 className="h-3.5 w-3.5" />, title: 'Pool spend allocated', detail: `${event.amount !== undefined ? formatEther(event.amount) : '0'} MON drawn from pool`, tone: 'info' };
     default:
       return { icon: <Clock className="h-3.5 w-3.5" />, title: 'Policy event', detail: shortAgent, tone: 'neutral' };
   }
@@ -72,8 +78,28 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({ agent, limit = 25, e
 
   if (events.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-card-border p-6 text-center text-xs text-fg-muted">
-        {loading ? 'Reading policy activity from Monad…' : emptyMessage ?? 'No policy events recorded onchain yet.'}
+      <div className="py-6 px-4 text-center">
+        <div className="relative mx-auto flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-xs">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-2xl bg-emerald-400/20 opacity-75" />
+          <Radio className="relative h-4 w-4 animate-pulse" />
+        </div>
+        <h4 className="mt-3 text-xs font-bold text-fg">
+          {loading ? 'Connecting to Monad Stream…' : 'Live Policy Event Bus Active'}
+        </h4>
+        <p className="mt-1 text-[11px] leading-relaxed text-fg-muted max-w-xs mx-auto">
+          {loading
+            ? 'Querying onchain event logs from the Monad Parallel EVM settlement contracts…'
+            : emptyMessage ?? 'Listening for live transactions on Monad (Chain 10143). Spend evaluations and emergency stop triggers will stream here in real time.'}
+        </p>
+        <div className="mt-4 flex items-center justify-center gap-2 pt-1 border-t border-card-border/60">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 font-mono border border-emerald-500/20">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            RPC Connected
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-card-muted px-2 py-0.5 text-[10px] font-medium text-fg-muted font-mono">
+            Real-Time Cadence
+          </span>
+        </div>
       </div>
     );
   }

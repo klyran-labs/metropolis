@@ -35,7 +35,7 @@ export const PrivyAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       config={{
         appearance: {
           theme: 'dark',
-          accentColor: '#06b6d4',
+          accentColor: '#836ef9',
         },
         defaultChain: monadTestnet as any,
         supportedChains: [monadTestnet as any],
@@ -43,6 +43,7 @@ export const PrivyAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           ethereum: {
             createOnLogin: 'users-without-wallets',
           },
+          showWalletUIs: false,
         },
       }}
     >

@@ -172,4 +172,67 @@ export interface FleetAgent {
   reputation: ReputationSummary | null;
   status: 'ACTIVE' | 'REVOKED' | 'RATE_LIMITED';
   recentEvaluations: PolicyDecision[];
+  poolId?: Hash | null;
 }
+
+/**
+ * Org & Budget Pool Hierarchy Domain Interfaces
+ */
+export interface BudgetPool {
+  poolId: Hash;
+  orgId: Hash;
+  name: string;
+  totalBudget: bigint;
+  spentBudget: bigint;
+  windowSeconds: number;
+  windowStart: bigint;
+  active: boolean;
+  assignedAgentCount?: number;
+}
+
+export interface OrgHierarchy {
+  orgId: Hash;
+  orgName: string;
+  budgetPools: BudgetPool[];
+  totalAllocated: bigint;
+  totalSpent: bigint;
+}
+
+/**
+ * Batch Provisioning Schema
+ */
+export interface BatchProvisionPlan {
+  agents: {
+    address: Address;
+    name: string;
+    role: string;
+    policy: SpendPolicy;
+    poolId?: Hash;
+  }[];
+}
+
+/**
+ * Cryptographic Invariant & Risk Compliance Dossier
+ */
+export interface ComplianceAuditReport {
+  generatedAt: string;
+  chain: string;
+  chainId: number;
+  contractAddresses: {
+    policyEngine: Address;
+    reputationRegistry: Address;
+    agentWalletGuard: Address;
+  };
+  policyInvariants: {
+    disjointStorageSlots: boolean;
+    cancellationKillSwitchO1: boolean;
+    machineReadableReasonCodes: boolean;
+    zeroSilentFailures: boolean;
+  };
+  totalAgentsAudited: number;
+  totalPoolsAudited: number;
+  evaluatedDecisionsCount: number;
+  reasonCodeDistribution: Record<ReasonCode, number>;
+  complianceStatus: 'COMPLIANT' | 'NON_COMPLIANT';
+}
+

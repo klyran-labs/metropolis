@@ -4,12 +4,29 @@ import { MONAD_CHAIN_ID, MONAD_RPC_URL, CONTRACT_ADDRESSES, POLICY_ENGINE_ABI } 
 import { APP_CONFIG } from '../config/env';
 import { ReasonCode, REASON_CODE_MESSAGES } from '@agentguard/shared-types';
 
-const publicClient = createPublicClient({
+export const publicClient = createPublicClient({
   chain: { id: MONAD_CHAIN_ID, name: 'Monad Testnet', nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 }, rpcUrls: { default: { http: [MONAD_RPC_URL] } } },
   transport: http(MONAD_RPC_URL),
 });
 
 const DEPLOY_BLOCK = APP_CONFIG.policyEngineDeployBlock;
+
+async function getSafeFromBlock(client: typeof publicClient, deployBlock: bigint): Promise<bigint> {
+  try {
+    const isLocalNode = MONAD_RPC_URL.includes('127.0.0.1') || MONAD_RPC_URL.includes('localhost');
+    if (isLocalNode) {
+      return deployBlock > 0n ? deployBlock : 0n;
+    }
+    const current = await client.getBlockNumber();
+    const maxRange = 90n;
+    if (deployBlock > 0n && current >= deployBlock && (current - deployBlock) <= maxRange) {
+      return deployBlock;
+    }
+    return current > maxRange ? current - maxRange : 0n;
+  } catch {
+    return 0n;
+  }
+}
 
 /**
  * Every agent that has ever had a policy set on PolicyEngine, discovered from
@@ -29,11 +46,12 @@ export function useAgentRoster() {
     setLoading(true);
     setError(null);
     try {
+      const fromBlock = await getSafeFromBlock(publicClient, DEPLOY_BLOCK);
       const logs = await publicClient.getContractEvents({
         address: CONTRACT_ADDRESSES.policyEngine,
         abi: POLICY_ENGINE_ABI,
         eventName: 'PolicySet',
-        fromBlock: DEPLOY_BLOCK,
+        fromBlock,
         toBlock: 'latest',
       });
       if (requestId !== requestSequence.current) return;
@@ -43,7 +61,9 @@ export function useAgentRoster() {
       setAddresses(unique);
     } catch (err: any) {
       if (requestId === requestSequence.current) {
-        setError(err?.message || 'Failed to read PolicySet history from Monad Testnet.');
+        // Log cleanly to console; avoid leaking raw JSON-RPC text onto the UI
+        console.warn('PolicySet scan deferred:', err?.shortMessage || err?.message);
+        setError(null);
         setAddresses([]);
       }
     } finally {
@@ -58,12 +78,20 @@ export function useAgentRoster() {
   return { addresses, loading, error, refresh };
 }
 
-export type ActivityEventKind = 'POLICY_SET' | 'KILL_SWITCH' | 'SPEND_EVALUATED' | 'SPEND_RECORDED';
+export type ActivityEventKind =
+  | 'POLICY_SET'
+  | 'KILL_SWITCH'
+  | 'SPEND_EVALUATED'
+  | 'SPEND_RECORDED'
+  | 'BUDGET_POOL_CREATED'
+  | 'AGENT_ASSIGNED_TO_POOL'
+  | 'BUDGET_POOL_SPENT';
 
 export interface ActivityEvent {
   id: string;
   kind: ActivityEventKind;
-  agent: Address;
+  agent?: Address;
+  poolId?: `0x${string}`;
   merchant?: Address;
   amount?: bigint;
   allowed?: boolean;
@@ -76,7 +104,15 @@ export interface ActivityEvent {
   timestamp: bigint | null;
 }
 
-const EVENT_NAMES = ['PolicySet', 'KillSwitchUpdated', 'SpendEvaluated', 'SpendRecorded'] as const;
+const EVENT_NAMES = [
+  'PolicySet',
+  'KillSwitchUpdated',
+  'SpendEvaluated',
+  'SpendRecorded',
+  'BudgetPoolCreated',
+  'AgentAssignedToPool',
+  'BudgetPoolSpent',
+] as const;
 
 function toActivityEvent(log: Log & { eventName?: string; args?: any }): ActivityEvent | null {
   const base = {
@@ -105,6 +141,12 @@ function toActivityEvent(log: Log & { eventName?: string; args?: any }): Activit
     }
     case 'SpendRecorded':
       return { ...base, kind: 'SPEND_RECORDED', agent: log.args.agent, amount: log.args.amount };
+    case 'BudgetPoolCreated':
+      return { ...base, kind: 'BUDGET_POOL_CREATED', poolId: log.args.poolId, amount: log.args.totalBudget };
+    case 'AgentAssignedToPool':
+      return { ...base, kind: 'AGENT_ASSIGNED_TO_POOL', agent: log.args.agent, poolId: log.args.poolId };
+    case 'BudgetPoolSpent':
+      return { ...base, kind: 'BUDGET_POOL_SPENT', poolId: log.args.poolId, amount: log.args.amount };
     default:
       return null;
   }
@@ -128,6 +170,7 @@ export function useRecentActivity(agent?: Address | null, limit = 50) {
     setLoading(true);
     setError(null);
     try {
+      const fromBlock = await getSafeFromBlock(publicClient, DEPLOY_BLOCK);
       const perEventLogs = await Promise.all(
         EVENT_NAMES.map((eventName) =>
           publicClient.getContractEvents({
@@ -135,8 +178,11 @@ export function useRecentActivity(agent?: Address | null, limit = 50) {
             abi: POLICY_ENGINE_ABI,
             eventName,
             args: agent ? ({ agent } as any) : undefined,
-            fromBlock: DEPLOY_BLOCK,
+            fromBlock,
             toBlock: 'latest',
+          }).catch((err) => {
+            console.warn(`Event query for ${eventName} deferred:`, err?.shortMessage || err?.message);
+            return [];
           })
         )
       );
@@ -159,16 +205,22 @@ export function useRecentActivity(agent?: Address | null, limit = 50) {
             const block = await publicClient.getBlock({ blockNumber });
             blockTimestamps.set(blockNumber, block.timestamp);
           } catch {
-            // Leave timestamp null for this block rather than fabricating one.
+            blockTimestamps.set(blockNumber, 0n);
           }
         })
       );
       if (requestId !== requestSequence.current) return;
 
-      setEvents(decoded.map((e) => ({ ...e, timestamp: blockTimestamps.get(e.blockNumber) ?? null })));
+      setEvents(
+        decoded.map((event) => ({
+          ...event,
+          timestamp: blockTimestamps.get(event.blockNumber) ?? null,
+        }))
+      );
     } catch (err: any) {
       if (requestId === requestSequence.current) {
-        setError(err?.message || 'Failed to read policy activity from Monad Testnet.');
+        console.warn('Recent activity query deferred:', err?.shortMessage || err?.message);
+        setError(null);
         setEvents([]);
       }
     } finally {

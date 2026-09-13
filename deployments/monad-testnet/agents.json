@@ -1,0 +1,102 @@
+[
+  {
+    "name": "Inference-Compute-Procure",
+    "address": "0xAf1435509AA6aB5AFA7f8939D2c006373Ea0253d",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Firecrawl-Data-Scraper",
+    "address": "0x123ABAF7a75FE084F7F5Bf8dd7e3e6D9E6027B3b",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Model-Training-Cluster",
+    "address": "0x9B11740EA6d46b9176B1eBB69a1672BE9c2c63d8",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "DeFi-Arbitrage-Engine",
+    "address": "0x49328BE73C2EDB094E13Ac5F7D1cfb6dBBA47D15",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Treasury-Rebalance-Bot",
+    "address": "0x50748f03a458C538dF5eE231CAac25d0F2cDE5AB",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "GitHub-PR-Evaluator",
+    "address": "0x8896F2a14f223bD0017eDC81B90f267551b530C0",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Code-Review-Agent",
+    "address": "0x07135A93e437Ac249B9491C2B45c720bae0f82b8",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "API-Gateway-Settler",
+    "address": "0x5595DC0435fB439012A8fb3a11e64eEc5A3636ff",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Cloud-Instance-Bidding",
+    "address": "0x18ead7469766A8160B56DB7D91617e2c030A0875",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Vector-Index-Worker",
+    "address": "0xC568f49E55970ccB4F710c64Fbb14D9Ffa0a512D",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Sub-Graph-Indexer",
+    "address": "0x408A24bAddFd1256127Cda55ecc149A25c252d11",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Synthetic-Data-Gen",
+    "address": "0xDd7388a9d3369AB34293608b74593Bb9D04F9605",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "RPC-Node-Health-Guard",
+    "address": "0x5F167C1273D9a5084878c6F05366834BF371f0A5",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Cross-Chain-Relayer",
+    "address": "0xeaf873ddBa169C17C3c7711Fe45b240Df2aEA572",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "AP2-Mandate-Signer",
+    "address": "0xdAd4cEaa1E32E4eEc4B35D42f21AB21c6d298688",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "x402-Merchant-Payer",
+    "address": "0xDDbDEF81f0c704aE60190f89F7B47C6dc87b9e00",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Rogue-Detector-Agent",
+    "address": "0x6528598040fc2b307Ec6C9D37891f2C485aBb262",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Risk-Auditor-Bot",
+    "address": "0x6a8b32cb656559c0fC49cD7Db3ce48C074A7abe3",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Invariant-Audit-Prover",
+    "address": "0x8688bcE2B37283b2F224ab6138f8DE2727346456",
+    "role": "Autonomous Operational Agent"
+  },
+  {
+    "name": "Emergency-Cutoff-Sentinel",
+    "address": "0x9fFeC180e394584c53c8A8131276A3b26FBBb09E",
+    "role": "Autonomous Operational Agent"
+  }
+]

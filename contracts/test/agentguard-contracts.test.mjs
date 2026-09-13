@@ -72,6 +72,31 @@ class PolicyEngineSimulator {
     this.states = new Map();   // agent -> PackedState
     this.whitelists = new Map(); // `${agent}:${merchant}` -> bool
     this.usedNonces = new Map(); // `${agent}:${nonce}` -> bool
+    this.budgetPools = new Map(); // poolId -> BudgetPool
+    this.agentPools = new Map(); // agent -> poolId
+  }
+
+  createBudgetPool(poolId, orgId, totalBudget, windowSeconds) {
+    this.budgetPools.set(poolId.toLowerCase(), {
+      poolId: poolId.toLowerCase(),
+      orgId: orgId.toLowerCase(),
+      totalBudget: BigInt(totalBudget),
+      spentBudget: 0n,
+      windowSeconds: Number(windowSeconds),
+      windowStart: 0n,
+      active: true,
+    });
+  }
+
+  assignAgentToPool(agent, poolId) {
+    this.agentPools.set(agent.toLowerCase(), poolId.toLowerCase());
+  }
+
+  batchSetPolicies(agents, policies) {
+    if (agents.length !== policies.length) throw new Error("Length mismatch");
+    agents.forEach((agent, i) => {
+      this.setPolicy(agent, policies[i]);
+    });
   }
 
   setPolicy(agent, policy) {
@@ -148,6 +173,26 @@ class PolicyEngineSimulator {
           reasonCode: REASON_CODES.ERR_MERCHANT_NOT_ALLOWED,
           reasonMessage: REASON_MESSAGES[REASON_CODES.ERR_MERCHANT_NOT_ALLOWED],
         };
+      }
+    }
+
+    // 3.5 Org / Team Budget Pool check
+    const poolId = this.agentPools.get(agentKey);
+    if (poolId) {
+      const pool = this.budgetPools.get(poolId);
+      if (pool && pool.active) {
+        let poolSpent = pool.spentBudget;
+        if (pool.windowStart === 0n || currentTimestamp >= pool.windowStart + BigInt(pool.windowSeconds)) {
+          poolSpent = 0n;
+        }
+        if (poolSpent + BigInt(req.amount) > pool.totalBudget) {
+          return {
+            allowed: false,
+            allowedAmount: 0n,
+            reasonCode: REASON_CODES.ERR_BUDGET_DEPLETED,
+            reasonMessage: REASON_MESSAGES[REASON_CODES.ERR_BUDGET_DEPLETED],
+          };
+        }
       }
     }
 
@@ -233,6 +278,18 @@ class PolicyEngineSimulator {
       txCountInWindow,
       nonce: BigInt(req.nonce),
     });
+
+    const poolId = this.agentPools.get(agentKey);
+    if (poolId) {
+      const pool = this.budgetPools.get(poolId);
+      if (pool && pool.active) {
+        if (pool.windowStart === 0n || currentTimestamp >= pool.windowStart + BigInt(pool.windowSeconds)) {
+          pool.spentBudget = 0n;
+          pool.windowStart = currentTimestamp;
+        }
+        pool.spentBudget += BigInt(req.amount);
+      }
+    }
 
     return decision;
   }
@@ -629,3 +686,151 @@ test("Monad Concurrency: test_MonadParallelStateIsolation (50 concurrent agents)
     assert.equal(state.txCountInWindow, 1);
   });
 });
+
+test("PolicyEngine: test_DenyWhenBudgetPoolDepleted (ReasonCode 6)", () => {
+  const engine = new PolicyEngineSimulator();
+  const poolId = "0x0000000000000000000000000000000000000000000000000000000000000001";
+  const orgId = "0x00000000000000000000000000000000000000000000000000000000000000aa";
+  const agent1 = "0x1111111111111111111111111111111111111111";
+  const agent2 = "0x2222222222222222222222222222222222222222";
+  const merchant = "0x8888888888888888888888888888888888888888";
+
+  // Create shared budget pool with 500 max budget
+  engine.createBudgetPool(poolId, orgId, 500n, 3600);
+
+  // Configure agents with generous personal limits (1000)
+  const policy = {
+    maxPerTx: 1000n,
+    maxPerWindow: 1000n,
+    windowSeconds: 3600,
+    maxVelocity: 10,
+    killSwitch: false,
+    whitelistEnabled: false,
+  };
+  engine.setPolicy(agent1, policy);
+  engine.setPolicy(agent2, policy);
+
+  // Assign both agents to the shared pool
+  engine.assignAgentToPool(agent1, poolId);
+  engine.assignAgentToPool(agent2, poolId);
+
+  // Agent 1 spends 300 (allowed)
+  const res1 = engine.evaluateAndSpend({
+    agent: agent1,
+    merchant,
+    amount: 300n,
+    category: "0x0",
+    timestamp: 1000n,
+    deadline: 2000n,
+    nonce: 1n,
+  }, 1000n);
+  assert.equal(res1.allowed, true);
+
+  // Agent 2 attempts to spend 250 -> 300 + 250 = 550 > 500 -> REJECTED with ERR_BUDGET_DEPLETED
+  const res2 = engine.evaluateAndSpend({
+    agent: agent2,
+    merchant,
+    amount: 250n,
+    category: "0x0",
+    timestamp: 1005n,
+    deadline: 2000n,
+    nonce: 1n,
+  }, 1005n);
+  assert.equal(res2.allowed, false);
+  assert.equal(res2.reasonCode, REASON_CODES.ERR_BUDGET_DEPLETED);
+
+  // Agent 2 spends 200 -> 300 + 200 = 500 -> ALLOWED (exact pool budget)
+  const res3 = engine.evaluateAndSpend({
+    agent: agent2,
+    merchant,
+    amount: 200n,
+    category: "0x0",
+    timestamp: 1010n,
+    deadline: 2000n,
+    nonce: 1n,
+  }, 1010n);
+  assert.equal(res3.allowed, true);
+});
+
+test("PolicyEngine: test_BudgetPoolWindowRollover", () => {
+  const engine = new PolicyEngineSimulator();
+  const poolId = "0x0000000000000000000000000000000000000000000000000000000000000002";
+  const orgId = "0x00000000000000000000000000000000000000000000000000000000000000bb";
+  const agent = "0x3333333333333333333333333333333333333333";
+  const merchant = "0x8888888888888888888888888888888888888888";
+
+  engine.createBudgetPool(poolId, orgId, 100n, 100);
+  engine.setPolicy(agent, {
+    maxPerTx: 200n,
+    maxPerWindow: 200n,
+    windowSeconds: 100,
+    maxVelocity: 5,
+    killSwitch: false,
+    whitelistEnabled: false,
+  });
+  engine.assignAgentToPool(agent, poolId);
+
+  // Spend full budget in window 1
+  const spend1 = engine.evaluateAndSpend({
+    agent,
+    merchant,
+    amount: 100n,
+    category: "0x0",
+    timestamp: 1000n,
+    deadline: 2000n,
+    nonce: 1n,
+  }, 1000n);
+  assert.equal(spend1.allowed, true);
+
+  // Immediate subsequent spend rejected
+  const spend2 = engine.evaluateAndSpend({
+    agent,
+    merchant,
+    amount: 10n,
+    category: "0x0",
+    timestamp: 1010n,
+    deadline: 2000n,
+    nonce: 2n,
+  }, 1010n);
+  assert.equal(spend2.allowed, false);
+  assert.equal(spend2.reasonCode, REASON_CODES.ERR_BUDGET_DEPLETED);
+
+  // Advance time beyond pool window (100s -> 1101n) -> window resets, spend allowed
+  const spend3 = engine.evaluateAndSpend({
+    agent,
+    merchant,
+    amount: 50n,
+    category: "0x0",
+    timestamp: 1105n,
+    deadline: 2000n,
+    nonce: 3n,
+  }, 1105n);
+  assert.equal(spend3.allowed, true);
+});
+
+test("PolicyEngine: test_BatchSetPolicies", () => {
+  const engine = new PolicyEngineSimulator();
+  const agents = [
+    "0x4444444444444444444444444444444444444441",
+    "0x4444444444444444444444444444444444444442",
+    "0x4444444444444444444444444444444444444443",
+  ];
+  const policies = agents.map((_, i) => ({
+    maxPerTx: BigInt(100 * (i + 1)),
+    maxPerWindow: BigInt(500 * (i + 1)),
+    windowSeconds: 3600,
+    maxVelocity: 5,
+    killSwitch: false,
+    whitelistEnabled: false,
+  }));
+
+  engine.batchSetPolicies(agents, policies);
+
+  agents.forEach((agent, i) => {
+    const p = engine.policies.get(agent.toLowerCase());
+    assert.ok(p);
+    assert.equal(p.maxPerTx, BigInt(100 * (i + 1)));
+    assert.equal(p.isConfigured, true);
+  });
+});
+

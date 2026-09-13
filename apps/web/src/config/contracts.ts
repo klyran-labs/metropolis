@@ -15,6 +15,11 @@ export const CONTRACT_ADDRESSES = {
 
 export const POLICY_ENGINE_ABI = parseAbi([
   'function setPolicy(address agent, (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled) policy) external',
+  'function batchSetPolicies(address[] agents, (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled)[] policies) external',
+  'function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds) external',
+  'function assignAgentToPool(address agent, bytes32 poolId) external',
+  'function getBudgetPool(bytes32 poolId) external view returns ((bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint128 spentBudget, uint32 windowSeconds, uint32 windowStart, bool active))',
+  'function getAgentPoolId(address agent) external view returns (bytes32)',
   'function setKillSwitch(address agent, bool active) external',
   'function setMerchantWhitelist(address agent, address merchant, bool allowed) external',
   'function evaluate((address agent, address merchant, uint256 amount, bytes32 category, uint256 timestamp, uint256 deadline, uint256 nonce) req) external view returns ((bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp))',
@@ -28,6 +33,9 @@ export const POLICY_ENGINE_ABI = parseAbi([
   'event MerchantWhitelistUpdated(address indexed agent, address indexed merchant, bool allowed)',
   'event SpendEvaluated(address indexed agent, address indexed merchant, uint256 amount, bool allowed, uint8 reasonCode)',
   'event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow)',
+  'event BudgetPoolCreated(bytes32 indexed poolId, bytes32 indexed orgId, uint128 totalBudget, uint32 windowSeconds)',
+  'event AgentAssignedToPool(address indexed agent, bytes32 indexed poolId)',
+  'event BudgetPoolSpent(bytes32 indexed poolId, uint128 amount, uint128 totalSpent)',
 ]);
 
 export const REPUTATION_REGISTRY_ABI = parseAbi([

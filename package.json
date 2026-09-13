@@ -10,8 +10,11 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs",
-    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspace=@agentguard/web",
+    "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs",
+    "test:gateway": "cargo test --manifest-path services/gateway/Cargo.toml",
+    "admin:set-role": "node scripts/set-privy-role.mjs",
+    "lint": "node scripts/verify-theme-contract.mjs && npm run lint --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"
   },
   "devDependencies": {

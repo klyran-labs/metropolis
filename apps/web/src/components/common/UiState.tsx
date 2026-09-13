@@ -24,7 +24,7 @@ export interface SkeletonProps {
 export const SkeletonBox: React.FC<SkeletonProps> = ({ className = 'h-4 w-full' }) => (
   <div
     aria-hidden="true"
-    className={`bg-slate-200/70 dark:bg-slate-700/60 animate-pulse rounded-xl ${className}`}
+    className={`bg-card-muted animate-pulse rounded-xl ${className}`}
   />
 );
 
@@ -38,9 +38,9 @@ export const SkeletonCard: React.FC = () => (
       <SkeletonBox className="h-6 w-16 rounded-full" />
     </div>
     <SkeletonBox className="h-8 w-40" />
-    <div className="space-y-2 pt-2">
-      <SkeletonBox className="h-3 w-full" />
-      <SkeletonBox className="h-3 w-3/4" />
+    <div className="grid grid-cols-2 gap-3 pt-2">
+      <SkeletonBox className="h-12 rounded-xl" />
+      <SkeletonBox className="h-12 rounded-xl" />
     </div>
   </div>
 );
@@ -56,11 +56,11 @@ export const SkeletonTableRow: React.FC<{ cols?: number }> = ({ cols = 5 }) => (
 );
 
 // ============================================================================
-// 2. Truthful Empty State
+// 2. Honest Zero-State Component (AGENTS.md Mandate #1)
 // ============================================================================
 
-export interface EmptyStateProps {
-  icon?: LucideIcon;
+export interface HonestEmptyStateProps {
+  icon: React.ElementType;
   title: string;
   description: string;
   actionLabel?: string;
@@ -70,8 +70,8 @@ export interface EmptyStateProps {
   className?: string;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
-  icon: Icon = Layers,
+export const HonestEmptyState: React.FC<HonestEmptyStateProps> = ({
+  icon: Icon,
   title,
   description,
   actionLabel,
@@ -84,12 +84,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     <div
       className={`bg-card border border-card-border rounded-[28px] p-10 sm:p-14 text-center space-y-4 shadow-sm font-sans ${className}`}
     >
-      <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center mx-auto shadow-inner">
-        <Icon className="w-7 h-7 text-slate-600 dark:text-slate-300" />
+      <div className="w-14 h-14 rounded-2xl bg-card-muted text-fg-muted flex items-center justify-center mx-auto shadow-inner">
+        <Icon className="w-7 h-7 text-primary" />
       </div>
       <div className="max-w-md mx-auto">
-        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">{title}</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{description}</p>
+        <h3 className="text-base font-bold text-fg">{title}</h3>
+        <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{description}</p>
       </div>
       {(actionLabel || secondaryActionLabel) && (
         <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -106,7 +106,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             <button
               type="button"
               onClick={onSecondaryAction}
-              className="px-5 py-2.5 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer"
+              className="px-5 py-2.5 rounded-full bg-card-muted hover:bg-card border border-card-border text-fg text-xs font-semibold transition cursor-pointer"
             >
               {secondaryActionLabel}
             </button>
@@ -149,15 +149,15 @@ export interface StatusBadgeProps {
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' }) => {
   const norm = status.toUpperCase().replace(/\s+/g, '_');
 
-  let bg = 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600';
-  let dot = 'bg-slate-400';
+  let bg = 'bg-card-muted text-fg-muted border-card-border';
+  let dot = 'bg-fg-subtle';
 
   switch (norm) {
     case 'ACTIVE':
     case 'HEALTHY':
     case 'ONLINE':
     case 'COMPLETED':
-      bg = 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200/70 dark:border-emerald-800/60';
+      bg = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
       dot = 'bg-emerald-500';
       break;
     case 'SUBMITTED':
@@ -166,27 +166,27 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'sm' })
     case 'FUNDS_LOCKED':
     case 'PROVISIONING':
     case 'AWAITING_SIGNATURE':
-      bg = 'bg-blue-50 dark:bg-blue-950/40 text-primary border-blue-200/70 dark:border-blue-800/60';
+      bg = 'bg-primary/10 text-primary border-primary/30';
       dot = 'bg-primary animate-pulse';
       break;
     case 'SETTLEMENT_PENDING':
     case 'EXPIRING':
     case 'DEGRADED':
     case 'DRAINING':
-      bg = 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-amber-200/70 dark:border-amber-800/60';
+      bg = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
       dot = 'bg-amber-500 animate-pulse';
       break;
     case 'FAILED':
     case 'CANCELLED':
     case 'OFFLINE':
-      bg = 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200/70 dark:border-rose-800/60';
+      bg = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30';
       dot = 'bg-rose-500';
       break;
     case 'UNAVAILABLE':
     case 'MAINTENANCE':
     case 'DRAFT':
-      bg = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
-      dot = 'bg-slate-400';
+      bg = 'bg-card-muted text-fg-muted border-card-border';
+      dot = 'bg-fg-subtle';
       break;
   }
 
@@ -240,24 +240,24 @@ export const TruthfulNotice: React.FC<TruthfulNoticeProps> = ({
 }) => {
   const styles = {
     info: {
-      bg: 'bg-blue-50/80 dark:bg-blue-950/30 border-blue-200/70 dark:border-blue-800/60 text-blue-900 dark:text-blue-200',
+      bg: 'bg-primary/10 border-primary/25 text-primary',
       icon: Info,
       iconColor: 'text-primary',
     },
     warning: {
-      bg: 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200/70 dark:border-amber-800/60 text-amber-900 dark:text-amber-200',
+      bg: 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400',
       icon: AlertCircle,
-      iconColor: 'text-amber-600 dark:text-amber-400',
+      iconColor: 'text-amber-500',
     },
     danger: {
-      bg: 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-200/70 dark:border-rose-800/60 text-rose-900 dark:text-rose-200',
+      bg: 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400',
       icon: ShieldAlert,
-      iconColor: 'text-rose-600 dark:text-rose-400',
+      iconColor: 'text-rose-500',
     },
     success: {
-      bg: 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200/70 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200',
+      bg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400',
       icon: CheckCircle2,
-      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      iconColor: 'text-emerald-500',
     },
   }[variant];
 
@@ -271,14 +271,14 @@ export const TruthfulNotice: React.FC<TruthfulNoticeProps> = ({
         <IconComp className={`w-4 h-4 shrink-0 mt-0.5 ${styles.iconColor}`} />
         <div>
           {title && <span className="font-bold block tracking-wide mb-0.5">{title}</span>}
-          <span className="text-slate-600 dark:text-slate-300 leading-relaxed block">{message}</span>
+          <span className="text-fg-muted leading-relaxed block">{message}</span>
         </div>
       </div>
       {actionLabel && onAction && (
         <button
           type="button"
           onClick={onAction}
-          className="shrink-0 px-3.5 py-1.5 rounded-full bg-card hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs transition shadow-sm cursor-pointer"
+          className="shrink-0 px-3.5 py-1.5 rounded-full bg-card hover:bg-card-muted border border-card-border text-fg font-semibold text-xs transition shadow-sm cursor-pointer"
         >
           {actionLabel}
         </button>
