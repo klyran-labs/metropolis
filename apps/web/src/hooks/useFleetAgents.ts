@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPublicClient, http, type Address } from 'viem';
-import { MONAD_CHAIN_ID, MONAD_RPC_URL, CONTRACT_ADDRESSES, POLICY_ENGINE_ABI, REPUTATION_REGISTRY_ABI } from '../config/contracts';
+import { type Address } from 'viem';
+import { CONTRACT_ADDRESSES, POLICY_ENGINE_ABI, REPUTATION_REGISTRY_ABI, publicClient } from '../config/contracts';
 import { type FleetAgent, type SpendPolicy, type AgentSpendState, type ReputationSummary } from '@agentguard/shared-types';
 import knownAgents from '@deployments/monad-testnet/agents.json';
+import { formatWeb3ErrorMessage } from '../utils/errors';
 
 const AGENT_MANIFEST_MAP = new Map<string, { name: string; role: string }>();
 if (Array.isArray(knownAgents)) {
@@ -12,11 +13,6 @@ if (Array.isArray(knownAgents)) {
     }
   }
 }
-
-const publicClient = createPublicClient({
-  chain: { id: MONAD_CHAIN_ID, name: 'Monad Testnet', nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 }, rpcUrls: { default: { http: [MONAD_RPC_URL] } } },
-  transport: http(MONAD_RPC_URL),
-});
 
 async function readOneAgent(address: Address): Promise<FleetAgent | null> {
   const [policyRes, stateRes, metricsRes, poolIdRes] = await Promise.all([
@@ -115,7 +111,7 @@ export function useFleetAgents(addresses: Address[]) {
       setAgents(results.filter((a): a is FleetAgent => a !== null));
     } catch (err: any) {
       if (requestId === requestSequence.current) {
-        setError(err?.message || 'Failed to read agent fleet from Monad Testnet.');
+        setError(formatWeb3ErrorMessage(err));
         setAgents([]);
       }
     } finally {

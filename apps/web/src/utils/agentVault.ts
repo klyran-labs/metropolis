@@ -5,6 +5,8 @@ export interface StoredAgentCredential {
   name: string;
   role: string;
   privateKey?: `0x${string}`;
+  openSignerWalletId?: string;
+  signerType?: 'web_crypto' | 'opensigner' | 'imported';
   createdAt: string;
 }
 

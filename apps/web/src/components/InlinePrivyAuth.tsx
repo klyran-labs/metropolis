@@ -9,6 +9,7 @@ import {
   Shield,
   CheckCircle2,
 } from 'lucide-react';
+import { formatAuthErrorMessage } from '../utils/errors';
 
 export const InlinePrivyAuth: React.FC = () => {
   const { authenticated: isPrivyAuthenticated } = usePrivy();
@@ -17,7 +18,7 @@ export const InlinePrivyAuth: React.FC = () => {
       setError(null);
     },
     onError: (err) => {
-      setError(typeof err === 'string' ? err : (err as any)?.message || 'Wallet authentication failed.');
+      setError(formatAuthErrorMessage(err));
     },
   });
 
@@ -61,7 +62,7 @@ export const InlinePrivyAuth: React.FC = () => {
       await sendCode({ email: email.trim() });
       setStep('code');
     } catch (err: any) {
-      setError(err?.message || 'Failed to send verification code. You may also connect directly with a Web3 wallet.');
+      setError(formatAuthErrorMessage(err));
     }
   };
 
@@ -77,7 +78,7 @@ export const InlinePrivyAuth: React.FC = () => {
     try {
       await loginWithCode({ code: fullCode });
     } catch (err: any) {
-      setError(err?.message || 'Invalid or expired confirmation code. Please try again.');
+      setError(formatAuthErrorMessage(err));
     }
   };
 
@@ -86,7 +87,7 @@ export const InlinePrivyAuth: React.FC = () => {
     try {
       await sendCode({ email: email.trim() });
     } catch (err: any) {
-      setError(err?.message || 'Failed to resend confirmation code.');
+      setError(formatAuthErrorMessage(err));
     }
   };
 
@@ -96,7 +97,7 @@ export const InlinePrivyAuth: React.FC = () => {
     try {
       await loginWithPrivy();
     } catch (err: any) {
-      setError(err?.message || 'Wallet connection was cancelled.');
+      setError(formatAuthErrorMessage(err));
     } finally {
       setIsConnectingWallet(false);
     }

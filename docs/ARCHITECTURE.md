@@ -169,8 +169,55 @@ During agent onboarding in the Web Control Plane:
 2. The private key is displayed to the developer **once** alongside an exported `.env` configuration snippet.
 3. The address and metadata are saved to the user-scoped tenant store (`agentVault.ts`) in browser storage. The browser does NOT act as an ongoing transaction signer for the agent; the agent signs independently in its own runtime.
 
-### C. Enterprise Signer & Openfort / OpenSigner Readiness
-For institutional and high-assurance deployments, AgentGuard is engineered to interface directly with headless key management infrastructure:
-- **Openfort / OpenSigner**: Headless smart accounts with session keys and programmable spending limits.
-- **AWS KMS / Google Cloud KMS**: HSM-backed secp256k1 keys for enterprise microservices.
-- **TEE Enclaves (e.g., AWS Nitro, Flashbots SGX)**: Confidential compute environments where autonomous LLM agents sign EIP-712 payloads with verifiable code integrity.
+### C. Self-Hosted OpenSigner Enclave Architecture (`services/opensigner`)
+
+For institutional and enterprise deployments requiring that raw private keys never touch client code, disk files in plaintext, or LLM agent memory, AgentGuard provides a self-hosted signing enclave microservice (`services/opensigner`, Port `3001`):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   Self-Hosted OpenSigner Enclave Container                  │
+│                                                                             │
+│   HTTP Ingress (Port 3001)                                                  │
+│   ├── POST /api/v1/wallets               ──► Generate secp256k1 Keypair     │
+│   │                                          Derive Wallet ID               │
+│   │                                          Seal in AES-256-GCM Vault      │
+│   │                                          Persist to /data/wallets.json  │
+│   │                                                                         │
+│   └── POST /api/v1/sign-spend-request    ──► Unseal in-memory               │
+│                                              Verify Wallet ID & Agent match │
+│                                              Sign EIP-712 Typed Data        │
+│                                              Zero plaintext key exposure    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Cryptographic Vault & Key Derivation**:
+   - **Cipher**: AES-256-GCM authenticated symmetric encryption with 96-bit random IVs and 128-bit authentication tags.
+   - **Key Derivation Function**: Master encryption keys are derived from `OPENSIGNER_MASTER_KEY` using `scrypt` ($N=16384, r=8, p=1, dkLen=32$) with unique per-vault salts to resist GPU-accelerated dictionary attacks.
+   - **Atomic Persistence**: Vault state is written atomically via temporary files before renaming (`fs.renameSync`) to guarantee zero corruption during unexpected power cuts or container termination.
+
+2. **Isolated EIP-712 Programmatic Signing**:
+   - The enclave signs EIP-712 `SpendRequest` intents targeting the Monad Parallel EVM (Chain ID `10143`, verifying contract: `AgentWalletGuard`).
+   - The signing engine unseals the private key into memory for the duration of the signature computation and returns only the canonical `0x`-prefixed 65-byte ECDSA signature (`r`, `s`, `v`).
+   - Private keys are never returned across HTTP interfaces and are omitted from all logs.
+
+3. **Enterprise Key Management Interoperability**:
+   - In addition to the local self-hosted OpenSigner container, AgentGuard architecture cleanly abstracts the signing interface to support:
+     - **AWS KMS / Google Cloud KMS**: Cloud HSM-backed secp256k1 key rings.
+     - **Confidential TEE Enclaves (AWS Nitro / Flashbots SGX)**: Attested confidential VMs where LLM agents run in cryptographically verified enclaves.
+     - **Turnkey / Openfort**: Multi-party computation (MPC) and policy-controlled session signers.
+
+---
+
+## 8. Modern EIPs & Agentic Blockchain Primitives (Non-Proxy)
+
+AgentGuard avoids upgradeable storage proxies (e.g. ERC-1967) to eliminate global implementation slot read contention on Monad's Parallel EVM. Instead, extensibility and modularity are achieved via native standard EIP primitives:
+
+| Primitive | Contract / Service | Architectural Function |
+| :--- | :--- | :--- |
+| **ERC-1271** | [`AgentWalletGuard.sol`](../contracts/src/core/AgentWalletGuard.sol) | Validates Safe smart accounts, DAOs, and threshold clusters via `isValidSignature(bytes32,bytes)`. |
+| **EIP-2612 / EIP-3009** | [`AgentWalletGuard.sol`](../contracts/src/core/AgentWalletGuard.sol) | `executeGatedPaymentWithPermit` bundles permit approvals with gated settlement in a single atomic transaction without prior `approve()` calls. |
+| **EIP-7702** | [`AgentDelegationAccount.sol`](../contracts/src/core/AgentDelegationAccount.sol) | Immutable target contract for Pectra/Prague EOA delegation. Enforces `PolicyEngine` spend limits directly within the delegating EOA context. |
+| **ERC-7579** | [`AgentGuardHookModule.sol`](../contracts/src/core/AgentGuardHookModule.sol) | Modular account hook (`type 4`) and validator (`type 1`) for Kernel, Safe ERC-7579, and Biconomy. Runs pre-checks via `PolicyEngine` and post-checks via `ReputationRegistry`. |
+| **EIP-6551** | [`AgentIdentityRegistry.sol`](../contracts/src/core/AgentIdentityRegistry.sol), [`AgentAccount.sol`](../contracts/src/core/AgentAccount.sol) | Deterministic Token Bound Account registry. Binds the agent's wallet address, spend policy, and reputation score to an ERC-721 NFT passport. |
+| **ERC-7677** | [`services/gateway`](../services/gateway) | Standard JSON-RPC Paymaster RPC endpoints (`pm_getPaymasterStubData`, `pm_getPaymasterData`) enabling gasless stablecoin agent transactions. |
+| **TEE Attestation** | [`EnclaveAttestationRegistry.sol`](../contracts/src/core/EnclaveAttestationRegistry.sol), [`services/opensigner`](../services/opensigner) | Hardware enclave measurement generation (`mrenclave`) via OpenSigner with onchain verification in `EnclaveAttestationRegistry`. |

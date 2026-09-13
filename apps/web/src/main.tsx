@@ -9,11 +9,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 const App = React.lazy(() => import("./App"));
 const PrivyAuthProvider = React.lazy(() => import("./components/PrivyAuthProvider"));
 
-const BootstrapFallback: React.FC = () => (
-  <main aria-busy="true" className="min-h-screen bg-app p-6">
-    <div className="mx-auto h-24 max-w-7xl animate-pulse rounded-[28px] bg-card/80 border border-card-border" />
-  </main>
-);
+import { ConsoleSkeleton } from "./components/common/ConsoleSkeleton";
 
 const rootElement = document.getElementById("root");
 
@@ -23,7 +19,7 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <Suspense fallback={<BootstrapFallback />}>
+    <Suspense fallback={<ConsoleSkeleton isFullApp />}>
       <PrivyAuthProvider>
         <ThemeProvider>
           <App />

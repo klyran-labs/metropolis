@@ -1,9 +1,19 @@
-import { parseAbi } from 'viem';
+import { parseAbi, createPublicClient, http } from 'viem';
 import { APP_CONFIG } from './env';
 
 export const MONAD_CHAIN_ID = APP_CONFIG.chainId;
 export const MONAD_RPC_URL = APP_CONFIG.rpcUrl;
 export const MONAD_EXPLORER_URL = 'https://testnet.monadexplorer.com';
+
+export const publicClient = createPublicClient({
+  chain: {
+    id: MONAD_CHAIN_ID,
+    name: 'Monad Testnet',
+    nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+    rpcUrls: { default: { http: [MONAD_RPC_URL] } },
+  },
+  transport: http(MONAD_RPC_URL),
+});
 
 // Deployed AgentGuard contract addresses on Monad Testnet (Chain ID 10143)
 export const CONTRACT_ADDRESSES = {

@@ -4,12 +4,6 @@ The official **AgentGuard** Enterprise Web Control Plane for Agentic Payments on
 
 ---
 
-# @agentguard/web
-
-The official **AgentGuard** Enterprise Web Control Plane for Agentic Payments on Monad Parallel EVM. Built with React 19, Vite 8, TailwindCSS v4, React Router v7, and Viem 2.x.
-
----
-
 ## Agent Risk Control Architecture
 
 AgentGuard provides real-time control, monitoring, and safety rails for autonomous AI agents executing onchain payments:
@@ -22,9 +16,10 @@ AgentGuard provides real-time control, monitoring, and safety rails for autonomo
 - **Honest Enterprise Empty States**: When an operator has 0 agents, renders clean onboarding guidance with zero synthetic or mock placeholders.
 
 ### 2. 🔑 Self-Serve Agent Provisioning & Key Vault
-- **Dual-Mode Onboarding**:
-  - **Client-Side Key Generation**: Generates cryptographically secure secp256k1 keypairs locally in the browser via Web Crypto (`crypto.getRandomValues`). Provides a one-time copyable `.env` snippet (`AGENT_PRIVATE_KEY`) for autonomous headless agent runtimes.
-  - **Bring-Your-Own (BYO) Agent Address**: Register existing agent smart contract or EOA addresses.
+- **Triple-Mode Onboarding**:
+  - **Self-Hosted OpenSigner Enclave**: 1-click sealed key generation communicating with the isolated OpenSigner microservice (`http://localhost:3001/api/v1/wallets`). Private keys are encrypted at rest with AES-256-GCM + `scrypt` and sealed on disk; raw keys are never leaked to the browser.
+  - **Client-Side Key Generation (Web Crypto)**: Generates cryptographically secure secp256k1 keypairs locally in the browser via Web Crypto (`crypto.getRandomValues`). Provides a one-time copyable `.env` snippet (`AGENT_PRIVATE_KEY`) for autonomous headless agent runtimes.
+  - **Bring-Your-Own (BYO) Agent Address**: Register existing external signer addresses (AWS KMS, Turnkey, MPC).
 - **User-Scoped Vault (`agentVault.ts`)**: Persists tenant-scoped agent addresses and metadata in browser storage isolated by the connected operator's address.
 
 ### 3. 👥 Enterprise Role-Based Access Control (RBAC)

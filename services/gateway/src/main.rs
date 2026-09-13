@@ -11,8 +11,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use agentguard_gateway::config::Config;
 use agentguard_gateway::handlers::{
-    get_user_role_handler, health_handler, inference_handler, ready_handler,
-    update_user_role_handler, AppState,
+    get_user_role_handler, health_handler, inference_handler, paymaster_rpc_handler,
+    ready_handler, update_user_role_handler, AppState,
 };
 
 #[tokio::main]
@@ -65,6 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // x402 Protocol Routes
         .route("/v1/inference", get(inference_handler).post(inference_handler))
         .route("/api/v1/inference", get(inference_handler).post(inference_handler))
+        // ERC-7677 Paymaster RPC Routes
+        .route("/v1/paymaster", axum::routing::post(paymaster_rpc_handler))
+        .route("/api/v1/paymaster", axum::routing::post(paymaster_rpc_handler))
         // Privy Role Administration Routes
         .route("/api/v1/users/:did/role", get(get_user_role_handler).post(update_user_role_handler))
         .layer(cors)

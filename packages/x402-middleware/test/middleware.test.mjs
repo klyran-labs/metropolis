@@ -66,4 +66,8 @@ test("x402: policy rejection maps onchain reason code to diagnostic HTTP 403", (
   assert.equal(rejection.body.reasonCode, ReasonCode.ERR_VELOCITY_EXCEEDED);
   assert.ok(rejection.body.reasonMessage.includes("Rate limit tripped"));
   assert.ok(rejection.body.remediation.includes("Throttle request rate"));
+
+  const budgetRejection = createPolicyRejectionResponse(ReasonCode.ERR_BUDGET_DEPLETED, agent);
+  assert.equal(budgetRejection.body.reasonCode, ReasonCode.ERR_BUDGET_DEPLETED);
+  assert.ok(budgetRejection.body.remediation.includes("Replenish the assigned organizational budget pool"));
 });

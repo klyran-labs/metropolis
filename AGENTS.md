@@ -12,9 +12,24 @@ Act as a **Principal Web3 Fintech & Agentic Systems Architect**. Optimize for ma
   - Absolutely NO hardcoded fallback addresses (`0x70997970C51812dc3A010C7d01b50e0d17dc79C8`), synthetic account balances (`100.0000 MON`), fake ticker loops, or mock data files.
   - When balances or limits are zero, render honest, clean enterprise empty states with real call-to-actions.
   - All token balances, policy records, and reputation logs must derive from real onchain Viem contract calls.
+- **Complete End-to-End Feature Integration Mandate**:
+  - No feature, service, or architectural component may be left as an unintegrated stub, orphaned file, or disconnected mock.
+  - Every integrated capability (e.g., self-hosted OpenSigner) must be completely wired across all system tiers:
+    1. Docker container & orchestration (`docker-compose.yml`, `.testnet.yml`, `.prod.yml`, Dockerfile, healthchecks).
+    2. Backend microservice with real cryptographic operations, sealed key vaults, and REST/JSON-RPC endpoints.
+    3. Frontend UI integration (provisioning workflows and signing options in `AgentOnboardingModal` / `DashboardContext`).
+    4. Deterministic automated test suites (unit, cryptographic invariant, and integration tests).
+    5. Authoritative documentation, operational runbooks, and ADRs kept fully synchronized.
+- **Pre-Execution Confirmation Rule**:
+  - Before executing significant architectural extensions or modifications, formulate a comprehensive design plan in `implementation_plan.md` and obtain explicit user confirmation before proceeding with implementation.
 - **Domain-Driven Design (DDD)**: Keep core risk evaluation, budget invariants, and reputation scoring pure and decoupled from protocol transport adapters (x402/AP2).
 - **Machine-Readable Reason Codes (Invariant #4)**:
   - Every denial onchain or offchain MUST return a standardized, non-zero `ReasonCode` (`ERR_NONE = 0` through `ERR_SIGNATURE_INVALID = 9`). Silent failure is strictly prohibited.
+- **Strict Functional & User-Centric UI Terminology Mandate (Zero Developer Leaks)**:
+  - The web UI must use pure domain-specific, functional, and user-centric terminology.
+  - **Zero Developer / Infrastructure Leakage**: NEVER display development commands, container jargon, daemon plumbing, raw port numbers, or low-level library names on user-facing UI screens, modals, toasts, tooltips, or fallback states.
+  - **Prohibited on UI**: `docker compose up ...`, `docker`, `daemon`, `container`, `:3001`, `localhost:port`, `Web Crypto API`, `process`, `socket`, `exit code`, `npm run`, raw exception stack traces.
+  - **Mandated Domain Alternatives**: Use business & functional capabilities: e.g., *"Sovereign Key Vault"* or *"Dedicated Enclave"* instead of *"OpenSigner container/daemon"*; *"Ensure the key vault service is connected and running"* instead of *"Start it via docker compose"*; *"Browser Key Generation"* instead of *"Web Crypto generation"*; *"Service Unavailable"* instead of *"daemon offline (:3001)"*.
 
 ---
 
@@ -88,8 +103,9 @@ AgentGuard/
 ├── docker/
 │   ├── Dockerfile.web                # High-performance Alpine Nginx container
 │   ├── Dockerfile.gateway            # Multi-stage optimized Rust gateway container
+│   ├── Dockerfile.opensigner         # Self-hosted sealed OpenSigner enclave container
 │   ├── nginx.conf                    # Nginx reverse proxy configuration
-│   ├── docker-compose.yml            # Local devnet orchestration (Anvil + Gateway + Web)
+│   ├── docker-compose.yml            # Local devnet orchestration (Anvil + Gateway + OpenSigner + Web)
 │   ├── docker-compose.testnet.yml    # Monad public testnet orchestration
 │   ├── docker-compose.prod.yml       # Hardened enterprise production orchestration
 │   ├── .env.testnet.example          # Testnet environment configuration template
@@ -99,17 +115,26 @@ AgentGuard/
 │   │   ├── interfaces/
 │   │   │   ├── IPolicyEngine.sol        # Structs, reason codes, policy interface
 │   │   │   ├── IReputationRegistry.sol  # Outcome logging & EWMA scoring
-│   │   │   └── IAgentWalletGuard.sol    # Delegated execution hook
+│   │   │   ├── IAgentWalletGuard.sol    # Delegated execution hook & EIP-2612 permit
+│   │   │   ├── IERC1271.sol             # ERC-1271 Smart contract signature validation
+│   │   │   ├── IERC20Permit.sol         # EIP-2612 Gasless token permit
+│   │   │   ├── IERC7579.sol             # ERC-7579 Modular smart account hook & validator
+│   │   │   └── IERC6551.sol             # EIP-6551 Token Bound Account & registry
 │   │   ├── core/
 │   │   │   ├── PolicyEngine.sol         # Monad disjoint storage policy evaluator
 │   │   │   ├── ReputationRegistry.sol   # Incremental trust scoring & slashing
-│   │   │   └── AgentWalletGuard.sol     # EIP-712 gated payment forwarder
+│   │   │   ├── AgentWalletGuard.sol     # EIP-712 / ERC-1271 / EIP-2612 gated payment forwarder
+│   │   │   ├── AgentDelegationAccount.sol # EIP-7702 Ephemeral smart account delegation target
+│   │   │   ├── AgentGuardHookModule.sol # ERC-7579 Spending guard hook module
+│   │   │   ├── AgentAccount.sol         # EIP-6551 Token bound agent passport account
+│   │   │   ├── AgentIdentityRegistry.sol # EIP-6551 TBA registry
+│   │   │   └── EnclaveAttestationRegistry.sol # TEE Remote hardware attestation registry
 │   │   └── libraries/
 │   │       └── TransientReentrancyGuard.sol # Cancun tstore lock
 │   └── test/
 │       ├── PolicyEngine.t.sol           # Authoritative Foundry test suite
 │       ├── AgentWalletGuard.t.sol       # Foundry EIP-712 & execution test suite
-│       └── agentguard-contracts.test.mjs # Fast CI parity test suite
+│       └── agentguard-contracts.test.mjs # Fast CI parity test suite (49/49 invariant tests)
 ├── apps/
 │   └── web/                          # Production React 19 + Vite 8 Control Plane
 │       └── src/
@@ -117,7 +142,7 @@ AgentGuard/
 │           │   ├── LandingPage.tsx          # Public marketing & stats screen
 │           │   └── dashboard/
 │           │       ├── FleetOverview.tsx    # Tenant-isolated fleet table & instant kill switch
-│           │       ├── AgentOnboardingModal.tsx # 1-click Web Crypto keypair generator & vault
+│           │       ├── AgentOnboardingModal.tsx # 1-click Web Crypto & OpenSigner keypair generator
 │           │       ├── PolicyStudio.tsx     # Visual policy authoring interface
 │           │       ├── RogueAgentSimulator.tsx # Interactive 3-scenario live testbench
 │           │       ├── AccessManagementView.tsx # IAM operator directory & permissions
@@ -134,7 +159,8 @@ AgentGuard/
 │   ├── shared-types/                 # Canonical TypeScript domain interfaces
 │   └── x402-middleware/              # HTTP 402 payment negotiation & error mapper
 ├── services/
-│   └── gateway/                      # High-throughput Rust Axum x402 payment gateway
+│   ├── gateway/                      # High-throughput Rust Axum x402 payment gateway
+│   └── opensigner/                   # Self-hosted sealed agent key vault & EIP-712 signer
 └── scripts/
     ├── agentguard-live-demo.mjs         # Automated end-to-end live CLI demonstration
     └── agentguard-fleet-demo.mjs        # 20-agent multi-scenario fleet simulation

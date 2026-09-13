@@ -496,3 +496,74 @@ pub async fn update_user_role_handler(
     )
         .into_response()
 }
+
+// ----------------------------------------------------------------------------
+// ERC-7677 Paymaster RPC Handler
+// ----------------------------------------------------------------------------
+
+pub async fn paymaster_rpc_handler(
+    State(state): State<SharedState>,
+    Json(payload): Json<crate::types::PaymasterRpcRequest>,
+) -> impl IntoResponse {
+    let id = payload.id;
+    match payload.method.as_str() {
+        "pm_supportedEntryPoints" => {
+            let entry_points = vec![
+                "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+                "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+            ];
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": entry_points
+                })),
+            )
+        }
+        "pm_getPaymasterStubData" => {
+            let guard_addr = format!("{:#x}", state.config.agent_wallet_guard_address);
+            let paymaster_data = format!("0x{:0>64}", "01");
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "sponsor": true,
+                        "paymaster": guard_addr,
+                        "paymasterData": paymaster_data,
+                        "paymasterVerificationGasLimit": "0x186a0",
+                        "paymasterPostOpGasLimit": "0xc350"
+                    }
+                })),
+            )
+        }
+        "pm_getPaymasterData" => {
+            let guard_addr = format!("{:#x}", state.config.agent_wallet_guard_address);
+            let paymaster_and_data = format!("{}0000000000000000000000000000000000000000000000000000000000000001", guard_addr);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "paymasterAndData": paymaster_and_data
+                    }
+                })),
+            )
+        }
+        _ => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": -32601,
+                    "message": format!("Method '{}' not found", payload.method)
+                }
+            })),
+        ),
+    }
+}
+

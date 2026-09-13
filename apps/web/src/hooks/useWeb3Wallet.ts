@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatMonAmount } from '../utils/financial';
 import { usePrivy, useSignTypedData, useWallets } from '@privy-io/react-auth';
 import { APP_CONFIG } from '../config/env';
-import { MONAD_EXPLORER_URL } from '../config/contracts';
+import { MONAD_EXPLORER_URL, publicClient } from '../config/contracts';
+import { isLocalDevnetRpc, fundDevnetAccount } from '../utils/devnetFunding';
 
 export const MONAD_CHAIN_ID_DECIMAL = APP_CONFIG.chainId;
 export const MONAD_CHAIN_ID_HEX = '0x279f';
@@ -32,24 +33,57 @@ export function useWeb3Wallet() {
     isConnecting: false,
     error: null,
   });
+  const autoFundAttemptedRef = useRef(false);
 
   const embeddedWallet = privyWallets.find((wallet: any) => wallet.walletClientType === 'privy') || privyWallets[0];
   const embeddedChainId = typeof embeddedWallet?.chainId === 'string'
     ? Number(embeddedWallet.chainId.split(':').pop())
     : Number(embeddedWallet?.chainId || MONAD_CHAIN_ID_DECIMAL);
 
+  const fetchLiveBalance = useCallback(async (targetAddress: `0x${string}`) => {
+    try {
+      let balanceWei = await publicClient.getBalance({ address: targetAddress });
+
+      // If balance is zero and connected to local devnet Anvil, auto-fund once
+      if (balanceWei === 0n && isLocalDevnetRpc() && !autoFundAttemptedRef.current) {
+        autoFundAttemptedRef.current = true;
+        const success = await fundDevnetAccount(targetAddress, '100');
+        if (success) {
+          balanceWei = await publicClient.getBalance({ address: targetAddress });
+        }
+      }
+
+      const formatted = formatMonAmount(balanceWei);
+      setWalletState((prev) => (prev.balanceMon === formatted ? prev : { ...prev, balanceMon: formatted }));
+      return formatted;
+    } catch {
+      return '0.0000';
+    }
+  }, []);
+
   useEffect(() => {
     if (!privyAuthenticated || !walletsReady || walletState.address || !embeddedWallet?.address) return;
+    const addr = embeddedWallet.address as `0x${string}`;
     setWalletState((previous) => ({
       ...previous,
-      address: embeddedWallet.address as `0x${string}`,
+      address: addr,
       isBrowserWallet: false,
       isSessionKey: true,
       chainId: Number.isFinite(embeddedChainId) ? embeddedChainId : MONAD_CHAIN_ID_DECIMAL,
       isMonadNetwork: embeddedChainId === MONAD_CHAIN_ID_DECIMAL,
       error: null,
     }));
-  }, [embeddedWallet, privyAuthenticated, walletState.address, walletsReady]);
+    fetchLiveBalance(addr);
+  }, [embeddedChainId, embeddedWallet, fetchLiveBalance, privyAuthenticated, walletState.address, walletsReady]);
+
+  // Periodic balance refresher every 12 seconds when an address is connected
+  useEffect(() => {
+    if (!walletState.address) return;
+    const interval = setInterval(() => {
+      fetchLiveBalance(walletState.address!);
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [fetchLiveBalance, walletState.address]);
 
   const connectBrowserWallet = useCallback(async () => {
     setWalletState((prev) => ({ ...prev, isConnecting: true, error: null }));
@@ -98,23 +132,9 @@ export function useWeb3Wallet() {
         }
       }
 
-      // Fetch live native balance
-      let balanceMon = '0.0000';
-      if (address) {
-        try {
-          const balanceHex = await ethereum.request({
-            method: 'eth_getBalance',
-            params: [address, 'latest'],
-          });
-          balanceMon = formatMonAmount(BigInt(balanceHex));
-        } catch {
-          balanceMon = '0.0000';
-        }
-      }
-
       setWalletState({
         address,
-        balanceMon,
+        balanceMon: '0.0000',
         isBrowserWallet: true,
         isSessionKey: false,
         chainId: isMonad ? MONAD_CHAIN_ID_DECIMAL : chainId,
@@ -122,11 +142,15 @@ export function useWeb3Wallet() {
         isConnecting: false,
         error: null,
       });
+
+      if (address) {
+        await fetchLiveBalance(address);
+      }
     } catch (err: any) {
       setWalletState((prev) => ({ ...prev, isConnecting: false, error: err?.message || 'Wallet connection failed.' }));
       throw err;
     }
-  }, []);
+  }, [fetchLiveBalance]);
 
   useEffect(() => {
     // Initial auto-detection: if wallet already connected or session key
@@ -161,9 +185,29 @@ export function useWeb3Wallet() {
     [embeddedWallet, privyAuthenticated, signTypedData, walletState.address, walletState.isBrowserWallet]
   );
 
+  const refreshBalance = useCallback(async () => {
+    if (walletState.address) {
+      return await fetchLiveBalance(walletState.address);
+    }
+    return '0.0000';
+  }, [fetchLiveBalance, walletState.address]);
+
+  const fundDevnetWallet = useCallback(async () => {
+    if (!walletState.address) return false;
+    const ok = await fundDevnetAccount(walletState.address, '100');
+    if (ok) {
+      await fetchLiveBalance(walletState.address);
+    }
+    return ok;
+  }, [fetchLiveBalance, walletState.address]);
+
   return {
     ...walletState,
     connectBrowserWallet,
     signTypedOrder,
+    refreshBalance,
+    fundDevnetWallet,
+    isLocalDevnet: isLocalDevnetRpc(),
   };
 }
+

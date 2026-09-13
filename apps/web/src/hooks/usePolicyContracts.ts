@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPublicClient, createWalletClient, custom, http, type Address } from 'viem';
+import { createWalletClient, custom, parseEther, type Address } from 'viem';
 import { useWallets } from '@privy-io/react-auth';
 import {
   MONAD_CHAIN_ID,
@@ -7,13 +7,26 @@ import {
   CONTRACT_ADDRESSES,
   POLICY_ENGINE_ABI,
   REPUTATION_REGISTRY_ABI,
+  publicClient,
 } from '../config/contracts';
 import { type SpendPolicy, type AgentSpendState, type ReputationSummary, type SpendRequest, type PolicyDecision, ReasonCode, REASON_CODE_MESSAGES } from '@agentguard/shared-types';
+import { formatWeb3ErrorMessage } from '../utils/errors';
+import { isLocalDevnetRpc, fundDevnetAccount } from '../utils/devnetFunding';
 
-const publicClient = createPublicClient({
-  chain: { id: MONAD_CHAIN_ID, name: 'Monad Testnet', nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 }, rpcUrls: { default: { http: [MONAD_RPC_URL] } } },
-  transport: http(MONAD_RPC_URL),
-});
+async function ensureGasFunds(accountAddress: Address) {
+  try {
+    const balance = await publicClient.getBalance({ address: accountAddress });
+    if (balance < parseEther('0.005')) {
+      if (isLocalDevnetRpc()) {
+        await fundDevnetAccount(accountAddress, '100');
+      } else if (balance === 0n) {
+        throw new Error('Insufficient MON in connected wallet to cover network gas fees. Please fund your account with MON on Monad to continue.');
+      }
+    }
+  } catch (err: any) {
+    if (err?.message?.includes('Insufficient MON')) throw err;
+  }
+}
 
 export function usePolicyContracts(agentAddress: Address | null) {
   const [policy, setPolicy] = useState<SpendPolicy | null>(null);
@@ -134,6 +147,9 @@ export function usePolicyContracts(agentAddress: Address | null) {
     setError(null);
     try {
       const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
       const hash = await client.writeContract({
         address: CONTRACT_ADDRESSES.policyEngine,
         abi: POLICY_ENGINE_ABI,
@@ -151,6 +167,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
       return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
     } finally {
       setWriteLoading(false);
     }
@@ -161,6 +181,9 @@ export function usePolicyContracts(agentAddress: Address | null) {
     setError(null);
     try {
       const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
       const formattedPolicies = policies.map((p) => ({
         maxPerTx: p.maxPerTx,
         maxPerWindow: p.maxPerWindow,
@@ -179,6 +202,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
       return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
     } finally {
       setWriteLoading(false);
     }
@@ -189,6 +216,9 @@ export function usePolicyContracts(agentAddress: Address | null) {
     setError(null);
     try {
       const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
       const hash = await client.writeContract({
         address: CONTRACT_ADDRESSES.policyEngine,
         abi: POLICY_ENGINE_ABI,
@@ -198,6 +228,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
       });
       await publicClient.waitForTransactionReceipt({ hash });
       return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
     } finally {
       setWriteLoading(false);
     }
@@ -208,6 +242,9 @@ export function usePolicyContracts(agentAddress: Address | null) {
     setError(null);
     try {
       const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
       const hash = await client.writeContract({
         address: CONTRACT_ADDRESSES.policyEngine,
         abi: POLICY_ENGINE_ABI,
@@ -218,6 +255,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
       return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
     } finally {
       setWriteLoading(false);
     }
@@ -247,6 +288,9 @@ export function usePolicyContracts(agentAddress: Address | null) {
     setError(null);
     try {
       const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
       const hash = await client.writeContract({
         address: CONTRACT_ADDRESSES.policyEngine,
         abi: POLICY_ENGINE_ABI,
@@ -257,6 +301,10 @@ export function usePolicyContracts(agentAddress: Address | null) {
       await publicClient.waitForTransactionReceipt({ hash });
       await fetchAgentData();
       return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
     } finally {
       setWriteLoading(false);
     }
@@ -273,6 +321,30 @@ export function usePolicyContracts(agentAddress: Address | null) {
       evaluatedAtTimestamp: result.evaluatedAtTimestamp,
     };
   }, []);
+
+  const fundAgentOnchain = useCallback(async (targetAgent: Address, amountWei: bigint) => {
+    setWriteLoading(true);
+    setError(null);
+    try {
+      const client = await getWalletClient();
+      if (client.account?.address) {
+        await ensureGasFunds(client.account.address);
+      }
+      const hash = await client.sendTransaction({
+        to: targetAgent,
+        value: amountWei,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await fetchAgentData();
+      return hash;
+    } catch (err: any) {
+      const formatted = formatWeb3ErrorMessage(err);
+      setError(formatted);
+      throw new Error(formatted);
+    } finally {
+      setWriteLoading(false);
+    }
+  }, [fetchAgentData, getWalletClient]);
 
   useEffect(() => {
     fetchAgentData();
@@ -293,5 +365,6 @@ export function usePolicyContracts(agentAddress: Address | null) {
     getBudgetPool,
     setKillSwitchOnchain,
     evaluatePolicy,
+    fundAgentOnchain,
   };
 }

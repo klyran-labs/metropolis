@@ -77,6 +77,33 @@ services:
     networks:
       - agentguard-network
 
+  agentguard-opensigner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.opensigner
+    container_name: agentguard-opensigner
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - OPENSIGNER_PORT=3001
+      - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:-agentguard-devnet-master-enclave-secret-2026}
+      - OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
+    volumes:
+      - opensigner-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3001/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-network
+
+volumes:
+  opensigner-data:
+
 networks:
   agentguard-network:
     driver: bridge

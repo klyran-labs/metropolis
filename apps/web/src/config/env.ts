@@ -170,3 +170,5 @@ export const APP_CONFIG: AppConfig = {
   policyEngineDeployBlock,
   strictZeroMock: true,
 } as const;
+
+export const OPENSIGNER_SERVICE_URL = getEnvVar("VITE_OPENSIGNER_URL", "http://127.0.0.1:3001");

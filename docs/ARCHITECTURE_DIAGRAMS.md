@@ -46,6 +46,7 @@ flowchart TB
     subgraph Offchain["Offchain — apps/, services/, packages/"]
         Web["agentguard-web<br/>(apps/web — React 19 + Vite,<br/>served by Nginx)"]
         Gateway["agentguard-gateway<br/>(services/gateway — Rust Axum HTTP service,<br/>Tokio + Alloy-RS)"]
+        OpenSigner["agentguard-opensigner<br/>(services/opensigner — Port 3001,<br/>AES-256-GCM sealed vault, EIP-712 engine)"]
         Middleware["@agentguard/x402-middleware<br/>(packages/x402-middleware —<br/>challenge/verify/reject helpers, a library,<br/>compatible with TypeScript agent runtimes)"]
         Types["@agentguard/shared-types<br/>(packages/shared-types —<br/>canonical domain types, reason codes)"]
     end
@@ -57,10 +58,12 @@ flowchart TB
     end
 
     Admin -- "policy authoring UI" --> Web
+    Web -- "1-click sealed provisioning<br/>POST /api/v1/wallets" --> OpenSigner
     Web -- "viem readContract<br/>(policy, state, reputation)" --> PE
     Web -- "viem readContract" --> RR
     Admin -- "setPolicy / setKillSwitch<br/>(signed by admin wallet)" --> PE
 
+    Agent -- "request EIP-712 signature<br/>POST /api/v1/sign-spend-request" --> OpenSigner
     Agent -- "GET resource, then signed<br/>Payment-Signature header" --> Gateway
     Gateway --> Middleware
     Gateway -- "evaluate() — free view call,<br/>pre-flight simulation" --> PE
@@ -141,6 +144,10 @@ flowchart TB
         subgraph GwPods["agentguard-gateway Deployment"]
             GwPod["Rust Alpine container<br/>services/gateway<br/>(2 vCPU / 2GB per replica, HPA)"]
         end
+
+        subgraph OpenSignerPods["agentguard-opensigner Deployment"]
+            SignerPod["Node 22 Alpine container<br/>services/opensigner<br/>(AES-256-GCM Vault on /data volume)"]
+        end
     end
 
     RPC[("Monad RPC<br/>testnet-rpc.monad.xyz<br/>+ fallback nodes")]
@@ -149,8 +156,10 @@ flowchart TB
     Internet --> Ingress
     Ingress -->|"/ (port 3110/80)"| WebPod
     Ingress -->|"/gateway (port 8080)"| GwPod
+    Ingress -->|"/opensigner (port 3001)"| SignerPod
 
     WebPod -- "read-only viem calls" --> RPC
+    WebPod -- "POST /api/v1/wallets" --> SignerPod
     GwPod -- "evaluate() view calls +<br/>executeGatedPayment() writes<br/>(relayer key from secret store)" --> RPC
     RPC --> Chain
 
@@ -159,7 +168,8 @@ flowchart TB
 
 ---
 
-**Local/single-host alternative:** `docker/docker-compose.yml` runs the same
-two containers (`agentguard-web` on `:3110`, `agentguard-gateway` on `:8080`)
+**Local/single-host alternative:** `docker/docker-compose.yml` runs the three
+containers (`agentguard-web` on `:3110`, `agentguard-gateway` on `:8080`, and
+`agentguard-opensigner` on `:3001`) alongside local Anvil (`:8545`)
 without Kubernetes, for local development and small deployments — see
 `make docker-up`.

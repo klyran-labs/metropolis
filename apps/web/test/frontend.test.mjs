@@ -100,8 +100,8 @@ test("AgentGuard Frontend: AgentOnboardingModal supports templates and address v
   const source = await readFile(new URL("../src/components/dashboard/AgentOnboardingModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Provision New Autonomous Agent/);
   assert.match(source, /AGENT_TEMPLATES/);
-  assert.match(source, /Use an existing agent wallet/);
-  assert.doesNotMatch(source, /Generate Testnet Keypair/);
+  assert.match(source, /Sovereign Key Vault/);
+  assert.match(source, /openSignerWalletId/);
   assert.match(source, /Max Per Tx/);
   assert.match(source, /Max Per Window/);
 });
@@ -388,7 +388,7 @@ test("AgentGuard Tenant Isolation: RBAC unlocks agent registration and defaults 
   assert.match(rbacSource, /authenticatedRole: 'auditor'/);
 });
 
-test("AgentGuard Tenant Isolation: FleetOverview provides tenant-scoped My Agents view and AgentOnboardingModal generates keypairs", async () => {
+test("AgentGuard Tenant Isolation: FleetOverview provides tenant-scoped My Agents view and AgentOnboardingModal provisions sovereign enclave keypairs", async () => {
   const fleetSource = await readFile(new URL("../src/components/dashboard/FleetOverview.tsx", import.meta.url), "utf8");
   assert.match(fleetSource, /My Agents/);
   assert.match(fleetSource, /Network Fleet/);
@@ -396,19 +396,111 @@ test("AgentGuard Tenant Isolation: FleetOverview provides tenant-scoped My Agent
   assert.match(fleetSource, /No Agents Registered Under Your Account/);
 
   const modalSource = await readFile(new URL("../src/components/dashboard/AgentOnboardingModal.tsx", import.meta.url), "utf8");
-  assert.match(modalSource, /generatePrivateKey/);
-  assert.match(modalSource, /privateKeyToAccount/);
-  assert.match(modalSource, /Generate Keypair/);
-  assert.match(modalSource, /Import Address/);
-  assert.match(modalSource, /Autonomous Agent Private Key/);
-  assert.match(modalSource, /Non-Custodial Safeguard/);
-  assert.match(modalSource, /save-vault-checkbox/);
+  assert.match(modalSource, /Sovereign Key Vault/);
+  assert.match(modalSource, /handleProvisionViaOpenSigner/);
+  assert.match(modalSource, /openSignerWalletId/);
+  assert.match(modalSource, /Implicit Enclave Sealing/);
+  assert.match(modalSource, /Sealed Agent Address/);
 
   const dashboardCtxSource = await readFile(new URL("../src/context/DashboardContext.tsx", import.meta.url), "utf8");
   assert.match(dashboardCtxSource, /getUserProvisionedAgents/);
   assert.match(dashboardCtxSource, /addUserProvisionedAgent/);
   assert.match(dashboardCtxSource, /saveAgentCredentials/);
+  assert.match(dashboardCtxSource, /openSignerWalletId/);
   assert.match(dashboardCtxSource, /fleetScope/);
   assert.match(dashboardCtxSource, /setFleetScope/);
 });
+
+test("AgentGuard Loading Architecture: ConsoleSkeleton provides institutional pre-load state and eliminates solitary empty container fallback", async () => {
+  const skeletonSource = await readFile(new URL("../src/components/common/ConsoleSkeleton.tsx", import.meta.url), "utf8");
+  assert.match(skeletonSource, /Synchronizing Autonomous Fleet State/);
+  assert.match(skeletonSource, /Monad Testnet 10143/);
+  assert.match(skeletonSource, /Guarded Fleet Agents/);
+  assert.match(skeletonSource, /Disjoint Storage Slots/);
+  assert.match(skeletonSource, /O\(1\) Kill-Switch Readiness/);
+  assert.match(skeletonSource, /isFullApp/);
+
+  // Assert App.tsx uses ConsoleSkeleton and no longer has solitary lonely box
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /ConsoleSkeleton/);
+  assert.doesNotMatch(appSource, /BootstrapFallback/);
+
+  // Assert main.tsx uses ConsoleSkeleton
+  const mainSource = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+  assert.match(mainSource, /ConsoleSkeleton/);
+  assert.doesNotMatch(mainSource, /BootstrapFallback/);
+
+  // Assert AuthenticatedConsole uses ConsoleSkeleton
+  const consoleSource = await readFile(new URL("../src/AuthenticatedConsole.tsx", import.meta.url), "utf8");
+  assert.match(consoleSource, /ConsoleSkeleton/);
+  assert.match(consoleSource, /<ConsoleSkeleton isFullApp=\{false\} \/>/);
+});
+
+test("AgentGuard UI Domain Terminology: Modal and dashboard enforce pure functional user-centric terminology with zero dev/infrastructure leaks", async () => {
+  const modalSource = await readFile(new URL("../src/components/dashboard/AgentOnboardingModal.tsx", import.meta.url), "utf8");
+  
+  // Prohibit developer and infrastructure leakage in user-facing text
+  assert.doesNotMatch(modalSource, /docker compose/);
+  assert.doesNotMatch(modalSource, /daemon/i);
+  assert.doesNotMatch(modalSource, /:3001/);
+  assert.doesNotMatch(modalSource, /OpenSigner Container Offline/);
+  assert.doesNotMatch(modalSource, /Switch to Web Crypto Keypair/);
+
+  // Require domain and user-centric functional terminology
+  assert.match(modalSource, /Sovereign Key Vault/);
+  assert.match(modalSource, /Vault Offline/);
+  assert.match(modalSource, /Vault Connected/);
+  assert.match(modalSource, /Implicit Enclave Sealing/);
+});
+
+test("AgentGuard Web3 Error Formatting: Translates low-level gas/balance exceptions into clean domain messages", async () => {
+  const { formatWeb3ErrorMessage, formatAuthErrorMessage, formatVaultErrorMessage } = await import("../src/utils/errors.ts");
+  
+  // 1. Gas / Insufficient Funds
+  const rawViemError = new Error(
+    "The total cost (gas * gas fee + value) of executing this transaction exceeds the balance of the account. " +
+    "This error could arise when the account does not have enough funds to: - pay for the total gas fee, - pay for the value to send."
+  );
+  const formatted = formatWeb3ErrorMessage(rawViemError);
+  assert.equal(
+    formatted,
+    "Insufficient MON in connected wallet to cover gas and transaction value. Please fund your account with MON on Monad to continue."
+  );
+  assert.doesNotMatch(formatted, /gas \* gas fee \+ value/);
+
+  // 2. User Cancellation
+  const userDenied = new Error("User denied transaction signature.");
+  assert.equal(formatWeb3ErrorMessage(userDenied), "Transaction was cancelled by the user.");
+
+  // 3. Network Disconnection
+  const netError = new Error("Failed to fetch");
+  assert.match(formatWeb3ErrorMessage(netError), /Network connection failed/);
+
+  // 4. Rate Limits & Timeouts
+  const rateLimitError = new Error("HTTP 429 Too Many Requests");
+  assert.match(formatWeb3ErrorMessage(rateLimitError), /rate limit reached/);
+
+  const timeoutError = new Error("Timed out while waiting for transaction");
+  assert.match(formatWeb3ErrorMessage(timeoutError), /timed out/);
+
+  // 5. Revert with reason
+  const revertError = new Error("execution reverted with reason string 'Kill switch is active'");
+  assert.equal(formatWeb3ErrorMessage(revertError), "Transaction reverted: Kill switch is active");
+
+  // 6. Auth errors
+  const otpError = new Error("Invalid confirmation code");
+  assert.match(formatAuthErrorMessage(otpError), /Invalid or expired verification code/);
+
+  const authCancel = new Error("User rejected wallet connection");
+  assert.equal(formatAuthErrorMessage(authCancel), "Wallet authentication was cancelled.");
+
+  // 7. Vault errors
+  const vaultConn = new Error("Failed to fetch");
+  assert.match(formatVaultErrorMessage(vaultConn), /Sovereign key vault service is unavailable/);
+
+  const notFound = new Error("Wallet not found");
+  assert.match(formatVaultErrorMessage(notFound), /Agent keypair was not found/);
+});
+
+
 

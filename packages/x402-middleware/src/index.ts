@@ -193,6 +193,8 @@ function getRemediationAction(reasonCode: ReasonCode): string {
       return "Throttle request rate. Maximum transaction velocity has been exceeded for this window.";
     case ReasonCode.ERR_MERCHANT_NOT_ALLOWED:
       return "Add counterparty address to the agent's authorized merchant whitelist.";
+    case ReasonCode.ERR_BUDGET_DEPLETED:
+      return "Replenish the assigned organizational budget pool or reassign the agent to an active pool with available balance.";
     case ReasonCode.ERR_EXPIRED:
       return "Regenerate spend request with a fresh block timestamp and forward deadline.";
     case ReasonCode.ERR_NONCE_REUSED:

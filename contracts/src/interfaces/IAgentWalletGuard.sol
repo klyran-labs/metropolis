@@ -31,6 +31,17 @@ interface IAgentWalletGuard {
         bytes calldata extraCallData
     ) external payable returns (bool success);
 
+    function executeGatedPaymentWithPermit(
+        IPolicyEngine.SpendRequest calldata req,
+        bytes calldata signature,
+        address token,
+        uint256 permitDeadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s,
+        bytes calldata extraCallData
+    ) external payable returns (bool success);
+
     function getPolicyEngine() external view returns (address);
     function getReputationRegistry() external view returns (address);
 }

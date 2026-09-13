@@ -6,8 +6,8 @@ import { DashboardProvider, useDashboard } from './context/DashboardContext';
 import { RbacProvider, useRbac } from './context/RbacContext';
 import { publicClient } from './hooks/usePolicyEvents';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { SkeletonCard } from './components/common/UiState';
 import { AgentGuardSidebar } from './components/navigation/AgentGuardSidebar';
+import { ConsoleSkeleton } from './components/common/ConsoleSkeleton';
 import { CommandPalette } from './components/common/CommandPalette';
 import { AssumeRoleModal } from './components/common/AssumeRoleModal';
 
@@ -30,14 +30,7 @@ const AccessManagementView = React.lazy(() =>
 );
 
 const PortalLoadingFallback: React.FC = () => (
-  <div aria-busy="true" className="space-y-6 animate-pulse py-4 font-sans">
-    <div className="h-24 rounded-3xl border border-card-border bg-card-muted" />
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-      <SkeletonCard />
-      <SkeletonCard />
-      <SkeletonCard />
-    </div>
-  </div>
+  <ConsoleSkeleton isFullApp={false} />
 );
 
 const MainLayout: React.FC = () => {

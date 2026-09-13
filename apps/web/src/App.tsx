@@ -7,20 +7,16 @@ import { LandingPage } from './components/LandingPage';
 // code until Privy confirms an authenticated session.
 const AuthenticatedConsole = React.lazy(() => import('./AuthenticatedConsole'));
 
-const BootstrapFallback: React.FC = () => (
-  <main aria-busy="true" className="min-h-screen bg-app p-6">
-    <div className="mx-auto h-24 max-w-7xl animate-pulse rounded-[28px] bg-card/80 border border-card-border" />
-  </main>
-);
+import { ConsoleSkeleton } from './components/common/ConsoleSkeleton';
 
 export const App: React.FC = () => {
   const { ready, authenticated } = usePrivy();
 
-  if (!ready) return <BootstrapFallback />;
+  if (!ready) return <ConsoleSkeleton isFullApp />;
   if (!authenticated) return <LandingPage />;
 
   return (
-    <Suspense fallback={<BootstrapFallback />}>
+    <Suspense fallback={<ConsoleSkeleton isFullApp />}>
       <AuthenticatedConsole />
     </Suspense>
   );

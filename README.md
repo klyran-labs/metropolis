@@ -2,6 +2,7 @@
 
 [![Monad Testnet](https://img.shields.io/badge/Monad-Testnet%20(10143)-8A2BE2)](https://testnet-rpc.monad.xyz)
 [![Rust Gateway](https://img.shields.io/badge/Gateway-Rust%20(Axum%20%2B%20Tokio)-DEA584)](services/gateway)
+[![OpenSigner](https://img.shields.io/badge/OpenSigner-Self--Hosted%20Enclave-00C49F)](services/opensigner)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.36-363636)](https://soliditylang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB)](https://react.dev/)
 [![x402](https://img.shields.io/badge/Protocol-x402%20%2B%20AP2-0052FF)](https://github.com/coinbase/x402)
@@ -20,22 +21,24 @@
 │                        Enterprise Control Plane (apps/web)                             │
 │  React 19 + Tailwind v4 + Viem 2.x + Privy Auth (App ID: cmton65ao004l0cl11tgmwiah)    │
 │  - Tenant-Isolated Fleet Overview (My Agents vs Network Fleet, O(1) Kill Switch)       │
-│  - 1-Click Non-Custodial Keypair Provisioning & Local Encrypted Agent Vault            │
+│  - 1-Click Provisioning: Self-Hosted OpenSigner Enclave / Web Crypto Keypair / Import  │
 │  - Policy Studio (Visual rule authoring: limits, sliding windows, merchant whitelists) │
 │  - Audit Ledger (Verifiable Monad transactions + machine-readable reason codes)        │
 │  - Interactive Rogue Agent Simulator (Live agent payment & burst spike sandbox)        │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │
-                                            ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│           High-Throughput Rust Gateway (services/gateway — Tokio + Axum + Alloy-RS)     │
-│  - Sub-50µs EIP-712 cryptographic signature verification & recoverSigner               │
-│  - HTTP 402 challenge negotiation & machine-readable reason code translation           │
-│  - Privy custom metadata role synchronization & enterprise admin provisioning API      │
-│  - Pre-flight RPC policy simulation against Monad Parallel EVM (Chain 10143)           │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │
-                                            ▼
+└───────────────────────┬────────────────────────────────────────┬───────────────────────┘
+                        │                                        │
+                        │ Provision Agent                        │ Sign SpendRequest
+                        ▼                                        ▼
+┌───────────────────────────────────────────┐    ┌───────────────────────────────────────┐
+│     Self-Hosted OpenSigner Enclave        │    │    High-Throughput Rust Gateway       │
+│  (services/opensigner — Port 3001)        │    │  (services/gateway — Port 8080)       │
+│  - AES-256-GCM sealed agent key storage   │    │  - Sub-50µs EIP-712 recovery & verify │
+│  - Zero plaintext key leakage to disk     │    │  - HTTP 402 challenge negotiation     │
+│  - EIP-712 SpendRequest signing for Monad │    │  - Privy custom metadata role sync    │
+│  - Endpoints: /api/v1/wallets, /sign      │    │  - Pre-flight RPC policy simulation   │
+└───────────────────────────────────────────┘    └───────────────────┬───────────────────┘
+                                                                     │
+                                                                     ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                   Settlement & Transport Adapters (packages/x402-middleware)           │
 │  - x402 HTTP Challenge Generator (`createX402Challenge`)                              │
@@ -50,8 +53,14 @@
 │  ┌─────────────────────────────┐   ┌────────────────────────┐   ┌───────────────────┐  │
 │  │ PolicyEngine.sol            │   │ ReputationRegistry.sol │   │ AgentWalletGuard  │  │
 │  │ - Disjoint Storage Slots    │   │ - Incremental EWMA     │   │ - EIP-712 Intent  │  │
-│  │ - Velocity Sliding Windows  │   │ - Append-Only Outcomes │   │ - Atomic DvP      │  │
-│  │ - O(1) Kill-Switch Check    │   │ - Non-linear Slashing  │   │ - Cancun TSTORE   │  │
+│  │ - Velocity Sliding Windows  │   │ - Append-Only Outcomes │   │ - ERC-1271 Checks │  │
+│  │ - O(1) Kill-Switch Check    │   │ - Non-linear Slashing  │   │ - EIP-2612 Permit │  │
+│  └─────────────────────────────┘   └────────────────────────┘   └───────────────────┘  │
+│                                                                                        │
+│  ┌─────────────────────────────┐   ┌────────────────────────┐   ┌───────────────────┐  │
+│  │ AgentDelegationAccount.sol  │   │ AgentGuardHookModule   │   │ AgentIdentity (TBA│  │
+│  │ - EIP-7702 Delegated EOA    │   │ - ERC-7579 Hook / Val  │   │ - EIP-6551 Registry│  │
+│  │ - Ephemeral Execution Code  │   │ - Modular Smart Account│   │ - EnclaveRegistry │  │
 │  └─────────────────────────────┘   └────────────────────────┘   └───────────────────┘  │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -144,11 +153,15 @@ Autonomous AI agents (e.g. LangChain workers, ElizaOS bots, or Python scripts) r
 1. **Signer Separation**:
    - The **human controller** (`0xUser`) never shares their master private key or seed phrase with the agent bot.
    - The **agent bot** (`0xAgent`) operates inside a strict financial sandbox bounded by Monad smart contracts.
-2. **1-Click In-Browser Generation**:
+2. **Self-Hosted OpenSigner Enclave (`services/opensigner` on Port 3001)**:
+   - Production-grade signing enclave container running alongside the gateway and control plane.
+   - Uses AES-256-GCM authenticated encryption with `scrypt` master key derivation to seal private keys at rest.
+   - Exposes REST endpoints (`POST /api/v1/wallets`, `POST /api/v1/sign-spend-request`) so agents request EIP-712 signatures without ever handling raw private keys.
+3. **1-Click In-Browser Generation (Web Crypto)**:
    - Web Crypto derives a fresh, secure Ethereum keypair in the browser.
    - Displays the credentials once with a **"Copy .env Snippet"** button and an optional encrypted local browser vault backup (`agentVault.ts`).
-3. **Enterprise Openfort / OpenSigner Readiness**:
-   - For enterprise teams requiring that raw keys never touch disk, AgentGuard is architected to support threshold signers (Shamir Secret Sharing via OpenSigner/Turnkey/AWS KMS) where the bot requests signatures through an authenticated enclave API.
+4. **Existing Agent Import**:
+   - Direct address import for agents managing their own external signing infrastructure (AWS KMS, Turnkey, MPC).
 
 ---
 
@@ -191,7 +204,7 @@ Deterministic Finality: ~400ms | Storage Model: Disjoint Per-Agent Slots
 
 ---
 
-## 5. How to Run & Verify
+## 7. How to Run & Verify
 
 ### A. Quickstart (Under 30 Seconds)
 
@@ -238,7 +251,7 @@ Open **[http://localhost:3110](http://localhost:3110)** in your browser to acces
 
 AgentGuard provides three targeted Docker deployment environments adhering strictly to `AGENTS.md` invariants:
 
-#### 1. Local Monad Devnet Stack (Anvil + Gateway + Web)
+#### 1. Local Monad Devnet Stack (Anvil + Gateway + OpenSigner + Web)
 Includes a local Foundry Anvil node running on Chain ID `10143` with sub-second block times:
 ```bash
 # Start local devnet stack
@@ -252,6 +265,7 @@ make docker-down
 ```
 - **Enterprise Web Control Plane**: `http://localhost:3110`
 - **High-Throughput Rust x402 Gateway**: `http://localhost:8080` (`/health`, `/ready`, `/v1/inference`, `/api/v1/users/:did/role`)
+- **Self-Hosted OpenSigner Enclave**: `http://localhost:3001` (`/health`, `/ready`, `/api/v1/wallets`, `/api/v1/sign-spend-request`)
 - **Monad Anvil RPC**: `http://localhost:8545`
 
 #### 2. Public Monad Testnet Stack
@@ -282,7 +296,21 @@ make docker-prod-down
 
 ---
 
-### D. Quality Gates & Linting
+### D. Modern EIPs & Agentic Blockchain Primitives (Non-Proxy Architecture)
+
+To maintain maximum parallel throughput on Monad and eliminate storage-proxy read hotspots, AgentGuard integrates 7 modern standards natively:
+
+1. **ERC-1271 Smart Contract Signatures**: Supports Safe smart accounts, DAOs, and multi-sig agents via `isValidSignature(bytes32,bytes)`.
+2. **EIP-2612 Atomic Permit**: `executeGatedPaymentWithPermit` bundles ERC-20 permit approval with gated settlement in a single atomic transaction without prior `approve()` calls.
+3. **EIP-7702 Ephemeral Smart Account Delegation**: `AgentDelegationAccount.sol` allows EOA agents to delegate execution code during Pectra/Prague transactions, executing batch gated payments directly from the EOA balance.
+4. **ERC-7579 / ERC-4337 Modular Account Hooks**: `AgentGuardHookModule.sol` implements standard Hook (`type 4`) and Validator (`type 1`) interfaces for Kernel, Safe ERC-7579, and Biconomy smart accounts.
+5. **EIP-6551 Token Bound Accounts (TBA)**: `AgentIdentityRegistry.sol` and `AgentAccount.sol` bind agent budget allocations, spend policies, and reputation scores to an ERC-721 identity NFT passport.
+6. **ERC-7677 Paymaster RPC**: Rust Gateway implements standard JSON-RPC endpoints (`pm_getPaymasterStubData`, `pm_getPaymasterData`) enabling gasless stablecoin agent transactions.
+7. **TEE Remote Attestation**: OpenSigner provides hardware-sealed quotes (`mrenclave`) via `/api/v1/attestation/quote`, verified onchain via `EnclaveAttestationRegistry.sol`.
+
+---
+
+### E. Quality Gates & Linting
 
 ```bash
 # Run zero-mock integrity checks, UI interaction safety contract, and typechecks

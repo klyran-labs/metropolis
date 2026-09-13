@@ -6,6 +6,7 @@ import { createPolicyRejectionResponse } from '@agentguard/x402-middleware';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { KillSwitchConfirmDialog } from '../common/KillSwitchConfirmDialog';
+import { formatWeb3ErrorMessage } from '../../utils/errors';
 
 interface RogueAgentSimulatorProps {
   agent: FleetAgent;
@@ -55,7 +56,7 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
         setPayload(createPolicyRejectionResponse(result.reasonCode, agent.address));
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Policy evaluation failed.');
+      setError(formatWeb3ErrorMessage(cause));
     } finally {
       setRunning(false);
     }

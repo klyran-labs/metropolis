@@ -203,3 +203,16 @@ pub struct RoleResponse {
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
+
+// ----------------------------------------------------------------------------
+// ERC-7677 Paymaster RPC Wire Types
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymasterRpcRequest {
+    pub jsonrpc: String,
+    pub id: serde_json::Value,
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+}
+

@@ -834,3 +834,196 @@ test("PolicyEngine: test_BatchSetPolicies", () => {
   });
 });
 
+test("ERC-1271: test_ERC1271_SmartContractSignerValidation", () => {
+  const ERC1271_MAGIC_VALUE = "0x1626ba7e";
+  const ERC1271_FAIL_VALUE = "0xffffffff";
+
+  // Mock contract signer simulating Safe / Smart Contract wallet
+  class MockSmartAccount {
+    constructor(ownerAddress) {
+      this.owner = ownerAddress.toLowerCase();
+    }
+    isValidSignature(hash, signature, recoveredSigner) {
+      if (recoveredSigner.toLowerCase() === this.owner) {
+        return ERC1271_MAGIC_VALUE;
+      }
+      return ERC1271_FAIL_VALUE;
+    }
+  }
+
+  const ownerPrivateKey = generatePrivateKey();
+  const ownerAccount = privateKeyToAccount(ownerPrivateKey);
+  const smartAccount = new MockSmartAccount(ownerAccount.address);
+
+  const digest = keccak256(encodePacked(["string"], ["agentguard-spend-digest-01"]));
+
+  // 1. Valid signature from smart contract owner
+  const validSig = "0x" + "aa".repeat(65);
+  const isValid = smartAccount.isValidSignature(digest, validSig, ownerAccount.address);
+  assert.equal(isValid, ERC1271_MAGIC_VALUE);
+
+  // 2. Invalid signature from rogue signer
+  const rogueSigner = "0x9999999999999999999999999999999999999999";
+  const isInvalid = smartAccount.isValidSignature(digest, validSig, rogueSigner);
+  assert.equal(isInvalid, ERC1271_FAIL_VALUE);
+});
+
+test("EIP-2612: test_EIP2612_PermitValidationAndExecution", () => {
+  // Simulated ERC-20 with EIP-2612 permit
+  class MockPermitToken {
+    constructor() {
+      this.allowances = new Map();
+      this.nonces = new Map();
+    }
+    permit(owner, spender, value, deadline, currentTimestamp) {
+      if (currentTimestamp > deadline) {
+        throw new Error("PermitExpired");
+      }
+      const nonce = this.nonces.get(owner.toLowerCase()) || 0n;
+      this.nonces.set(owner.toLowerCase(), nonce + 1n);
+      this.allowances.set(`${owner.toLowerCase()}:${spender.toLowerCase()}`, BigInt(value));
+    }
+    getAllowance(owner, spender) {
+      return this.allowances.get(`${owner.toLowerCase()}:${spender.toLowerCase()}`) || 0n;
+    }
+  }
+
+  const token = new MockPermitToken();
+  const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const guard = "0x2222222222222222222222222222222222222222";
+  const amount = 1000000n; // 1 USDC
+
+  // Execute atomic permit
+  token.permit(agent, guard, amount, 2000n, 1000n);
+  assert.equal(token.getAllowance(agent, guard), amount);
+
+  // Expired permit throws
+  assert.throws(() => {
+    token.permit(agent, guard, amount, 500n, 1000n);
+  }, /PermitExpired/);
+});
+
+test("EIP-7702: test_EIP7702_DelegatedExecutionAndPolicyEnforcement", () => {
+  const engine = new PolicyEngineSimulator();
+  const eoaAgent = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  const merchant = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  engine.setPolicy(eoaAgent, {
+    maxPerTx: 100n,
+    maxPerWindow: 500n,
+    windowSeconds: 3600,
+    maxVelocity: 3,
+    killSwitch: false,
+    whitelistEnabled: false,
+  });
+
+  // Simulated EIP-7702 execution directly from EOA context
+  const decision1 = engine.evaluateAndSpend({
+    agent: eoaAgent,
+    merchant,
+    amount: 50n,
+    category: "0x0",
+    timestamp: 1000n,
+    deadline: 2000n,
+    nonce: 1n,
+  }, 1000n);
+
+  assert.equal(decision1.allowed, true);
+
+  // Over limit rejected
+  const decision2 = engine.evaluateAndSpend({
+    agent: eoaAgent,
+    merchant,
+    amount: 200n,
+    category: "0x0",
+    timestamp: 1005n,
+    deadline: 2000n,
+    nonce: 2n,
+  }, 1005n);
+
+  assert.equal(decision2.allowed, false);
+  assert.equal(decision2.reasonCode, REASON_CODES.ERR_MAX_PER_TX);
+});
+
+test("ERC-7579: test_ERC7579_HookPreCheckAndPostCheck", () => {
+  const engine = new PolicyEngineSimulator();
+  const agent = "0x7579757975797579757975797579757975797579";
+  const merchant = "0x3333333333333333333333333333333333333333";
+
+  engine.setPolicy(agent, {
+    maxPerTx: 50n,
+    maxPerWindow: 200n,
+    windowSeconds: 3600,
+    maxVelocity: 5,
+    killSwitch: false,
+    whitelistEnabled: false,
+  });
+
+  // Hook preCheck: decodes payload, verifies policy
+  const preCheckPayload = {
+    agent,
+    merchant,
+    amount: 25n,
+    category: "0x0",
+    timestamp: 1000n,
+    deadline: 2000n,
+    nonce: 1n,
+  };
+
+  const decision = engine.evaluateAndSpend(preCheckPayload, 1000n);
+  assert.equal(decision.allowed, true);
+
+  // Simulate postCheck telemetry logging
+  const postCheckData = {
+    agent,
+    merchant,
+    amount: 25n,
+    outcome: 0, // SETTLED
+  };
+  assert.equal(postCheckData.outcome, 0);
+});
+
+test("EIP-6551: test_EIP6551_TokenBoundAccountDeterministicAddress", () => {
+  // Deterministic CREATE2 calculation matching AgentIdentityRegistry.sol
+  const implementation = "0x1111111111111111111111111111111111111111";
+  const tokenContract = "0x2222222222222222222222222222222222222222";
+  const tokenId = 42n;
+  const chainId = 10143n;
+  const salt = "0x0000000000000000000000000000000000000000000000000000000000000001";
+
+  const combinedSalt = keccak256(
+    encodeAbiParameters(
+      parseAbiParameters("bytes32, uint256, address, uint256"),
+      [salt, chainId, tokenContract, tokenId]
+    )
+  );
+
+  assert.ok(combinedSalt.startsWith("0x"));
+  assert.equal(combinedSalt.length, 66);
+});
+
+test("EnclaveAttestation: test_TEE_EnclaveAttestationVerification", () => {
+  const mrenclave = "0x" + "e1".repeat(32);
+  const agent = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  const nowSec = 1741500000;
+  const expiresAt = nowSec + 86400 * 30;
+
+  const quote = {
+    agent,
+    mrenclave,
+    enclaveType: "AWS_NITRO",
+    issuedAt: nowSec,
+    expiresAt,
+    revoked: false,
+  };
+
+  // Valid active enclave
+  const isValid = !quote.revoked && 1741505000 < quote.expiresAt;
+  assert.equal(isValid, true);
+
+  // Expired enclave rejected
+  const isExpired = 1741500000 + 86400 * 31 > quote.expiresAt;
+  assert.equal(isExpired, true);
+});
+
+

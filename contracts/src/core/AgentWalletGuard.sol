@@ -4,6 +4,8 @@ pragma solidity ^0.8.26;
 import { IPolicyEngine } from "../interfaces/IPolicyEngine.sol";
 import { IReputationRegistry } from "../interfaces/IReputationRegistry.sol";
 import { IAgentWalletGuard } from "../interfaces/IAgentWalletGuard.sol";
+import { IERC1271 } from "../interfaces/IERC1271.sol";
+import { IERC20Permit } from "../interfaces/IERC20Permit.sol";
 import { TransientReentrancyGuard } from "../libraries/TransientReentrancyGuard.sol";
 
 interface IERC20Minimal {
@@ -14,7 +16,7 @@ interface IERC20Minimal {
 /**
  * @title AgentWalletGuard
  * @notice EIP-712 Delegated Policy Execution Guard for Autonomous Agent Payments on Monad.
- * @dev Enforces cryptographic authorization, atomic policy gating, and instant settlement.
+ * @dev Enforces cryptographic authorization, atomic policy gating, ERC-1271 contracts, and instant settlement.
  */
 contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
     IPolicyEngine public immutable policyEngine;
@@ -25,6 +27,8 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
     bytes32 public constant SPEND_REQUEST_TYPEHASH = keccak256(
         "SpendRequest(address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint256 nonce)"
     );
+
+    bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
 
     error InvalidSignature();
     error PolicyEvaluationFailed(IPolicyEngine.ReasonCode reasonCode);
@@ -63,7 +67,33 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
         address token,
         bytes calldata extraCallData
     ) external payable override nonReentrant returns (bool success) {
-        // 1. Verify EIP-712 Signature
+        return _processGatedPayment(req, signature, token, extraCallData);
+    }
+
+    function executeGatedPaymentWithPermit(
+        IPolicyEngine.SpendRequest calldata req,
+        bytes calldata signature,
+        address token,
+        uint256 permitDeadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s,
+        bytes calldata extraCallData
+    ) external payable override nonReentrant returns (bool success) {
+        // Atomic 1-tx EIP-2612 permit approval before transfer
+        if (token != address(0)) {
+            IERC20Permit(token).permit(req.agent, address(this), req.amount, permitDeadline, v, r, s);
+        }
+        return _processGatedPayment(req, signature, token, extraCallData);
+    }
+
+    function _processGatedPayment(
+        IPolicyEngine.SpendRequest calldata req,
+        bytes calldata signature,
+        address token,
+        bytes calldata extraCallData
+    ) internal returns (bool success) {
+        // 1. Compute EIP-712 Digest
         bytes32 structHash = keccak256(
             abi.encode(
                 SPEND_REQUEST_TYPEHASH,
@@ -81,12 +111,12 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash)
         );
 
-        address recoveredSigner = _recoverSigner(digest, signature);
-        if (recoveredSigner != req.agent) {
+        // 2. Cryptographic Signer Verification (Supports EOA ecrecover and ERC-1271 smart contract wallets)
+        if (!_verifySigner(req.agent, digest, signature)) {
             revert InvalidSignature();
         }
 
-        // 2. Evaluate Policy & Spend State Atomically on Monad
+        // 3. Evaluate Policy & Spend State Atomically on Monad
         IPolicyEngine.PolicyDecision memory decision = policyEngine.evaluateAndSpend(req);
 
         if (!decision.allowed) {
@@ -94,7 +124,7 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             revert PolicyEvaluationFailed(decision.reasonCode);
         }
 
-        // 3. Settle Funds
+        // 4. Settle Funds
         if (token == address(0)) {
             // Native MON settlement
             if (address(this).balance < req.amount) revert InsufficientNativeBalance();
@@ -105,7 +135,7 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             _safeTransferFrom(token, req.agent, req.merchant, req.amount);
         }
 
-        // 4. Update Onchain Reputation Incrementally
+        // 5. Update Onchain Reputation Incrementally
         reputationRegistry.recordOutcome(
             req.agent,
             req.merchant,
@@ -113,7 +143,7 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             req.amount
         );
 
-        // 5. Forward Optional Execution Payload (e.g. AP2 mandate or merchant callback)
+        // 6. Forward Optional Execution Payload (e.g. AP2 mandate or merchant callback)
         if (extraCallData.length > 0) {
             (bool callSuccess, ) = req.merchant.call(extraCallData);
             // Non-reverting callback failure allows payment settlement to persist
@@ -122,6 +152,18 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
 
         emit PaymentExecuted(req.agent, req.merchant, req.amount, req.nonce, token);
         return true;
+    }
+
+    function _verifySigner(address expectedSigner, bytes32 digest, bytes calldata signature) internal view returns (bool) {
+        // If agent is a smart contract (Safe, ERC-4337, multi-sig), verify via ERC-1271
+        if (expectedSigner.code.length > 0) {
+            (bool ok, bytes memory res) = expectedSigner.staticcall(
+                abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, signature)
+            );
+            return (ok && res.length >= 32 && abi.decode(res, (bytes4)) == ERC1271_MAGICVALUE);
+        }
+        // Fallback: standard EOA ecrecover
+        return _recoverSigner(digest, signature) == expectedSigner;
     }
 
     function _safeTransferFrom(address token, address from, address to, uint256 amount) internal {

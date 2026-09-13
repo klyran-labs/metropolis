@@ -19,6 +19,7 @@ import { type FleetAgent, type SpendPolicy } from '@agentguard/shared-types';
 import { DisjointSlotVisualizer } from './DisjointSlotVisualizer';
 import { Pagination } from '../common/Pagination';
 import { useRbac } from '../../context/RbacContext';
+import { formatWeb3ErrorMessage } from '../../utils/errors';
 
 interface PolicyStudioProps {
   agent: FleetAgent | null;
@@ -115,7 +116,7 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
       await onSavePolicy(activeAgent.address, updatedPolicy);
       setSaveSuccess(true);
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to update policy on Monad');
+      setErrorMessage(formatWeb3ErrorMessage(err));
     } finally {
       setSaving(false);
     }

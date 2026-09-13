@@ -93,6 +93,47 @@ services:
     networks:
       - agentguard-prod-network
 
+  agentguard-opensigner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.opensigner
+    container_name: agentguard-opensigner-prod
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    ports:
+      - "${PORT_OPENSIGNER:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - OPENSIGNER_PORT=3001
+      - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:?OPENSIGNER_MASTER_KEY is required for production}
+      - OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
+    volumes:
+      - opensigner-prod-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3001/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - agentguard-prod-network
+
+volumes:
+  opensigner-prod-data:
+
 networks:
   agentguard-prod-network:
     driver: bridge

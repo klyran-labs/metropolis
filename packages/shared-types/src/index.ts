@@ -158,6 +158,10 @@ export const SPEND_REQUEST_TYPES = {
   ],
 } as const;
 
+export type SignerType = 'EOA' | 'ERC1271' | 'EIP7702' | 'TBA';
+export type SecurityTier = 'STANDARD' | 'TEE_ENCLAVE';
+export type GasMode = 'SELF_FUNDED' | 'PAYMASTER_SPONSORED';
+
 /**
  * Enterprise Agent Fleet Member for Control Plane
  */
@@ -173,6 +177,110 @@ export interface FleetAgent {
   status: 'ACTIVE' | 'REVOKED' | 'RATE_LIMITED';
   recentEvaluations: PolicyDecision[];
   poolId?: Hash | null;
+  signerType?: SignerType;
+  securityTier?: SecurityTier;
+  gasMode?: GasMode;
+  tbaAddress?: Address;
+  enclaveMeasurement?: Hash;
+}
+
+/**
+ * EIP-2612 Gasless Permit Payload
+ */
+export interface PermitPayload {
+  owner: Address;
+  spender: Address;
+  value: bigint;
+  deadline: bigint;
+  v: number;
+  r: Hash;
+  s: Hash;
+}
+
+/**
+ * EIP-7702 Code Delegation Authorization
+ */
+export interface EIP7702Authorization {
+  chainId: number;
+  address: Address;
+  nonce: bigint;
+  yParity: number;
+  r: Hash;
+  s: Hash;
+}
+
+/**
+ * ERC-7579 Modular Smart Account Type IDs
+ */
+export enum ERC7579ModuleType {
+  VALIDATOR = 1,
+  EXECUTOR = 2,
+  FALLBACK = 3,
+  HOOK = 4,
+}
+
+/**
+ * EIP-6551 Token Bound Account Specification for Agent Passports
+ */
+export interface TokenBoundAgentAccount {
+  accountAddress: Address;
+  implementation: Address;
+  tokenContract: Address;
+  tokenId: bigint;
+  chainId: number;
+  salt: Hash;
+}
+
+/**
+ * ERC-7677 Paymaster RPC Specification
+ */
+export interface ERC7677PaymasterStubRequest {
+  userOp: Record<string, unknown>;
+  entryPoint: Address;
+  chainId: number;
+  context?: Record<string, unknown>;
+}
+
+export interface ERC7677PaymasterStubResponse {
+  paymaster?: Address;
+  paymasterData?: Hash;
+  paymasterVerificationGasLimit?: bigint;
+  paymasterPostOpGasLimit?: bigint;
+  sponsor: boolean;
+}
+
+export interface ERC7677PaymasterDataRequest {
+  userOp: Record<string, unknown>;
+  entryPoint: Address;
+  chainId: number;
+  context?: Record<string, unknown>;
+}
+
+export interface ERC7677PaymasterDataResponse {
+  paymasterAndData: Hash;
+}
+
+/**
+ * Hardware TEE Remote Attestation Types
+ */
+export interface EnclaveAttestationQuote {
+  mrenclave: Hash;
+  reportData: Hash;
+  pcr0?: Hash;
+  pcr1?: Hash;
+  pcr2?: Hash;
+  issuedAt: number;
+  expiresAt: number;
+  signature: Hash;
+  enclaveType: 'INTEL_SGX' | 'AWS_NITRO' | 'INTEL_TDX';
+}
+
+export interface EnclaveVerificationResult {
+  valid: boolean;
+  mrenclave: Hash;
+  agent: Address;
+  expiresAt: number;
+  reason?: string;
 }
 
 /**
@@ -235,4 +343,5 @@ export interface ComplianceAuditReport {
   reasonCodeDistribution: Record<ReasonCode, number>;
   complianceStatus: 'COMPLIANT' | 'NON_COMPLIANT';
 }
+
 

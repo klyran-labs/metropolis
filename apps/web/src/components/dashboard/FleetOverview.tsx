@@ -20,9 +20,11 @@ import {
   Clock,
   Activity,
   CheckCircle2,
+  Zap,
 } from 'lucide-react';
 import { type FleetAgent } from '@agentguard/shared-types';
 import { KillSwitchConfirmDialog } from '../common/KillSwitchConfirmDialog';
+import { FundAgentModal } from './FundAgentModal';
 import { Pagination } from '../common/Pagination';
 import { useRbac } from '../../context/RbacContext';
 import { useDashboard } from '../../context/DashboardContext';
@@ -86,13 +88,14 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
   onBatchProvision,
 }) => {
   const { can, roleConfig } = useRbac();
-  const { fleetScope, setFleetScope, myAgentsCount, totalNetworkAgentsCount } = useDashboard();
+  const { fleetScope, setFleetScope, myAgentsCount, totalNetworkAgentsCount, balanceMon, handleFundAgent } = useDashboard();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [haltInput, setHaltInput] = useState('');
   const [togglingAddress, setTogglingAddress] = useState<Address | null>(null);
   const [pendingKillSwitchAgent, setPendingKillSwitchAgent] = useState<FleetAgent | null>(null);
+  const [fundingAgent, setFundingAgent] = useState<FleetAgent | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
 
   // Reset pagination when searching
@@ -458,11 +461,24 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
                               {agent.name.slice(0, 2)}
                             </div>
                             <div>
-                              <div className="font-semibold text-fg group-hover:text-primary transition flex items-center gap-1.5">
+                              <div className="font-semibold text-fg group-hover:text-primary transition flex items-center gap-1.5 flex-wrap">
                                 <span>{agent.name}</span>
                                 {isHalted && (
                                   <span className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-200 dark:text-rose-400 dark:bg-rose-950/60 dark:border-rose-800/40 px-1.5 py-0.5 rounded font-mono">
                                     HALTED
+                                  </span>
+                                )}
+                                <span className="text-[9px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 dark:text-sky-300 dark:bg-sky-950/50 dark:border-sky-800/40 px-1.5 py-0.5 rounded font-mono">
+                                  {agent.signerType || 'EOA'}
+                                </span>
+                                {agent.securityTier === 'TEE_ENCLAVE' && (
+                                  <span className="text-[9px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 dark:text-purple-300 dark:bg-purple-950/50 dark:border-purple-800/40 px-1.5 py-0.5 rounded font-mono inline-flex items-center gap-0.5">
+                                    <Cpu className="w-2.5 h-2.5" /> TEE
+                                  </span>
+                                )}
+                                {agent.gasMode === 'PAYMASTER_SPONSORED' && (
+                                  <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/50 dark:border-emerald-800/40 px-1.5 py-0.5 rounded font-mono inline-flex items-center gap-0.5">
+                                    <Zap className="w-2.5 h-2.5" /> Gasless (7677)
                                   </span>
                                 )}
                               </div>
@@ -495,6 +511,17 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
                         </td>
                         <td className="py-3.5 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-2">
+                            {/* Fund Agent Action */}
+                            <button
+                              type="button"
+                              onClick={() => setFundingAgent(agent)}
+                              title="Fund agent with native MON"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-card border border-card-border hover:border-primary/50 text-[11px] font-medium text-fg-muted hover:text-fg transition shadow-2xs cursor-pointer"
+                            >
+                              <Coins className="h-3.5 w-3.5 text-amber-500" />
+                              <span>Fund</span>
+                            </button>
+
                             {/* Lifecycle Navigation */}
                             {onRunLifecycle && (
                               <button
@@ -671,6 +698,17 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
           activating={!pendingKillSwitchAgent.policy.killSwitch}
           onConfirm={handleConfirmKillSwitch}
           onCancel={() => setPendingKillSwitchAgent(null)}
+        />
+      )}
+
+      {/* Fund Agent Modal */}
+      {fundingAgent && (
+        <FundAgentModal
+          isOpen={!!fundingAgent}
+          agent={fundingAgent}
+          connectedBalanceMon={balanceMon}
+          onClose={() => setFundingAgent(null)}
+          onFundAgent={handleFundAgent}
         />
       )}
     </div>

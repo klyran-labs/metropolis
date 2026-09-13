@@ -1,0 +1,47 @@
+# AgentGuard Self-Hosted OpenSigner Container
+# Hardened Alpine Node.js container for sovereign agent key enclave & EIP-712 signer
+
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy root configs for monorepo resolution
+COPY package*.json ./
+COPY tsconfig*.json ./
+COPY packages ./packages
+COPY services/opensigner ./services/opensigner
+
+# Install dependencies and build opensigner
+RUN npm ci --ignore-scripts
+RUN npm run build --workspace=@agentguard/opensigner
+
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=3001 \
+    OPENSIGNER_PORT=3001 \
+    OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
+
+# Install curl/wget for healthcheck and create non-root user
+RUN apk add --no-cache wget ca-certificates && \
+    mkdir -p /data /app && \
+    chown -R node:node /data /app
+
+# Copy built artifacts and production dependencies
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/services/opensigner/package.json ./services/opensigner/
+COPY --from=builder /app/services/opensigner/dist ./services/opensigner/dist
+
+USER node
+
+VOLUME ["/data"]
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
+  CMD wget --spider -q http://127.0.0.1:3001/health || exit 1
+
+ENTRYPOINT ["node", "services/opensigner/dist/index.js"]

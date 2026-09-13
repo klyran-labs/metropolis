@@ -41,7 +41,7 @@ build-web:
 	@echo "=== Building React 19 Web Control Plane (Vite) ==="
 	@cd apps/web && npm run build
 
-test: test-contracts test-web test-middleware test-gateway
+test: test-contracts test-web test-middleware test-gateway test-opensigner
 	@echo "=== All AgentGuard Test Suites Passed 100% ==="
 	@echo "NOTE: 'test-contracts' above is the JS parity suite, NOT a substitute"
 	@echo "for 'forge test' against real compiled bytecode. Run: cd contracts && forge test -vvv"
@@ -57,6 +57,10 @@ test-web:
 test-middleware:
 	@echo "=== Running x402 / AP2 Middleware Tests ==="
 	@node --test packages/x402-middleware/test/middleware.test.mjs
+
+test-opensigner:
+	@echo "=== Running AgentGuard Self-Hosted OpenSigner Tests ==="
+	@node --test services/opensigner/test/opensigner.test.mjs
 
 build-gateway:
 	@echo "=== Building AgentGuard High-Throughput Rust Gateway ==="

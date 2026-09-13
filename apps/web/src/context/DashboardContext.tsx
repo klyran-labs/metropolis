@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { type FleetAgent, type SpendPolicy, type SpendRequest, type PolicyDecision, type BudgetPool } from '@agentguard/shared-types';
-import { type Address, type Hash, parseEther } from 'viem';
+import { type Address, type Hash, parseEther, formatEther } from 'viem';
 import { useAgentRoster } from '../hooks/usePolicyEvents';
 import { useFleetAgents } from '../hooks/useFleetAgents';
 import { usePolicyContracts } from '../hooks/usePolicyContracts';
@@ -9,6 +9,8 @@ import { useToast } from './ToastContext';
 import { useRbac } from './RbacContext';
 import { getUserProvisionedAgents, addUserProvisionedAgent, saveAgentCredentials } from '../utils/agentVault';
 import knownAgents from '@deployments/monad-testnet/agents.json';
+
+import { formatWeb3ErrorMessage } from '../utils/errors';
 
 export type FleetScope = 'my_agents' | 'network';
 
@@ -26,6 +28,9 @@ export interface SimulatedAuditRecord {
 export interface DashboardContextValue {
   connectedUser: Address | null;
   balanceMon: string;
+  refreshBalance: () => Promise<string>;
+  fundDevnetWallet: () => Promise<boolean>;
+  isLocalDevnet: boolean;
   agents: FleetAgent[];
   allNetworkAgents: FleetAgent[];
   fleetScope: FleetScope;
@@ -42,7 +47,20 @@ export interface DashboardContextValue {
   handleToggleKillSwitch: (agentAddress: Address, currentActive: boolean) => Promise<void>;
   handleSavePolicy: (agentAddress: Address, policy: SpendPolicy) => Promise<void>;
   handleExecuteSimulation: (req: SpendRequest) => Promise<PolicyDecision>;
-  handleRegisterAgent: (input: { name: string; role: string; policy: SpendPolicy; privateKey?: `0x${string}`; saveToVault?: boolean }) => Promise<void>;
+  handleRegisterAgent: (input: {
+    name: string;
+    role: string;
+    policy: SpendPolicy;
+    privateKey?: `0x${string}`;
+    openSignerWalletId?: string;
+    signerType?: 'web_crypto' | 'opensigner' | 'imported';
+    saveToVault?: boolean;
+    architecture?: 'EOA' | 'ERC1271' | 'EIP7702' | 'TBA';
+    securityTier?: 'STANDARD' | 'TEE_ENCLAVE';
+    gasMode?: 'SELF_FUNDED' | 'PAYMASTER_SPONSORED';
+    initialFundingWei?: bigint;
+  }) => Promise<void>;
+  handleFundAgent: (agentAddress: Address, amountWei: bigint) => Promise<Hash>;
   handleBatchProvision: (count: number) => Promise<void>;
   handleCreateBudgetPool: (poolId: Hash, orgId: Hash, name: string, totalBudget: bigint, windowSeconds: number) => Promise<void>;
   handleAssignAgentToPool: (agent: Address, poolId: Hash) => Promise<void>;
@@ -56,7 +74,7 @@ export interface DashboardContextValue {
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
 export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { address: connectedUser, balanceMon } = useWeb3Wallet();
+  const { address: connectedUser, balanceMon, refreshBalance, fundDevnetWallet, isLocalDevnet } = useWeb3Wallet();
   const { addresses: rosterAddresses, loading: rosterFetchLoading, error: rosterError, refresh: refreshRoster } = useAgentRoster();
   const {
     policy: ownPolicy,
@@ -67,6 +85,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     getBudgetPool,
     setKillSwitchOnchain,
     evaluatePolicy,
+    fundAgentOnchain,
   } = usePolicyContracts(connectedUser);
   const toast = useToast();
   const { role } = useRbac();
@@ -98,23 +117,16 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [connectedUser]);
 
   // The connected wallet's own policy or newly provisioned addresses may exist onchain
-  // a moment before getLogs indexing catches up.
-  const addressesToRead = useMemo(() => {
-    const set = new Set(rosterAddresses.map((a) => a.toLowerCase()));
-    if (connectedUser && ownPolicy) set.add(connectedUser.toLowerCase());
-    provisionedAddresses.forEach((a) => set.add(a.toLowerCase()));
-    if (selectedAgentAddress && selectedAgentAddress.startsWith('0x')) {
-      set.add(selectedAgentAddress.toLowerCase());
-    }
-    if (Array.isArray(knownAgents)) {
-      knownAgents.forEach((a: any) => {
-        if (a.address) set.add(a.address.toLowerCase());
-      });
-    }
-    return Array.from(set) as Address[];
-  }, [rosterAddresses, connectedUser, ownPolicy, provisionedAddresses, selectedAgentAddress]);
+  const allAddressesToPoll = useMemo(() => {
+    const combined = new Set<string>();
+    if (connectedUser) combined.add(connectedUser.toLowerCase());
+    provisionedAddresses.forEach((a) => combined.add(a.toLowerCase()));
+    rosterAddresses.forEach((a) => combined.add(a.toLowerCase()));
+    knownAgents.forEach((a: any) => combined.add(a.address.toLowerCase()));
+    return Array.from(combined) as Address[];
+  }, [connectedUser, provisionedAddresses, rosterAddresses]);
 
-  const { agents: allNetworkAgents, loading: fleetReadLoading, refresh: refreshFleet } = useFleetAgents(addressesToRead);
+  const { agents: allNetworkAgents, loading: fleetReadLoading, refresh: refreshFleet } = useFleetAgents(allAddressesToPoll);
 
   // Scoped agents under Principle of Least Privilege:
   // In 'my_agents' mode, display strictly the connected user's own address + provisioned agents
@@ -145,27 +157,30 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const handleToggleKillSwitch = async (agentAddress: Address, currentActive: boolean) => {
     try {
-      const hash = await setKillSwitchOnchain(agentAddress, !currentActive);
+      const nextActive = !currentActive;
+      const hash = await setKillSwitchOnchain(agentAddress, nextActive);
       toast.success(
-        !currentActive ? 'Kill switch activated' : 'Kill switch released',
-        `Confirmed onchain for ${agentAddress.slice(0, 6)}…${agentAddress.slice(-4)}`,
+        nextActive ? 'Kill switch activated' : 'Kill switch deactivated',
+        `Agent ${agentAddress.slice(0, 6)}...${agentAddress.slice(-4)} ${nextActive ? 'halted (O(1) abort)' : 'restored to active'}`,
         hash
       );
       refresh();
     } catch (err: any) {
-      toast.error('Kill switch transaction failed', err?.message || 'The transaction was rejected or reverted.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Kill switch update failed', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
-  const handleSavePolicy = async (agentAddress: Address, newPolicy: SpendPolicy) => {
+  const handleSavePolicy = async (agentAddress: Address, policy: SpendPolicy) => {
     try {
-      const hash = await setPolicyOnchain({ ...newPolicy, agent: agentAddress });
-      toast.success('Policy confirmed onchain', `${agentAddress.slice(0, 6)}…${agentAddress.slice(-4)} updated on Monad`, hash);
+      const hash = await setPolicyOnchain(policy);
+      toast.success('Policy updated', `Policy for ${agentAddress.slice(0, 6)}... committed on Monad`, hash);
       refresh();
     } catch (err: any) {
-      toast.error('Policy update failed', err?.message || 'The transaction was rejected or reverted.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Policy update failed', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
@@ -176,15 +191,29 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const handleExecuteSimulation = async (req: SpendRequest): Promise<PolicyDecision> => {
     const decision = await evaluatePolicy(req);
     addSimulatedRecord({
-      id: `sim-${Date.now()}-${Math.floor(Number(req.nonce))}`,
+      id: `sim_${Date.now()}_${Math.floor(Date.now() % 100000)}`,
       agent: req.agent,
       merchant: req.merchant,
       amountWei: req.amount,
       decision,
-      timestamp: req.timestamp,
+      timestamp: BigInt(Math.floor(Date.now() / 1000)),
       simulated: true,
     });
     return decision;
+  };
+
+  const handleFundAgent = async (agentAddress: Address, amountWei: bigint) => {
+    try {
+      const hash = await fundAgentOnchain(agentAddress, amountWei);
+      toast.success('Agent funded', `${formatEther(amountWei)} MON transferred on Monad`, hash);
+      refresh();
+      refreshBalance();
+      return hash;
+    } catch (err: any) {
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Funding failed', errorMsg);
+      throw new Error(errorMsg);
+    }
   };
 
   const handleRegisterAgent = async (input: {
@@ -192,30 +221,51 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     role: string;
     policy: SpendPolicy;
     privateKey?: `0x${string}`;
+    openSignerWalletId?: string;
+    signerType?: 'web_crypto' | 'opensigner' | 'imported';
     saveToVault?: boolean;
+    architecture?: 'EOA' | 'ERC1271' | 'EIP7702' | 'TBA';
+    securityTier?: 'STANDARD' | 'TEE_ENCLAVE';
+    gasMode?: 'SELF_FUNDED' | 'PAYMASTER_SPONSORED';
+    initialFundingWei?: bigint;
   }) => {
     try {
       const hash = await setPolicyOnchain(input.policy);
       toast.success('Agent provisioned', `${input.name} registered on Monad`, hash);
       if (connectedUser) {
         addUserProvisionedAgent(connectedUser, input.policy.agent);
-        if (input.saveToVault && input.privateKey) {
+        if (input.saveToVault && (input.privateKey || input.openSignerWalletId)) {
           saveAgentCredentials(connectedUser, {
             address: input.policy.agent,
             name: input.name,
             role: input.role,
             privateKey: input.privateKey,
+            openSignerWalletId: input.openSignerWalletId,
+            signerType: input.signerType || (input.openSignerWalletId ? 'opensigner' : input.privateKey ? 'web_crypto' : 'imported'),
             createdAt: new Date().toISOString(),
           });
         }
       }
+
+      // Initial funding transfer if requested
+      if (input.initialFundingWei && input.initialFundingWei > 0n) {
+        try {
+          const fundHash = await fundAgentOnchain(input.policy.agent, input.initialFundingWei);
+          toast.success('Agent funded', `Transferred ${formatEther(input.initialFundingWei)} MON initial balance`, fundHash);
+        } catch (fundErr: any) {
+          toast.error('Funding failed', formatWeb3ErrorMessage(fundErr));
+        }
+      }
+
       setProvisionedAddresses((prev) => Array.from(new Set([...prev, input.policy.agent])));
       setSelectedAgentAddress(input.policy.agent);
       setFleetScope('my_agents');
       refresh();
+      refreshBalance();
     } catch (err: any) {
-      toast.error('Agent provisioning failed', err?.message || 'The policy transaction was rejected or reverted.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Agent provisioning failed', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
@@ -252,8 +302,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setProvisionedAddresses((prev) => Array.from(new Set([...prev, ...demoAgents])));
       refresh();
     } catch (err: any) {
-      toast.error('Batch provisioning failed', err?.message || 'The batch transaction failed.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Batch provisioning failed', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
@@ -269,8 +320,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       toast.success('Budget pool created', `${name} confirmed on Monad`, hash);
       refresh();
     } catch (err: any) {
-      toast.error('Failed to create budget pool', err?.message || 'Transaction failed.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Failed to create budget pool', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
@@ -280,14 +332,18 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       toast.success('Agent assigned to pool', `Policy updated for ${agent.slice(0, 6)}…${agent.slice(-4)}`, hash);
       refresh();
     } catch (err: any) {
-      toast.error('Assignment failed', err?.message || 'Transaction failed.');
-      throw err;
+      const errorMsg = formatWeb3ErrorMessage(err);
+      toast.error('Assignment failed', errorMsg);
+      throw new Error(errorMsg);
     }
   };
 
   const value: DashboardContextValue = {
     connectedUser,
     balanceMon,
+    refreshBalance,
+    fundDevnetWallet,
+    isLocalDevnet,
     agents: activeAgents,
     allNetworkAgents,
     fleetScope,
@@ -305,6 +361,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     handleSavePolicy,
     handleExecuteSimulation,
     handleRegisterAgent,
+    handleFundAgent,
     handleBatchProvision,
     handleCreateBudgetPool,
     handleAssignAgentToPool,

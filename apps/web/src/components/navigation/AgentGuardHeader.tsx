@@ -236,6 +236,20 @@ export const AgentGuardHeader: React.FC = () => {
                     </span>
                   </div>
 
+                  {wallet.isLocalDevnet && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await wallet.fundDevnetWallet();
+                        refreshRoster();
+                      }}
+                      className="flex w-full items-center justify-between px-2.5 py-1.5 rounded-xl text-xs bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                    >
+                      <span>Devnet Gas Faucet</span>
+                      <span className="text-[10px] font-mono font-bold">+100 MON</span>
+                    </button>
+                  )}
+
                   {wallet.address && (
                     <a
                       href={`${MONAD_EXPLORER_URL}/address/${wallet.address}`}

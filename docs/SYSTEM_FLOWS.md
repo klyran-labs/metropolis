@@ -125,3 +125,77 @@ sequenceDiagram
         Note over Rep: Applies non-linear trust penalty<br/>Emits AgentSlashed(agent, newScore)
     end
 ```
+
+---
+
+## 6. Flow 6: OpenSigner Sealed Provisioning & Gated Signing Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Connected Operator (0xUser)
+    participant Modal as AgentOnboardingModal (Web UI)
+    participant Signer as OpenSigner Enclave (Port 3001)
+    participant Vault as AES-256-GCM Vault (/data/wallets.json)
+    participant Agent as Autonomous LLM Agent
+    participant PE as PolicyEngine.sol (Monad 10143)
+    participant AWG as AgentWalletGuard.sol (Monad 10143)
+
+    rect rgb(240, 248, 255)
+    Note over Admin,Vault: Phase 1: 1-Click Sealed Enclave Provisioning
+    Admin->>Modal: Select "OpenSigner Enclave" & Click "Provision via Enclave"
+    Modal->>Signer: POST /api/v1/wallets { label: "agent-alpha" }
+    Signer->>Signer: Generate secp256k1 keypair & derive walletId
+    Signer->>Vault: Seal encrypted private key with AES-256-GCM + scrypt
+    Signer-->>Modal: Return { walletId, address, status: "active" } (Zero plaintext key)
+    Modal->>PE: setPolicy(address, maxPerTx, maxPerWindow, velocityLimit)
+    Modal-->>Admin: Render agent card with OpenSigner Enclave badge & copyable Agent ID
+    end
+
+    rect rgb(255, 248, 240)
+    Note over Agent,AWG: Phase 2: Autonomous Gated Signing & Execution
+    Agent->>Agent: Construct EIP-712 SpendRequest (target, amount, nonce, deadline)
+    Agent->>Signer: POST /api/v1/sign-spend-request { walletId, agent, spendRequest }
+    Signer->>Vault: Unseal key in-memory & verify walletId owns agent
+    Signer->>Signer: Sign EIP-712 SpendRequest hash for Monad (Chain 10143)
+    Signer-->>Agent: Return { signature: "0x..." } (ECDSA r, s, v)
+    Agent->>AWG: executeGatedPayment(spendRequest, signature)
+    AWG->>PE: evaluateAndSpend(agent, amount, recipient)
+    PE-->>AWG: ReasonCode.ERR_NONE (0)
+    AWG-->>Agent: Payment settled atomically on Monad Parallel EVM
+    end
+```
+
+---
+
+## 7. Flow 7: Atomic 1-Tx EIP-2612 Permit & ERC-7579 Modular Hook Execution
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Agent as Autonomous Agent / Smart Account
+    participant AWG as AgentWalletGuard.sol / HookModule.sol
+    participant Token as ERC-20 Token (USDC / Permit)
+    participant PE as PolicyEngine.sol
+    participant RR as ReputationRegistry.sol
+    participant Merchant as Merchant Account
+
+    rect rgb(240, 255, 240)
+    Note over Agent,Merchant: 1-Tx Atomic Permit & Gated Settlement
+    Agent->>Agent: Generate EIP-712 SpendRequest + EIP-2612 Permit Signature
+    Agent->>AWG: executeGatedPaymentWithPermit(req, sig, token, permitDeadline, v, r, s, extraData)
+    AWG->>AWG: Verify Signer (ecrecover for EOA or ERC-1271 for Smart Account)
+    AWG->>Token: permit(agent, AWG, amount, deadline, v, r, s)
+    AWG->>PE: evaluateAndSpend(req)
+    alt Allowed by PolicyEngine
+        PE-->>AWG: Decision (allowed = true, ERR_NONE)
+        AWG->>Token: transferFrom(agent, merchant, amount)
+        AWG->>RR: recordOutcome(agent, merchant, SETTLED, amount)
+        AWG-->>Agent: PaymentExecuted event (Atomic 1-Tx)
+    else Policy Trip / Kill Switch
+        PE-->>AWG: Decision (allowed = false, ReasonCode)
+        AWG-->>Agent: Revert PolicyEvaluationFailed(reasonCode)
+    end
+    end
+```
+

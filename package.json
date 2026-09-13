@@ -6,13 +6,15 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "contracts"
+    "contracts",
+    "services/opensigner"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspace=@agentguard/web",
-    "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs",
+    "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs services/opensigner/test/opensigner.test.mjs",
     "test:gateway": "cargo test --manifest-path services/gateway/Cargo.toml",
+    "test:opensigner": "node --test services/opensigner/test/opensigner.test.mjs",
     "admin:set-role": "node scripts/set-privy-role.mjs",
     "lint": "node scripts/verify-theme-contract.mjs && npm run lint --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"

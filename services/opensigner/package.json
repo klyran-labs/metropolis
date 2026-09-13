@@ -1,0 +1,20 @@
+{
+  "name": "@agentguard/opensigner",
+  "version": "1.0.0",
+  "description": "AgentGuard Self-Hosted OpenSigner: Sovereign Sealed Enclave & EIP-712 Signer",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc -w",
+    "test": "node --test test/opensigner.test.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}

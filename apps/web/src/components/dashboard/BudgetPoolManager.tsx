@@ -6,6 +6,7 @@ import { Button } from '../common/Button';
 import { Pagination } from '../common/Pagination';
 import { useDashboard } from '../../context/DashboardContext';
 import { useRbac } from '../../context/RbacContext';
+import { formatWeb3ErrorMessage } from '../../utils/errors';
 
 export const BudgetPoolManager: React.FC = () => {
   const {
@@ -62,7 +63,7 @@ export const BudgetPoolManager: React.FC = () => {
       setIsCreating(false);
       setNewPoolName('');
     } catch (err: any) {
-      setError(err?.message || 'Failed to create budget pool.');
+      setError(formatWeb3ErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -77,7 +78,7 @@ export const BudgetPoolManager: React.FC = () => {
       setAssigningAgent('');
       setAssigningPool('');
     } catch (err: any) {
-      setError(err?.message || 'Failed to assign agent to pool.');
+      setError(formatWeb3ErrorMessage(err));
     } finally {
       setLoading(false);
     }

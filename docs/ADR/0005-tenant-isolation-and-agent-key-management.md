@@ -34,7 +34,8 @@ In the web control plane (`apps/web`):
 ### 4. Openfort / OpenSigner & Enterprise KMS Compatibility
 For production deployments requiring hardware-backed or session-key guarantees:
 - AgentGuard's EIP-712 signature verification in `AgentWalletGuard.sol` is transport-agnostic and supports:
-  - Headless session keys generated via Openfort / OpenSigner.
+  - Self-hosted OpenSigner sovereign enclave (`services/opensigner` — see [ADR 0006](0006-self-hosted-opensigner-enclave.md)).
+  - Headless session keys generated via Openfort / Turnkey.
   - HSM-backed keys via AWS KMS / Google Cloud KMS.
   - Hardware-isolated TEE enclaves (e.g. AWS Nitro Enclaves).
 
