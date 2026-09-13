@@ -12,11 +12,22 @@ import {
   RotateCcw,
   ShieldCheck,
   Coins,
+  Sparkles,
+  Trash2,
+  Zap,
+  Filter,
 } from 'lucide-react';
 import { type SpendPolicy } from '@agentguard/shared-types';
 import { Button } from '../common/Button';
 import { useDashboard } from '../../context/DashboardContext';
 import { OPENSIGNER_SERVICE_URL } from '../../config/env';
+import {
+  getAgentTemplates,
+  saveAgentTemplate,
+  deleteAgentTemplate,
+  type AgentWorkloadTemplate,
+  type WorkloadCategory,
+} from '../../services/agentTemplates';
 
 interface AgentOnboardingModalProps {
   isOpen: boolean;
@@ -121,6 +132,24 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
 
   const [agentAddress, setAgentAddress] = useState<string>('');
 
+  const [templates, setTemplates] = useState<AgentWorkloadTemplate[]>(() => getAgentTemplates());
+  const [activeCategory, setActiveCategory] = useState<string>('ALL');
+  const [isCustomDrawerOpen, setIsCustomDrawerOpen] = useState(false);
+  const [circuitBreakerThreshold, setCircuitBreakerThreshold] = useState('3');
+  const [tokenQuota, setTokenQuota] = useState('3,000,000 Tokens/wk');
+
+  // Custom blueprint form fields
+  const [customTitle, setCustomTitle] = useState('');
+  const [customRole, setCustomRole] = useState('');
+  const [customCategory, setCustomCategory] = useState<WorkloadCategory>('INFERENCE');
+  const [customTokenQuota, setCustomTokenQuota] = useState('3,000,000 Tokens/wk');
+  const [customMaxPerTx, setCustomMaxPerTx] = useState('0.15');
+  const [customMaxPerWindow, setCustomMaxPerWindow] = useState('2.00');
+  const [customWindowSeconds, setCustomWindowSeconds] = useState('3600');
+  const [customVelocity, setCustomVelocity] = useState('8');
+  const [customCircuitThreshold, setCustomCircuitThreshold] = useState('3');
+  const [customDescription, setCustomDescription] = useState('');
+
   const [maxPerTx, setMaxPerTx] = useState(AGENT_TEMPLATES[0].defaultMaxPerTx);
   const [maxPerWindow, setMaxPerWindow] = useState(AGENT_TEMPLATES[0].defaultMaxPerWindow);
   const [windowSeconds, setWindowSeconds] = useState(AGENT_TEMPLATES[0].defaultWindowSeconds.toString());
@@ -202,6 +231,54 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
     setMaxVelocity(template.defaultVelocity.toString());
     setWhitelistEnabled(template.whitelistEnabled);
     setErrorMessage(null);
+  };
+
+  const handleSelectWorkloadTemplate = (tpl: AgentWorkloadTemplate) => {
+    setAgentName(tpl.name);
+    setAgentRole(tpl.role);
+    setMaxPerTx(tpl.defaultMaxPerTx);
+    setMaxPerWindow(tpl.defaultMaxPerWindow);
+    setWindowSeconds(tpl.defaultWindowSeconds.toString());
+    setMaxVelocity(tpl.defaultVelocity.toString());
+    setWhitelistEnabled(tpl.whitelistEnabled);
+    setCircuitBreakerThreshold(tpl.circuitBreakerThreshold.toString());
+    setTokenQuota(tpl.tokenQuota);
+    setErrorMessage(null);
+  };
+
+  const handleSaveCustomBlueprint = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customTitle.trim() || !customRole.trim()) return;
+
+    const newTpl: AgentWorkloadTemplate = {
+      id: `tpl_custom_${Date.now()}`,
+      name: customTitle.trim(),
+      role: customRole.trim(),
+      category: customCategory,
+      tokenQuota: customTokenQuota.trim() || 'N/A',
+      defaultMaxPerTx: customMaxPerTx || '0.10',
+      defaultMaxPerWindow: customMaxPerWindow || '1.00',
+      defaultWindowSeconds: parseInt(customWindowSeconds, 10) || 3600,
+      defaultVelocity: parseInt(customVelocity, 10) || 10,
+      circuitBreakerThreshold: parseInt(customCircuitThreshold, 10) || 3,
+      whitelistEnabled: false,
+      description: customDescription.trim() || 'Custom enterprise blueprint configured by tenant operator.',
+      isCustom: true,
+    };
+
+    const updated = saveAgentTemplate(newTpl);
+    setTemplates(updated);
+    handleSelectWorkloadTemplate(newTpl);
+    setIsCustomDrawerOpen(false);
+    setCustomTitle('');
+    setCustomRole('');
+    setCustomDescription('');
+  };
+
+  const handleDeleteCustomBlueprint = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const updated = deleteAgentTemplate(id);
+    setTemplates(updated);
   };
 
   // Step 1 Validation & JIT Keypair Generation
@@ -441,34 +518,218 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
           {/* STEP 1: Identity & Key Vault */}
           {currentStep === 1 && (
             <div className="space-y-4">
-              {/* Template Selector Grid */}
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-                  Select Agent Role Template
-                </label>
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {AGENT_TEMPLATES.map((tpl, i) => {
-                    const Icon = tpl.icon;
-                    const isSelected = selectedTemplateIndex === i;
-                    return (
-                      <button
-                        key={tpl.name}
+              {/* Workload Blueprint Catalog */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+                      Select Agent Role Template
+                    </label>
+                    <p className="text-[11px] text-fg-muted mt-0.5">
+                      Enterprise workload blueprints with dual-denomination metering and circuit-breaker quarantine.
+                    </p>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setIsCustomDrawerOpen(!isCustomDrawerOpen)}
+                    className="text-xs text-primary border-primary/30 hover:bg-primary/5 self-start sm:self-auto"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    {isCustomDrawerOpen ? 'Close Builder' : 'Custom Blueprint'}
+                  </Button>
+                </div>
+
+                {/* Custom Blueprint Drawer */}
+                {isCustomDrawerOpen && (
+                  <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>Author Custom Workload Blueprint</span>
+                      </div>
+                      <span className="text-[10px] text-fg-muted font-mono">Stored in tenant catalog</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted">Blueprint Name</label>
+                        <input
+                          type="text"
+                          value={customTitle}
+                          onChange={(e) => setCustomTitle(e.target.value)}
+                          placeholder="e.g. Real-Time Twitter Sentinel"
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2.5 py-1.5 text-xs text-fg outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted">Operational Role</label>
+                        <input
+                          type="text"
+                          value={customRole}
+                          onChange={(e) => setCustomRole(e.target.value)}
+                          placeholder="e.g. Social Graph Intelligence"
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2.5 py-1.5 text-xs text-fg outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted font-sans">Category</label>
+                        <select
+                          value={customCategory}
+                          onChange={(e) => setCustomCategory(e.target.value as any)}
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2 py-1 text-xs text-fg outline-none"
+                        >
+                          <option value="INFERENCE">Inference & LLM</option>
+                          <option value="SCRAPING">Data & Scraping</option>
+                          <option value="TRAINING">Model Training</option>
+                          <option value="DEFI">DeFi & Trading</option>
+                          <option value="DEVOPS">DevOps & Cloud</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted font-sans">Token Quota</label>
+                        <input
+                          type="text"
+                          value={customTokenQuota}
+                          onChange={(e) => setCustomTokenQuota(e.target.value)}
+                          placeholder="3,000,000 Tokens/wk"
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2 py-1 text-xs text-fg outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted font-sans">Max / Tx (MON)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={customMaxPerTx}
+                          onChange={(e) => setCustomMaxPerTx(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2 py-1 text-xs text-fg outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-medium text-fg-muted font-sans">Circuit Trip (Fails)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={customCircuitThreshold}
+                          onChange={(e) => setCustomCircuitThreshold(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-card-border bg-card px-2 py-1 text-xs text-fg outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-medium text-fg-muted">Operational Description</label>
+                      <input
+                        type="text"
+                        value={customDescription}
+                        onChange={(e) => setCustomDescription(e.target.value)}
+                        placeholder="Briefly describe what this agent does..."
+                        className="mt-1 w-full rounded-lg border border-card-border bg-card px-2.5 py-1.5 text-xs text-fg outline-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button
                         type="button"
-                        onClick={() => handleSelectTemplate(i)}
-                        className={`flex flex-col items-start rounded-2xl border p-3 text-left transition-all ${
+                        size="sm"
+                        variant="primary"
+                        onClick={handleSaveCustomBlueprint}
+                        disabled={!customTitle.trim() || !customRole.trim()}
+                        className="text-xs"
+                      >
+                        Save & Apply Blueprint
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Category Filter Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                  {['ALL', 'INFERENCE', 'SCRAPING', 'TRAINING', 'DEFI', 'DEVOPS'].map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setActiveCategory(cat)}
+                      className={`px-2.5 py-1 rounded-lg font-medium text-[11px] transition shrink-0 ${
+                        activeCategory === cat
+                          ? 'bg-primary text-white shadow-xs'
+                          : 'bg-card border border-card-border text-fg-muted hover:text-fg'
+                      }`}
+                    >
+                      {cat === 'ALL'
+                        ? 'All Blueprints'
+                        : cat === 'INFERENCE'
+                        ? 'Inference & LLM'
+                        : cat === 'SCRAPING'
+                        ? 'Data Scraping'
+                        : cat === 'TRAINING'
+                        ? 'Model Training'
+                        : cat === 'DEFI'
+                        ? 'DeFi & Trading'
+                        : 'DevOps & SRE'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Responsive Blueprint Cards Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[320px] overflow-y-auto pr-1">
+                  {(activeCategory === 'ALL' ? templates : templates.filter((t) => t.category === activeCategory)).map((tpl) => {
+                    const isSelected = agentName === tpl.name;
+                    return (
+                      <div
+                        key={tpl.id}
+                        onClick={() => handleSelectWorkloadTemplate(tpl)}
+                        className={`cursor-pointer rounded-2xl border p-3.5 transition-all text-left space-y-2 flex flex-col justify-between ${
                           isSelected
-                            ? 'border-primary bg-primary-subtle shadow-xs'
+                            ? 'border-primary bg-primary/10 shadow-xs'
                             : 'border-card-border bg-card hover:border-fg-subtle'
                         }`}
                       >
-                        <Icon className={`h-4 w-4 ${isSelected ? 'text-primary' : 'text-fg-subtle'}`} />
-                        <span className="mt-2 text-xs font-bold text-fg truncate w-full">
-                          {tpl.role}
-                        </span>
-                        <span className="mt-0.5 text-[10px] text-fg-muted line-clamp-1">
-                          {tpl.defaultMaxPerTx} MON / tx
-                        </span>
-                      </button>
+                        <div>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                              {tpl.category}
+                            </span>
+                            {tpl.isCustom && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteCustomBlueprint(e, tpl.id)}
+                                title="Delete custom blueprint"
+                                className="text-fg-muted hover:text-rose-400 p-0.5"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="mt-2 text-xs font-bold text-fg leading-snug">
+                            {tpl.name}
+                          </div>
+
+                          <p className="mt-1 text-[11px] text-fg-muted line-clamp-2 leading-relaxed">
+                            {tpl.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-2 border-t border-card-border/60 flex flex-wrap items-center gap-1 text-[10px] font-mono">
+                          <span className="bg-card-muted px-1.5 py-0.5 rounded border border-card-border text-purple-400 font-bold">
+                            ⚡ {tpl.tokenQuota}
+                          </span>
+                          <span className="bg-card-muted px-1.5 py-0.5 rounded border border-card-border text-emerald-400 font-bold">
+                            🛡️ {tpl.defaultMaxPerTx} MON/tx
+                          </span>
+                          <span className="bg-card-muted px-1.5 py-0.5 rounded border border-card-border text-amber-400 font-bold">
+                            ⚡ CB: {tpl.circuitBreakerThreshold} fails
+                          </span>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -696,6 +957,40 @@ export const AgentOnboardingModal: React.FC<AgentOnboardingModalProps> = ({
                     required
                     className="mt-1 w-full rounded-lg border border-card-border bg-card px-2 py-1 font-mono text-xs text-fg outline-none"
                   />
+                </div>
+              </div>
+
+              {/* Dual-Denomination Token Quota & Circuit Breaker Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl border border-card-border bg-card p-4">
+                <div>
+                  <label className="text-[11px] font-medium text-fg-muted flex items-center justify-between">
+                    <span>Token Quota Allocation</span>
+                    <span className="text-[10px] text-purple-400 font-mono">Dual-Denom</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={tokenQuota}
+                    onChange={(e) => setTokenQuota(e.target.value)}
+                    placeholder="e.g. 3,000,000 Tokens/wk"
+                    className="mt-1 w-full rounded-lg border border-card-border bg-card-muted px-2.5 py-1.5 font-mono text-xs text-fg outline-none"
+                  />
+                  <span className="text-[10px] text-fg-muted mt-0.5 block">Invariant capacity quota (tokens/pages/requests).</span>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-fg-muted flex items-center justify-between">
+                    <span>Circuit Breaker Trip Threshold</span>
+                    <span className="text-[10px] text-amber-400 font-mono">⚡ Auto-Quarantine</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={circuitBreakerThreshold}
+                    onChange={(e) => setCircuitBreakerThreshold(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-card-border bg-card-muted px-2.5 py-1.5 font-mono text-xs text-fg outline-none"
+                  />
+                  <span className="text-[10px] text-fg-muted mt-0.5 block">Trips kill switch after {circuitBreakerThreshold} consecutive policy denials.</span>
                 </div>
               </div>
 

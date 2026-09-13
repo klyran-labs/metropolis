@@ -2,9 +2,10 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import { type FleetAgent, type SpendPolicy, type SpendRequest, type PolicyDecision, type BudgetPool } from '@agentguard/shared-types';
 import { type Address, type Hash, parseEther, formatEther } from 'viem';
 import { useAgentRoster } from '../hooks/usePolicyEvents';
-import { useFleetAgents } from '../hooks/useFleetAgents';
 import { usePolicyContracts } from '../hooks/usePolicyContracts';
 import { useWeb3Wallet } from '../hooks/useWeb3Wallet';
+import { fleetSyncEngine } from '../services/fleetSyncEngine';
+import { useFleetSync } from '../hooks/useFleetSync';
 import { useToast } from './ToastContext';
 import { useRbac } from './RbacContext';
 import { getUserProvisionedAgents, addUserProvisionedAgent, saveAgentCredentials } from '../utils/agentVault';
@@ -126,7 +127,15 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return Array.from(combined) as Address[];
   }, [connectedUser, provisionedAddresses, rosterAddresses]);
 
-  const { agents: allNetworkAgents, loading: fleetReadLoading, refresh: refreshFleet } = useFleetAgents(allAddressesToPoll);
+  useEffect(() => {
+    fleetSyncEngine.setMonitoredAddresses(allAddressesToPoll);
+  }, [allAddressesToPoll]);
+
+  const {
+    agents: allNetworkAgents,
+    isInitialLoading,
+    error: fleetSyncError,
+  } = useFleetSync();
 
   // Scoped agents under Principle of Least Privilege:
   // In 'my_agents' mode, display strictly the connected user's own address + provisioned agents
@@ -151,21 +160,31 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [activeAgents, selectedAgentAddress]);
 
   const refresh = useCallback(() => {
-    refreshRoster();
-    refreshFleet();
-  }, [refreshRoster, refreshFleet]);
+    refreshRoster({ silent: false });
+    fleetSyncEngine.syncFleet({ silent: false });
+  }, [refreshRoster]);
 
   const handleToggleKillSwitch = async (agentAddress: Address, currentActive: boolean) => {
     try {
       const nextActive = !currentActive;
+      fleetSyncEngine.beginMutation();
+      const existing = allNetworkAgents.find((a) => a.address.toLowerCase() === agentAddress.toLowerCase());
+      if (existing) {
+        fleetSyncEngine.applyOptimisticAgent({
+          ...existing,
+          policy: { ...existing.policy, killSwitch: nextActive },
+          status: nextActive ? 'REVOKED' : 'ACTIVE',
+        });
+      }
       const hash = await setKillSwitchOnchain(agentAddress, nextActive);
       toast.success(
         nextActive ? 'Kill switch activated' : 'Kill switch deactivated',
         `Agent ${agentAddress.slice(0, 6)}...${agentAddress.slice(-4)} ${nextActive ? 'halted (O(1) abort)' : 'restored to active'}`,
         hash
       );
-      refresh();
+      fleetSyncEngine.syncFleet({ silent: true });
     } catch (err: any) {
+      fleetSyncEngine.syncFleet({ silent: true });
       const errorMsg = formatWeb3ErrorMessage(err);
       toast.error('Kill switch update failed', errorMsg);
       throw new Error(errorMsg);
@@ -174,9 +193,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const handleSavePolicy = async (agentAddress: Address, policy: SpendPolicy) => {
     try {
+      fleetSyncEngine.beginMutation();
       const hash = await setPolicyOnchain(policy);
       toast.success('Policy updated', `Policy for ${agentAddress.slice(0, 6)}... committed on Monad`, hash);
-      refresh();
+      fleetSyncEngine.syncFleet({ silent: true });
     } catch (err: any) {
       const errorMsg = formatWeb3ErrorMessage(err);
       toast.error('Policy update failed', errorMsg);
@@ -351,8 +371,8 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     myAgentsCount,
     totalNetworkAgentsCount,
     budgetPools,
-    rosterLoading: rosterFetchLoading || fleetReadLoading,
-    rosterError,
+    rosterLoading: isInitialLoading && allNetworkAgents.length === 0,
+    rosterError: rosterError || fleetSyncError,
     refreshRoster: refresh,
     selectedAgentAddress,
     setSelectedAgentAddress,

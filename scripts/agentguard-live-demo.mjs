@@ -71,14 +71,14 @@ async function main() {
   console.log(`    • Kill Switch:      DISABLED\n`);
 
   // 3. Simulate x402 HTTP Payment Negotiation
-  console.log("[3] Agent requesting paid inference endpoint (/v1/deepseek-r1)...");
+  console.log("[3] Agent requesting paid inference endpoint (/v1/inference - Qwen 3.8 Max)...");
   const challenge = createX402Challenge({
     payTo: merchantAddress,
     amountWei: parseEther("0.1").toString(),
     token: tokenAddress,
-    serviceId: "deepseek-r1-tokens",
+    serviceId: "qwen-3.8-max-session",
     category: "AI_INFERENCE",
-    description: "4096 output tokens",
+    description: "Alibaba Cloud Qwen 3.8 Max agentic session (4096 tokens)",
   });
   console.log(`    <-- HTTP 402 Payment Required returned with header: WWW-Authenticate: ${challenge.headers["WWW-Authenticate"].slice(0, 45)}...\n`);
 

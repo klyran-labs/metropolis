@@ -1,15 +1,20 @@
 import React, { useMemo, useState } from 'react';
 import { type Address, type Hash, formatEther, parseEther, toHex, keccak256 } from 'viem';
-import { Layers, Plus, Users, ShieldAlert, CheckCircle2, DollarSign, Lock } from 'lucide-react';
+import { Layers, Plus, Users, ShieldAlert, CheckCircle2, DollarSign, Lock, Wallet, Coins, Copy, Check } from 'lucide-react';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { Pagination } from '../common/Pagination';
+import { PageHeader } from '../common/PageHeader';
 import { useDashboard } from '../../context/DashboardContext';
 import { useRbac } from '../../context/RbacContext';
 import { formatWeb3ErrorMessage } from '../../utils/errors';
 
 export const BudgetPoolManager: React.FC = () => {
   const {
+    connectedUser,
+    balanceMon,
+    fundDevnetWallet,
+    isLocalDevnet,
     agents,
     budgetPools,
     handleCreateBudgetPool,
@@ -18,6 +23,7 @@ export const BudgetPoolManager: React.FC = () => {
   } = useDashboard();
 
   const { can, roleConfig } = useRbac();
+  const [copiedWallet, setCopiedWallet] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newPoolName, setNewPoolName] = useState('');
   const [newPoolBudget, setNewPoolBudget] = useState('10.0');
@@ -88,63 +94,150 @@ export const BudgetPoolManager: React.FC = () => {
   const totalPoolSpent = budgetPools.reduce((sum, p) => sum + p.spentBudget, 0n);
 
   return (
-    <div className="space-y-4">
-      {/* Org Summary Banner */}
-      <Card padding="md">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-subtle text-primary">
-                <Layers className="h-4 w-4" />
-              </span>
-              <h2 className="text-base font-bold text-fg">Org → BudgetPool → Agent Governance</h2>
-            </div>
-            <p className="mt-1 text-xs text-fg-muted">
-              Enforce hierarchical organizational budget constraints. When a pool limit is exceeded, transactions are rejected onchain with reason code{' '}
-              <span className="font-mono font-semibold text-danger">ERR_BUDGET_DEPLETED (Code 6)</span>.
-            </p>
-          </div>
+    <div className="space-y-6 font-sans">
+      <PageHeader
+        title="Treasury & Finance"
+        description="Hierarchical organization budget pools, admin wallet reserves, and multi-tenant spending ceilings enforced on Monad."
+        badge={
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live Monad • {budgetPools.length} Pools Active
+          </span>
+        }
+        breadcrumbs={[{ label: 'AgentGuard', href: '/' }, { label: 'Treasury & Finance' }]}
+        actions={
+          can('canManageBudgetPools') ? (
+            <Button
+              variant="primary"
+              size="md"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setIsCreating(!isCreating)}
+            >
+              {isCreating ? 'Cancel' : 'Create Budget Pool'}
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="md"
+              disabled
+              leftIcon={<Lock className="h-3.5 w-3.5 text-fg-subtle" />}
+              title={`Budget pool creation disabled for ${roleConfig.label}. Requires Treasury Manager or Super Admin.`}
+            >
+              Create Pool (Treasury Only)
+            </Button>
+          )
+        }
+      />
 
-          <div className="flex items-center gap-2.5">
-            {can('canManageBudgetPools') ? (
-              <Button
-                variant="primary"
-                size="sm"
-                leftIcon={<Plus className="h-4 w-4" />}
-                onClick={() => setIsCreating(!isCreating)}
-              >
-                {isCreating ? 'Cancel' : 'Create Budget Pool'}
-              </Button>
-            ) : (
+      {/* Admin Gas Wallet & Treasury Solvency Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Card className="p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+              Operator / Admin Wallet
+            </span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary">
+              <Wallet className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-bold text-fg">
+                {connectedUser ? `${connectedUser.slice(0, 8)}...${connectedUser.slice(-6)}` : 'Not Connected'}
+              </span>
+              {connectedUser && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(connectedUser);
+                    setCopiedWallet(true);
+                    setTimeout(() => setCopiedWallet(false), 2000);
+                  }}
+                  className="text-fg-muted hover:text-fg transition-colors"
+                  title="Copy Address"
+                >
+                  {copiedWallet ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-fg-muted mt-1">Role: {roleConfig.label}</p>
+          </div>
+        </Card>
+
+        <Card className="p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+              Controller Gas Reserve
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+              <Coins className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-mono text-2xl font-black text-fg">{balanceMon}</span>
+                <span className="text-xs text-fg-muted">MON</span>
+              </div>
+              <p className="text-xs text-fg-muted mt-1">Onchain native gas balance</p>
+            </div>
+            {isLocalDevnet && (
               <Button
                 variant="secondary"
                 size="sm"
-                disabled
-                leftIcon={<Lock className="h-3.5 w-3.5 text-fg-subtle" />}
-                title={`Budget pool creation disabled for ${roleConfig.label}. Requires Treasury Manager or Super Admin.`}
+                onClick={fundDevnetWallet}
               >
-                Create Pool (Treasury Only)
+                +100 Faucet
               </Button>
             )}
           </div>
-        </div>
+        </Card>
 
-        {/* Global Pool Utilization Metric */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3 border-t border-card-border pt-4">
-          <div>
-            <p className="text-[11px] font-semibold text-fg-muted uppercase tracking-wider">Active Budget Pools</p>
-            <p className="mt-1 text-lg font-bold text-fg">{budgetPools.length}</p>
+        <Card className="p-5 flex flex-col justify-between sm:col-span-2 xl:col-span-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+              Treasury Pool Capital
+            </span>
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+              <Layers className="h-4 w-4" />
+            </div>
           </div>
-          <div>
-            <p className="text-[11px] font-semibold text-fg-muted uppercase tracking-wider">Total Allocated Pool Cap</p>
-            <p className="mt-1 text-lg font-bold text-fg font-mono">{formatEther(totalPoolBudget)} MON</p>
+          <div className="mt-3">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-mono text-2xl font-black text-fg">{formatEther(totalPoolBudget)}</span>
+              <span className="text-xs text-fg-muted">MON Allocated</span>
+            </div>
+            <p className="text-xs text-fg-muted mt-1">
+              {formatEther(totalPoolSpent)} MON spent across {budgetPools.length} pools
+            </p>
           </div>
+        </Card>
+      </div>
+
+      {/* Org Hierarchy Section Header */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-subtle text-primary shadow-xs">
+            <Layers className="h-4 w-4" />
+          </span>
           <div>
-            <p className="text-[11px] font-semibold text-fg-muted uppercase tracking-wider">Current Pool Spend</p>
-            <p className="mt-1 text-lg font-bold text-fg font-mono">{formatEther(totalPoolSpent)} MON</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold text-fg">Org → BudgetPool → Agent Governance</h2>
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-0.5 text-[10px] font-semibold text-primary font-mono">
+                Active Budget Pools: {budgetPools.length}
+              </span>
+            </div>
+            <p className="text-xs text-fg-muted mt-0.5">
+              Hierarchical organizational budget caps. Exceeded pools reject transactions with reason code{' '}
+              <span className="font-mono font-semibold text-danger">ERR_BUDGET_DEPLETED (Code 6)</span>.
+            </p>
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Creation Modal / Inline Drawer */}
       {isCreating && (

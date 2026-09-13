@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { CheckCircle2, XCircle, ExternalLink, Download, Search } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink, Download, Search, Sparkles } from 'lucide-react';
 import { type PolicyDecision, ReasonCode } from '@agentguard/shared-types';
 import { MONAD_EXPLORER_URL } from '../../config/contracts';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
 import { Pagination } from '../common/Pagination';
+import { diagnoseOnchainDenial } from '../../services/qwenCopilot';
 
 export interface AuditRecord {
   id: string;
@@ -33,6 +34,7 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [expandedCopilotRecordId, setExpandedCopilotRecordId] = useState<string | null>(null);
 
   // Reset pagination when searching or changing filters
   useEffect(() => {
@@ -113,13 +115,16 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
 
   return (
     <Card padding="none" className="font-sans">
-      {/* Table Header & Controls */}
-      <div className="flex flex-col space-y-3 border-b border-card-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-        <div>
-          <h2 className="text-base font-semibold text-fg">Verifiable Policy Audit Trail</h2>
-          <p className="text-xs text-fg-muted">
-            Machine-readable reason codes emitted by Monad `PolicyEngine` for every agent spend evaluation.
-          </p>
+      {/* Table Toolbar & Controls */}
+      <div
+        aria-label="Verifiable Policy Audit Trail"
+        className="flex flex-col space-y-3 border-b border-card-border px-6 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:space-y-0"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Audit Records</span>
+          <span className="rounded-full bg-card-muted px-2.5 py-0.5 text-[11px] font-mono font-medium text-fg border border-card-border">
+            {records.length} {records.length === 1 ? 'event' : 'events'}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -182,7 +187,8 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
               {paginatedRecords.map((rec) => {
                 const isAllow = rec.decision.decision === 'ALLOW';
                 return (
-                  <tr key={rec.id} className="hover:bg-card-muted transition-colors">
+                  <React.Fragment key={rec.id}>
+                    <tr className="hover:bg-card-muted transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-2">
                         {isAllow ? (
@@ -228,9 +234,26 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="font-mono text-xs font-semibold text-fg-muted">
-                        ERR_{rec.decision.reasonCode} ({ReasonCode[rec.decision.reasonCode]})
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-fg-muted">
+                          ERR_{rec.decision.reasonCode} ({ReasonCode[rec.decision.reasonCode]})
+                        </span>
+                        {!isAllow && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedCopilotRecordId(
+                                expandedCopilotRecordId === rec.id ? null : rec.id
+                              )
+                            }
+                            className="inline-flex items-center gap-1 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 text-[10px] font-bold cursor-pointer transition shrink-0"
+                            title="Diagnose onchain denial with Qwen 3.8 Max Copilot"
+                          >
+                            <Sparkles className="h-2.5 w-2.5" />
+                            Ask Copilot
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                     <td className="px-6 py-4 text-right font-mono text-xs">
@@ -249,8 +272,43 @@ export const AuditLedger: React.FC<AuditLedgerProps> = ({ records }) => {
                       )}
                     </td>
                   </tr>
-                );
-              })}
+
+                  {expandedCopilotRecordId === rec.id && (
+                    <tr key={`${rec.id}-copilot`} className="bg-purple-500/5 border-b border-card-border">
+                      <td colSpan={7} className="px-6 py-3.5">
+                        <div className="rounded-xl border border-purple-500/30 bg-card p-3.5 space-y-2 font-sans">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 font-bold text-xs text-purple-400">
+                              <Sparkles className="h-4 w-4" />
+                              <span>Qwen 3.8 Max Copilot Denial Diagnosis (ADR-0008)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedCopilotRecordId(null)}
+                              className="text-xs text-fg-muted hover:text-fg font-mono cursor-pointer"
+                            >
+                              ✕ Close
+                            </button>
+                          </div>
+                          <p className="text-xs text-fg leading-relaxed">
+                            {diagnoseOnchainDenial(rec.decision.reasonCode).rootCause}
+                          </p>
+                          <div className="text-[11px] text-fg-muted pt-1 border-t border-card-border flex items-center justify-between flex-wrap gap-2">
+                            <span>
+                              <strong>Actionable Fix:</strong>{' '}
+                              {diagnoseOnchainDenial(rec.decision.reasonCode).remediationSteps[0]}
+                            </span>
+                            <span className="font-mono text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                              Remediation: {diagnoseOnchainDenial(rec.decision.reasonCode).recommendedAction}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
             </tbody>
           </table>
         </div>

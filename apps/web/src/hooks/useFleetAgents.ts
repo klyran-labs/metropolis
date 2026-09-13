@@ -94,20 +94,25 @@ export function useFleetAgents(addresses: Address[]) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const initialFetchedRef = useRef(false);
   const addressKey = addresses.map((a) => a.toLowerCase()).sort().join(',');
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
     const requestId = ++requestSequence.current;
     if (addresses.length === 0) {
       setAgents([]);
       setError(null);
       return;
     }
-    setLoading(true);
+    if (!silent || !initialFetchedRef.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const results = await Promise.all(addresses.map((address) => readOneAgent(address)));
       if (requestId !== requestSequence.current) return;
+      initialFetchedRef.current = true;
       setAgents(results.filter((a): a is FleetAgent => a !== null));
     } catch (err: any) {
       if (requestId === requestSequence.current) {

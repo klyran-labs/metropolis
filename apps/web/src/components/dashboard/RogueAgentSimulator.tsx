@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { type Address, isAddress, keccak256, parseEther, toHex } from 'viem';
-import { AlertTriangle, CheckCircle2, ShieldAlert, XCircle, Zap, Shield, ArrowUpRight, Flame, Clock } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ShieldAlert, XCircle, Zap, Shield, ArrowUpRight, Flame, Clock, Sparkles } from 'lucide-react';
 import { type FleetAgent, type PolicyDecision, type SpendRequest, ReasonCode } from '@agentguard/shared-types';
 import { createPolicyRejectionResponse } from '@agentguard/x402-middleware';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { KillSwitchConfirmDialog } from '../common/KillSwitchConfirmDialog';
 import { formatWeb3ErrorMessage } from '../../utils/errors';
+import { diagnoseOnchainDenial } from '../../services/qwenCopilot';
 
 interface RogueAgentSimulatorProps {
   agent: FleetAgent;
@@ -68,7 +69,7 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
   };
 
   // 1-Click Scenario Preset Injectors (Derives valid Monad agent address or target)
-  const injectScenario = (type: 'nominal' | 'exceeds_cap' | 'velocity_burst' | 'unauthorized_vendor') => {
+  const injectScenario = (type: 'nominal' | 'exceeds_cap' | 'velocity_burst' | 'unauthorized_vendor' | 'circuit_breaker_trip') => {
     const targetMerchant = merchant && isAddress(merchant) ? merchant : agent.address;
     if (!merchant) setMerchant(targetMerchant);
 
@@ -92,6 +93,11 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
       setAmount('0.05');
       setCategory('unauthorized_drain');
       triggerEvaluationWithParams(unauthMerchant, '0.05', 'unauthorized_drain');
+    } else if (type === 'circuit_breaker_trip') {
+      const burstAmount = (limitMon * 2.0).toFixed(2);
+      setAmount(burstAmount);
+      setCategory('runaway_adversarial_loop');
+      triggerEvaluationWithParams(targetMerchant, burstAmount, 'runaway_adversarial_loop');
     }
   };
 
@@ -155,7 +161,7 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
             <span className="text-[10px] text-fg-subtle">Sub-millisecond Monad evaluation</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-left">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-left">
             <button
               type="button"
               onClick={() => injectScenario('nominal')}
@@ -208,11 +214,26 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
               className="flex flex-col rounded-xl border border-card-border bg-card-muted/60 p-2.5 hover:border-purple-500/50 hover:bg-purple-500/5 transition cursor-pointer group"
             >
               <div className="flex items-center justify-between text-xs font-bold text-purple-600 dark:text-purple-400">
-                <span>4. Rogue Counterparty</span>
+                <span>4. Rogue Vendor</span>
                 <span className="text-[10px] uppercase font-mono">DENY (ERR_5)</span>
               </div>
               <p className="text-[10px] text-fg-muted mt-1">
                 Unapproved non-whitelisted counterparty
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => injectScenario('circuit_breaker_trip')}
+              disabled={running}
+              className="flex flex-col rounded-xl border border-card-border bg-card-muted/60 p-2.5 hover:border-amber-500/50 hover:bg-amber-500/5 transition cursor-pointer group"
+            >
+              <div className="flex items-center justify-between text-xs font-bold text-amber-500">
+                <span>5. Circuit Trip</span>
+                <span className="text-[10px] uppercase font-mono">O(1) HALT</span>
+              </div>
+              <p className="text-[10px] text-fg-muted mt-1">
+                Runaway loop trips circuit breaker into O(1) freeze
               </p>
             </button>
           </div>
@@ -326,6 +347,27 @@ export const RogueAgentSimulator: React.FC<RogueAgentSimulatorProps> = ({ agent,
                 <p className="mt-1 text-xs opacity-90">{decision.reasonMessage}</p>
               </div>
             </div>
+
+            {decision.reasonCode !== 0 && (
+              <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3.5 space-y-2 font-sans">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-purple-400">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Qwen 3.8 Max Denial Diagnostic (ADR-0008)</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-purple-300/80 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
+                    Auto-Decoded
+                  </span>
+                </div>
+                <p className="text-xs text-fg leading-relaxed">
+                  {diagnoseOnchainDenial(decision.reasonCode).rootCause}
+                </p>
+                <div className="text-[11px] text-fg-muted pt-1 border-t border-purple-500/20">
+                  <span className="font-semibold text-fg">Recommended Remediation:</span>{' '}
+                  {diagnoseOnchainDenial(decision.reasonCode).remediationSteps[0]}
+                </div>
+              </div>
+            )}
 
             {payload !== null && (
               <div>

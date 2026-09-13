@@ -9,7 +9,9 @@ import { EncryptedVault } from '../dist/vault.js';
 import { OpenSignerEngine, SPEND_REQUEST_TYPES } from '../dist/signer.js';
 import { createOpenSignerServer } from '../dist/server.js';
 
-const TEST_DIR = path.resolve(process.cwd(), 'scratch/test-opensigner');
+import * as os from 'node:os';
+
+const TEST_DIR = path.join(os.tmpdir(), 'agentguard-test-opensigner-' + process.pid);
 const TEST_VAULT_PATH = path.join(TEST_DIR, 'test.vault.json');
 const TEST_MASTER_KEY = 'test-enclave-master-key-xyz-2026';
 

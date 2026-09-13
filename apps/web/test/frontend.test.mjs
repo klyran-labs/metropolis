@@ -373,7 +373,7 @@ test("AgentGuard Print Architecture: Neutralizes viewport, hides sidebar chrome,
   assert.match(complianceSource, /document\.title = `AgentGuard-Dossier-\$\{reportId\}`/);
 
   const dashboardSource = await readFile(new URL("../src/components/dashboard/AgentGuardDashboard.tsx", import.meta.url), "utf8");
-  assert.match(dashboardSource, /No agent policy configured/);
+  assert.match(dashboardSource, /Settlement Node Synchronization Notice/);
   assert.match(dashboardSource, /backdrop-blur-sm print:hidden/);
 });
 
@@ -501,6 +501,167 @@ test("AgentGuard Web3 Error Formatting: Translates low-level gas/balance excepti
   const notFound = new Error("Wallet not found");
   assert.match(formatVaultErrorMessage(notFound), /Agent keypair was not found/);
 });
+
+test("AgentGuard Circuit Breaker: Finite State Machine transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED)", async () => {
+  const {
+    createDefaultCircuitBreaker,
+    recordEvaluation,
+    checkCoolOffTransition,
+    tripCircuitBreaker,
+    resetCircuitBreaker,
+  } = await import("../src/services/circuitBreaker.ts");
+
+  // 1. Initial state
+  const cb = createDefaultCircuitBreaker(3, 60);
+  assert.equal(cb.status, "CLOSED");
+  assert.equal(cb.failureThreshold, 3);
+  assert.equal(cb.consecutiveFailures, 0);
+  assert.equal(cb.coolOffSeconds, 60);
+
+  // 2. Successful evaluation maintains CLOSED
+  const step1 = recordEvaluation(cb, true).config;
+  assert.equal(step1.status, "CLOSED");
+  assert.equal(step1.consecutiveFailures, 0);
+
+  // 3. Two failures: still CLOSED
+  const step2 = recordEvaluation(step1, false, ReasonCode.ERR_MAX_PER_TX).config;
+  assert.equal(step2.status, "CLOSED");
+  assert.equal(step2.consecutiveFailures, 1);
+
+  const step3 = recordEvaluation(step2, false, ReasonCode.ERR_MAX_PER_TX).config;
+  assert.equal(step3.status, "CLOSED");
+  assert.equal(step3.consecutiveFailures, 2);
+
+  // 4. Third consecutive failure trips to OPEN
+  const step4Result = recordEvaluation(step3, false, ReasonCode.ERR_VELOCITY_EXCEEDED);
+  const step4 = step4Result.config;
+  assert.equal(step4.status, "OPEN");
+  assert.equal(step4.consecutiveFailures, 3);
+  assert.equal(step4Result.tripped, true);
+  assert.ok(step4.trippedAt !== undefined);
+
+  // 5. While OPEN, evaluations remain blocked
+  const step5 = recordEvaluation(step4, true).config;
+  assert.equal(step5.status, "OPEN");
+
+  // 6. Cool-off transition: simulate time elapsed
+  const pastTrippedAt = Math.floor(Date.now() / 1000) - 65;
+  const coolOffReadyCb = { ...step4, trippedAt: pastTrippedAt };
+  const halfOpenCb = checkCoolOffTransition(coolOffReadyCb);
+  assert.equal(halfOpenCb.status, "HALF_OPEN");
+
+  // 7. Successful evaluation in HALF_OPEN resets to CLOSED
+  const recoveredCb = recordEvaluation(halfOpenCb, true).config;
+  assert.equal(recoveredCb.status, "CLOSED");
+  assert.equal(recoveredCb.consecutiveFailures, 0);
+
+  // 8. Manual trip & reset
+  const manuallyTripped = tripCircuitBreaker(recoveredCb, "Manual SecOps Freeze");
+  assert.equal(manuallyTripped.status, "OPEN");
+
+  const manuallyReset = resetCircuitBreaker(manuallyTripped);
+  assert.equal(manuallyReset.status, "CLOSED");
+  assert.equal(manuallyReset.consecutiveFailures, 0);
+});
+
+test("AgentGuard AI Risk Copilot: Natural Language Compiler & Onchain Denial Diagnostics", async () => {
+  const {
+    compileNaturalLanguagePolicy,
+    diagnoseOnchainDenial,
+  } = await import("../src/services/qwenCopilot.ts");
+
+  // 1. Natural Language Compilation with extracted caps
+  const compiled = compileNaturalLanguagePolicy(
+    "Set up a Qwen 3.8 Max agent with max 0.15 MON per tx, a daily budget of 3.0 MON, and trip after 2 denials"
+  );
+  assert.equal(compiled.maxPerTx, "0.15");
+  assert.equal(compiled.maxPerWindow, "3.0");
+  assert.equal(compiled.windowSeconds, 86400);
+  assert.equal(compiled.circuitBreakerThreshold, 2);
+  assert.ok(compiled.reasoning.length > 20);
+
+  // 2. Compilation with weekly window and velocity cap
+  const compiledWeekly = compileNaturalLanguagePolicy(
+    "DeepSeek agent with 0.5 MON limit, weekly cap of 10 MON and max 25 calls"
+  );
+  assert.equal(compiledWeekly.maxPerTx, "0.5");
+  assert.equal(compiledWeekly.maxPerWindow, "10");
+  assert.equal(compiledWeekly.windowSeconds, 604800);
+  assert.equal(compiledWeekly.maxVelocity, 25);
+
+  // 3. Onchain Denial Diagnostics (Kill Switch)
+  const killDiag = diagnoseOnchainDenial(ReasonCode.ERR_KILL_SWITCH);
+  assert.equal(killDiag.reasonCode, ReasonCode.ERR_KILL_SWITCH);
+  assert.match(killDiag.rootCause, /Kill switch/i);
+  assert.match(killDiag.remediationSteps.join(' '), /SecOps|Circuit Breaker/i);
+
+  // 4. Onchain Denial Diagnostics (Max per tx breach)
+  const maxTxDiag = diagnoseOnchainDenial(ReasonCode.ERR_MAX_PER_TX, {
+    attemptedAmount: "0.5 MON",
+    limit: "0.1 MON",
+  });
+  assert.match(maxTxDiag.rootCause, /0\.5/);
+  assert.match(maxTxDiag.rootCause, /0\.1/);
+  assert.match(maxTxDiag.remediationSteps.join(' '), /Policy Studio|Micro-batch/i);
+
+  // 5. Onchain Denial Diagnostics (Velocity exceeded)
+  const velDiag = diagnoseOnchainDenial(ReasonCode.ERR_VELOCITY_EXCEEDED);
+  assert.match(velDiag.rootCause, /velocity limit/i);
+  assert.match(velDiag.remediationSteps.join(' '), /exponential backoff|Policy Studio/i);
+});
+
+test("AgentGuard Workload Catalog: Dynamic templates, dual-denomination metering, and category filtering", async () => {
+  const {
+    DEFAULT_WORKLOAD_TEMPLATES,
+    getAgentTemplates,
+  } = await import("../src/services/agentTemplates.ts");
+
+  const templates = getAgentTemplates();
+  assert.ok(templates.length >= 6);
+
+  const qwenTemplate = templates.find((t) => t.id === "tpl_qwen_38_max");
+  assert.ok(qwenTemplate);
+  assert.equal(qwenTemplate.category, "INFERENCE");
+  assert.equal(qwenTemplate.tokenQuota, "3,000,000 Tokens/wk");
+  assert.equal(qwenTemplate.defaultMaxPerTx, "0.10");
+  assert.equal(qwenTemplate.circuitBreakerThreshold, 3);
+
+  const claudeTemplate = templates.find((t) => t.id === "tpl_claude_inference");
+  assert.ok(claudeTemplate);
+  assert.equal(claudeTemplate.category, "INFERENCE");
+});
+
+test("AgentGuard Flagship AI-Native App: Autonomous Agent Playground & B2B Header Badge", async () => {
+  const playgroundSource = await readFile(new URL("../src/components/dashboard/AutonomousAgentPlayground.tsx", import.meta.url), "utf8");
+  assert.match(playgroundSource, /Autonomous Agent Execution Playground/);
+  assert.match(playgroundSource, /Qwen 3\.8 Max/);
+  assert.match(playgroundSource, /Circuit Breaker/);
+  assert.match(playgroundSource, /Adversarial Injection/);
+  assert.match(playgroundSource, /x402/);
+  assert.match(playgroundSource, /Tokens/);
+  assert.match(playgroundSource, /MON/);
+
+  const headerSource = await readFile(new URL("../src/components/navigation/AgentGuardHeader.tsx", import.meta.url), "utf8");
+  assert.match(headerSource, /Acme AI Systems/);
+  assert.match(headerSource, /Enterprise Tier/);
+  assert.match(headerSource, /Agent in Action/);
+
+  const authConsoleSource = await readFile(new URL("../src/AuthenticatedConsole.tsx", import.meta.url), "utf8");
+  assert.match(authConsoleSource, /AutonomousAgentPlayground/);
+  assert.match(authConsoleSource, /\/playground/);
+});
+
+test("AgentGuard B2B SaaS IAM: Service Accounts & Machine Keys with Drop-in Reverse Proxy SDK", async () => {
+  const iamSource = await readFile(new URL("../src/components/dashboard/AccessManagementView.tsx", import.meta.url), "utf8");
+  assert.match(iamSource, /Service Accounts &amp; Machine Keys/);
+  assert.match(iamSource, /Machine Service Accounts &amp; Reverse Proxy SDK/);
+  assert.match(iamSource, /Drop-in SDK Reverse Proxy Configuration/);
+  assert.match(iamSource, /https:\/\/gateway\.agentguard\.io\/v1/);
+  assert.match(iamSource, /ag_live_sec_/);
+  assert.match(iamSource, /X-AgentGuard-Agent/);
+  assert.match(iamSource, /Create Machine Service Account/);
+});
+
 
 
 

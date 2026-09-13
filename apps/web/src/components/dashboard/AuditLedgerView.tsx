@@ -4,6 +4,7 @@ import { useRecentActivity } from '../../hooks/usePolicyEvents';
 import { useDashboard } from '../../context/DashboardContext';
 import { AuditLedger, type AuditRecord } from './AuditLedger';
 import { Card } from '../common/Card';
+import { PageHeader } from '../common/PageHeader';
 
 /**
  * /audit — comprehensive and verifiable: reads SpendEvaluated events
@@ -68,7 +69,21 @@ export const AuditLedgerView: React.FC = () => {
     );
   }
 
-  return <AuditLedger records={records} />;
+  return (
+    <div className="space-y-6 font-sans">
+      <PageHeader
+        title="Verifiable Policy Audit Trail"
+        description="Machine-readable reason codes emitted by Monad PolicyEngine for every agent spend evaluation."
+        breadcrumbs={[{ label: 'AgentGuard', href: '/' }, { label: 'Audit Trail' }]}
+        badge={
+          <span className="rounded-full bg-primary/10 text-primary border border-primary/20 px-2.5 py-0.5 text-xs font-mono">
+            Monad Event Stream
+          </span>
+        }
+      />
+      <AuditLedger records={records} />
+    </div>
+  );
 };
 
 export default AuditLedgerView;

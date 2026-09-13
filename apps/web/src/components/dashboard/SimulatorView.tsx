@@ -4,6 +4,9 @@ import { useDashboard } from '../../context/DashboardContext';
 import { RogueAgentSimulator } from './RogueAgentSimulator';
 import { FleetDemoController } from './FleetDemoController';
 import { Card } from '../common/Card';
+import { PageHeader } from '../common/PageHeader';
+import { useRbac } from '../../context/RbacContext';
+import { Lock } from 'lucide-react';
 
 /**
  * /simulator — Enterprise Master-Detail Risk Simulator Workbench.
@@ -18,6 +21,7 @@ export const SimulatorView: React.FC = () => {
     handleExecuteSimulation,
     handleToggleKillSwitch,
   } = useDashboard();
+  const { can, roleConfig } = useRbac();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
@@ -43,7 +47,28 @@ export const SimulatorView: React.FC = () => {
   }, [agents, searchQuery, roleFilter]);
 
   return (
-    <div className="space-y-4 font-sans">
+    <div className="space-y-6 font-sans">
+      {/* Canonical Page Header */}
+      <PageHeader
+        title="Risk & Adversarial Simulator"
+        description="Multi-agent parallel attack orchestration, single-intent spend testbench, and O(1) kill-switch mitigation."
+        breadcrumbs={[{ label: 'AgentGuard', href: '/' }, { label: 'Risk Simulator' }]}
+        badge={
+          <span className="rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 text-xs font-mono">
+            Adversarial Testbench
+          </span>
+        }
+      />
+
+      {!can('canRunSimulations') && (
+        <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-card-muted border border-card-border text-xs text-fg-muted">
+          <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>
+            <strong className="text-fg">Simulation Execution Locked:</strong> Your role ({roleConfig.label}) is in read-only inspection mode. Triggering autonomous fleet scenarios requires SecOps, DevOps, or Super Admin privileges.
+          </span>
+        </div>
+      )}
+
       {/* 20-Agent Fleet Autonomous Scenario Runner */}
       <FleetDemoController />
 

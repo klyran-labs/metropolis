@@ -18,8 +18,10 @@ import {
 import { type FleetAgent, type SpendPolicy } from '@agentguard/shared-types';
 import { DisjointSlotVisualizer } from './DisjointSlotVisualizer';
 import { Pagination } from '../common/Pagination';
+import { PageHeader } from '../common/PageHeader';
 import { useRbac } from '../../context/RbacContext';
 import { formatWeb3ErrorMessage } from '../../utils/errors';
+import { compileNaturalLanguagePolicy } from '../../services/qwenCopilot';
 
 interface PolicyStudioProps {
   agent: FleetAgent | null;
@@ -36,6 +38,11 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
 }) => {
   const { can, roleConfig } = useRbac();
   const [searchQuery, setSearchQuery] = useState('');
+  const [copilotPrompt, setCopilotPrompt] = useState('');
+  const [copilotReasoning, setCopilotReasoning] = useState<string | null>(null);
+  const [circuitBreakerThresholdInput, setCircuitBreakerThresholdInput] = useState('3');
+  const [tokenQuotaInput, setTokenQuotaInput] = useState('3,000,000 Tokens/wk');
+
   const [maxPerTxInput, setMaxPerTxInput] = useState('1.0');
   const [maxPerWindowInput, setMaxPerWindowInput] = useState('5.0');
   const [windowSecondsInput, setWindowSecondsInput] = useState('3600');
@@ -46,6 +53,19 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleCompileWithCopilot = () => {
+    if (!copilotPrompt.trim()) return;
+    const result = compileNaturalLanguagePolicy(copilotPrompt);
+    setMaxPerTxInput(result.maxPerTx);
+    setMaxPerWindowInput(result.maxPerWindow);
+    setWindowSecondsInput(result.windowSeconds.toString());
+    setMaxVelocityInput(result.maxVelocity.toString());
+    setWhitelistEnabled(result.whitelistEnabled);
+    setCircuitBreakerThresholdInput(result.circuitBreakerThreshold.toString());
+    setTokenQuotaInput(result.tokenQuota);
+    setCopilotReasoning(result.reasoning);
+  };
 
   // Active agent fallback
   const activeAgent = agent || (agents.length > 0 ? agents[0] : null);
@@ -135,28 +155,22 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
 
   return (
     <div className="space-y-4 font-sans">
-      {/* Top Header Banner */}
-      <div className="rounded-2xl border border-card-border bg-card p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-fg tracking-tight">Policy Authoring Studio</h1>
-            <span className="rounded-full bg-primary/10 text-primary text-[10px] font-semibold px-2.5 py-0.5 border border-primary/20 font-mono">
-              Active Spend Control
-            </span>
-          </div>
-          <p className="text-xs text-fg-muted mt-1">
-            Configure transaction spend caps, time-window limits, velocity thresholds, and emergency freeze rules.
-          </p>
-        </div>
-
-        {/* Telemetry & Finality Badge */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="flex items-center gap-2 rounded-xl bg-card-muted border border-card-border px-3.5 py-1.5 text-xs text-fg-muted font-mono">
+      {/* Canonical Page Header */}
+      <PageHeader
+        title="Guardrail Authoring Studio"
+        description="Configure transaction spend caps, time-window limits, velocity thresholds, and emergency freeze rules."
+        breadcrumbs={[
+          { label: 'AgentGuard', href: '/' },
+          { label: 'Guardrail Studio', href: '/studio' },
+          ...(activeAgent ? [{ label: activeAgent.name }] : []),
+        ]}
+        badge={
+          <div className="flex items-center gap-2 rounded-xl bg-card-muted border border-card-border px-3 py-1 text-xs text-fg-muted font-mono">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-fg font-medium">Monad Real-Time</span>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Master-Detail Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
@@ -286,6 +300,15 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
                 </div>
               </div>
 
+              {!can('canEditPolicy') && (
+                <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-card-muted border border-card-border text-xs text-fg-muted">
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    <strong className="text-fg">Read-Only Inspection:</strong> Your current role ({roleConfig.label}) is in read-only audit mode. Policy adjustments require Treasury Manager, Agent Developer, or Super Admin privileges.
+                  </span>
+                </div>
+              )}
+
               {/* Form Controls */}
               <form onSubmit={handleSave} className="space-y-6">
                 {/* Template Chips Header */}
@@ -317,7 +340,70 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
                     >
                       High-Capacity
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => applyPreset('0.1', '1.0', '3600', '5')}
+                      className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/30 text-[11px] font-medium text-primary transition cursor-pointer flex items-center gap-1"
+                      title="Optimized for Alibaba Cloud Qwen 3.8 Max paid inference sessions"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      Qwen Inference
+                    </button>
                   </div>
+                </div>
+
+                {/* Qwen 3.8 Max Risk Copilot Bar (ADR-0008) */}
+                <div className="rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-500/10 via-card to-primary/5 p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400 font-bold text-xs border border-purple-500/30">
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-fg">Qwen 3.8 Max Risk Copilot</span>
+                        <span className="ml-2 text-[10px] font-mono text-purple-400 uppercase tracking-wider bg-purple-500/20 px-1.5 py-0.5 rounded border border-purple-500/30">
+                          ADR-0008 Auto-Configurator
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-fg-muted font-mono hidden sm:inline">
+                      Natural Language → Monad Policy
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={copilotPrompt}
+                      onChange={(e) => setCopilotPrompt(e.target.value)}
+                      placeholder="e.g. Set 0.25 MON cap, 2.5 MON hourly budget, 8 tx/hr velocity, and trip circuit breaker on 3 failures"
+                      className="flex-1 rounded-xl border border-card-border bg-card px-3 py-2 text-xs text-fg outline-none focus:border-purple-500 font-mono"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCompileWithCopilot();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCompileWithCopilot}
+                      className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Compile
+                    </button>
+                  </div>
+
+                  {copilotReasoning && (
+                    <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-2.5 text-[11px] text-fg leading-relaxed flex items-start gap-2">
+                      <Zap className="h-3.5 w-3.5 text-purple-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-purple-400">Copilot Synthesis: </span>
+                        <span className="text-fg-muted">{copilotReasoning}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 4 Invariant Fields (Streamlined 2x2 Grid) */}
@@ -419,6 +505,35 @@ export const PolicyStudio: React.FC<PolicyStudioProps> = ({
 
                 {/* Policy Governance & Security Controls */}
                 <div className="space-y-3 pt-2">
+                  {/* Multi-Tier Circuit Breaker Configuration Card */}
+                  <div className="p-3.5 rounded-xl border border-card-border bg-card-muted/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold text-xs shrink-0">
+                        ⚡
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold text-fg block">Autonomous Multi-Tier Circuit Breaker</span>
+                        <span className="text-[11px] text-fg-muted block">Automatically trips into Monad O(1) kill switch after consecutive denials</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      <label htmlFor="cb-threshold-input" className="text-[10px] font-mono text-fg-muted">
+                        Auto-Trip At:
+                      </label>
+                      <input
+                        id="cb-threshold-input"
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={circuitBreakerThresholdInput}
+                        onChange={(e) => setCircuitBreakerThresholdInput(e.target.value)}
+                        className="w-16 px-2 py-1 rounded-lg border border-card-border bg-card text-xs font-mono font-bold text-amber-500 text-center outline-none focus:border-amber-500"
+                      />
+                      <span className="text-[11px] font-mono text-fg-muted">fails</span>
+                    </div>
+                  </div>
+
                   {/* Whitelist Checkbox */}
                   <div className="p-3.5 rounded-xl border border-card-border bg-card-muted/40 hover:bg-card-muted/70 transition flex items-center justify-between">
                     <div className="flex items-center gap-3">

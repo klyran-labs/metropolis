@@ -40,10 +40,14 @@ export function useAgentRoster() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const initialFetchedRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
     const requestId = ++requestSequence.current;
-    setLoading(true);
+    if (!silent || !initialFetchedRef.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const fromBlock = await getSafeFromBlock(publicClient, DEPLOY_BLOCK);
@@ -55,16 +59,25 @@ export function useAgentRoster() {
         toBlock: 'latest',
       });
       if (requestId !== requestSequence.current) return;
+      initialFetchedRef.current = true;
       const unique = Array.from(
         new Set(logs.map((log) => (log.args as { agent?: Address }).agent).filter((a): a is Address => Boolean(a)).map((a) => a.toLowerCase()))
       ) as Address[];
-      setAddresses(unique);
+
+      setAddresses((prev) => {
+        if (prev.length === unique.length && prev.every((addr, i) => addr.toLowerCase() === unique[i]?.toLowerCase())) {
+          return prev;
+        }
+        return unique;
+      });
     } catch (err: any) {
       if (requestId === requestSequence.current) {
         // Log cleanly to console; avoid leaking raw JSON-RPC text onto the UI
         console.warn('PolicySet scan deferred:', err?.shortMessage || err?.message);
         setError(null);
-        setAddresses([]);
+        if (!initialFetchedRef.current) {
+          setAddresses([]);
+        }
       }
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
@@ -164,10 +177,14 @@ export function useRecentActivity(agent?: Address | null, limit = 50) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const initialFetchedRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
     const requestId = ++requestSequence.current;
-    setLoading(true);
+    if (!silent || !initialFetchedRef.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const fromBlock = await getSafeFromBlock(publicClient, DEPLOY_BLOCK);

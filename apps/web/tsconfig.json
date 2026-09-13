@@ -22,6 +22,12 @@
       ],
       "@deployments/*": [
         "../../deployments/*"
+      ],
+      "@agentguard/shared-types": [
+        "../../packages/shared-types/src/index.ts"
+      ],
+      "@agentguard/x402-middleware": [
+        "../../packages/x402-middleware/src/index.ts"
       ]
     }
   },

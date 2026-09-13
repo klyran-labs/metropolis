@@ -1,12 +1,12 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
-import { Shield, Plus } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import { AgentOnboardingModal } from './AgentOnboardingModal';
 import { useDashboard } from '../../context/DashboardContext';
 import { Button } from '../common/Button';
 
 /**
- * Persistent dashboard chrome: connection/loading/error/empty states,
+ * Persistent dashboard chrome: connection/loading/error states,
  * and the onboarding modal — shared across every routed section rendered via <Outlet/>.
  */
 export const DashboardShell: React.FC = () => {
@@ -17,7 +17,6 @@ export const DashboardShell: React.FC = () => {
     rosterError,
     refreshRoster,
     isOnboardingOpen,
-    openOnboarding,
     closeOnboarding,
     handleRegisterAgent,
   } = useDashboard();
@@ -62,16 +61,6 @@ export const DashboardShell: React.FC = () => {
             </div>
           </div>
           <Button variant="outline-danger" size="sm" onClick={() => refreshRoster()}>Retry Sync</Button>
-        </div>
-      )}
-      {connectedUser && !rosterLoading && !rosterError && agents.length === 0 && (
-        <div className="rounded-2xl border border-card-border bg-card p-8 text-center print:hidden">
-          <Shield className="mx-auto h-10 w-10 text-fg-subtle" />
-          <h2 className="mt-3 text-base font-semibold text-fg">No agent policy configured</h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-fg-muted">Register an agent wallet and authorize the policy transaction. AgentGuard will show it here only after the deployed PolicyEngine confirms the write.</p>
-          <Button variant="primary" size="md" className="mt-5" leftIcon={<Plus className="h-3.5 w-3.5" />} onClick={openOnboarding}>
-            Register agent
-          </Button>
         </div>
       )}
 

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Shield, CheckCircle2, Download, Printer, FileText, Lock, Layers, Zap, Check, Copy } from 'lucide-react';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
+import { PageHeader } from '../common/PageHeader';
 import { useDashboard } from '../../context/DashboardContext';
 import { ReasonCode, REASON_CODE_MESSAGES } from '@agentguard/shared-types';
 import { CONTRACT_ADDRESSES, MONAD_CHAIN_ID } from '../../config/contracts';
@@ -122,58 +123,51 @@ export const ComplianceReportView: React.FC = () => {
         </div>
       </div>
 
-      {/* Report Header Card */}
+      {/* Canonical Screen Page Header */}
+      <div className="print:hidden">
+        <PageHeader
+          title="Enterprise Policy Invariant & Risk Audit Dossier"
+          description="Formal verification dossier of agentic risk invariants, non-custodial boundaries, and reason code accounting."
+          breadcrumbs={[{ label: 'AgentGuard', href: '/' }, { label: 'Policy Invariants' }]}
+          badge={
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-500/20 font-mono">
+              <CheckCircle2 className="h-3 w-3" /> ATTESTED
+            </span>
+          }
+          actions={
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" leftIcon={<Printer className="h-4 w-4" />} onClick={handlePrint}>
+                Print Report
+              </Button>
+              <Button variant="primary" size="sm" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportJSON}>
+                Export JSON Dossier
+              </Button>
+            </div>
+          }
+        />
+      </div>
+
+      {/* Report Dossier Metadata & Invariants Card */}
       <Card padding="md" className="border-card-border bg-card print:border-slate-300 print:bg-white print:p-4">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-primary via-indigo-600 to-purple-600 text-white shadow-md shadow-primary/25 print:bg-slate-900 print:text-white print:shadow-none">
-                <Shield className="h-6 w-6 text-white" />
-              </span>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-black tracking-tight text-fg print:text-slate-900">
-                    Enterprise Policy Invariant & Risk Audit Dossier
-                  </h2>
-                  <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-500/20 font-mono print:border-emerald-500 print:bg-emerald-50 print:text-emerald-700">
-                    <CheckCircle2 className="h-3 w-3" /> ATTESTED
-                  </span>
-                </div>
-                <p className="text-xs text-fg-muted mt-0.5 print:text-slate-600">
-                  Formal verification of agentic risk invariants, non-custodial boundaries, and reason code accounting
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-fg-muted font-mono print:mt-3 print:gap-2">
-              <div className="flex items-center gap-1.5 rounded-lg border border-card-border bg-card-muted px-2.5 py-1 text-fg print:border-slate-300 print:bg-slate-50 print:text-slate-900">
-                <span>Report ID: <strong>{reportId}</strong></span>
-                <button
-                  type="button"
-                  onClick={handleCopyReportId}
-                  className="print:hidden text-fg-subtle hover:text-primary transition-colors ml-1 cursor-pointer"
-                  title="Copy Report ID"
-                >
-                  {copiedId ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                </button>
-              </div>
-              <span className="rounded-lg border border-card-border bg-card-muted px-2.5 py-1 print:border-slate-300 print:bg-slate-50 print:text-slate-900">
-                Generated: <strong className="text-fg print:text-slate-900">{reportDate}</strong>
-              </span>
-              <span className="rounded-lg border border-primary/20 bg-primary-subtle px-2.5 py-1 text-primary font-semibold print:border-slate-300 print:bg-slate-50 print:text-slate-900">
-                Framework: Deterministic Policy Invariants (Self-Attested)
-              </span>
-            </div>
+        {/* Report Metadata Strip */}
+        <div className="flex flex-wrap items-center gap-3 text-xs text-fg-muted font-mono print:gap-2">
+          <div className="flex items-center gap-1.5 rounded-lg border border-card-border bg-card-muted px-2.5 py-1 text-fg print:border-slate-300 print:bg-slate-50 print:text-slate-900">
+            <span>Report ID: <strong>{reportId}</strong></span>
+            <button
+              type="button"
+              onClick={handleCopyReportId}
+              className="print:hidden text-fg-subtle hover:text-primary transition-colors ml-1 cursor-pointer"
+              title="Copy Report ID"
+            >
+              {copiedId ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+            </button>
           </div>
-
-          <div className="flex items-center gap-2 print:hidden shrink-0">
-            <Button variant="secondary" size="sm" leftIcon={<Printer className="h-4 w-4" />} onClick={handlePrint}>
-              Print Report
-            </Button>
-            <Button variant="primary" size="sm" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportJSON}>
-              Export JSON Dossier
-            </Button>
-          </div>
+          <span className="rounded-lg border border-card-border bg-card-muted px-2.5 py-1 print:border-slate-300 print:bg-slate-50 print:text-slate-900">
+            Generated: <strong className="text-fg print:text-slate-900">{reportDate}</strong>
+          </span>
+          <span className="rounded-lg border border-primary/20 bg-primary-subtle px-2.5 py-1 text-primary font-semibold print:border-slate-300 print:bg-slate-50 print:text-slate-900">
+            Framework: Deterministic Policy Invariants (Self-Attested)
+          </span>
         </div>
 
         {/* High-Level Invariant Metrics Row */}

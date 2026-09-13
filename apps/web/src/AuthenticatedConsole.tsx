@@ -5,6 +5,7 @@ import { ToastProvider } from './context/ToastContext';
 import { DashboardProvider, useDashboard } from './context/DashboardContext';
 import { RbacProvider, useRbac } from './context/RbacContext';
 import { publicClient } from './hooks/usePolicyEvents';
+import { useCurrentBlock } from './hooks/useFleetSync';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AgentGuardSidebar } from './components/navigation/AgentGuardSidebar';
 import { ConsoleSkeleton } from './components/common/ConsoleSkeleton';
@@ -14,6 +15,7 @@ import { AssumeRoleModal } from './components/common/AssumeRoleModal';
 const DashboardShell = React.lazy(() =>
   import('./components/dashboard/AgentGuardDashboard').then((module) => ({ default: module.DashboardShell }))
 );
+const ExecutiveDashboard = React.lazy(() => import('./components/dashboard/ExecutiveDashboard'));
 const FleetView = React.lazy(() => import('./components/dashboard/FleetView'));
 const LifecycleView = React.lazy(() => import('./components/dashboard/LifecycleView'));
 const PolicyStudioView = React.lazy(() => import('./components/dashboard/PolicyStudioView'));
@@ -28,38 +30,37 @@ const ComplianceReportView = React.lazy(() =>
 const AccessManagementView = React.lazy(() =>
   import('./components/dashboard/AccessManagementView').then((module) => ({ default: module.AccessManagementView }))
 );
+const AutonomousAgentPlayground = React.lazy(() =>
+  import('./components/dashboard/AutonomousAgentPlayground').then((module) => ({ default: module.AutonomousAgentPlayground }))
+);
 
 const PortalLoadingFallback: React.FC = () => (
   <ConsoleSkeleton isFullApp={false} />
 );
+
+const ConsoleFooterBlockTelemetry: React.FC = () => {
+  const currentBlock = useCurrentBlock();
+  return (
+    <div className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-zinc-400 pl-2 border-l border-zinc-800">
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+      </span>
+      <span className="text-zinc-300 font-medium">
+        {currentBlock !== null ? `Block #${currentBlock.toString()}` : 'Syncing...'}
+      </span>
+    </div>
+  );
+};
 
 const MainLayout: React.FC = () => {
   const [isShrunk, setIsShrunk] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const { agents } = useDashboard();
   const { roleConfig, isImpersonating, exitImpersonation } = useRbac();
-  const [currentBlock, setCurrentBlock] = useState<bigint | null>(null);
 
   const activeAgents = agents.filter((a) => a.status === 'ACTIVE').length;
   const totalAgents = agents.length;
-
-  useEffect(() => {
-    let mounted = true;
-    const fetchBlock = async () => {
-      try {
-        const block = await publicClient.getBlockNumber();
-        if (mounted) setCurrentBlock(block);
-      } catch {
-        // quiet fallback
-      }
-    };
-    fetchBlock();
-    const timer = setInterval(fetchBlock, 3500);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     // Trigger smooth visual shrink animation right after login / mount
@@ -140,19 +141,21 @@ const MainLayout: React.FC = () => {
               <Suspense fallback={<PortalLoadingFallback />}>
                 <Routes>
                   <Route element={<DashboardShell />}>
+                    <Route path="/" element={<ExecutiveDashboard />} />
+                    <Route path="/dashboard" element={<ExecutiveDashboard />} />
                     <Route path="/fleet" element={<FleetView />} />
+                    <Route path="/finance" element={<BudgetPoolManager />} />
                     <Route path="/pools" element={<BudgetPoolManager />} />
                     <Route path="/lifecycle" element={<LifecycleView />} />
                     <Route path="/lifecycle/:agentAddress" element={<LifecycleView />} />
                     <Route path="/studio" element={<PolicyStudioView />} />
                     <Route path="/studio/:agentAddress" element={<PolicyStudioView />} />
                     <Route path="/simulator" element={<SimulatorView />} />
+                    <Route path="/playground" element={<AutonomousAgentPlayground />} />
                     <Route path="/audit" element={<AuditLedgerView />} />
                     <Route path="/compliance" element={<ComplianceReportView />} />
                     <Route path="/access" element={<AccessManagementView />} />
-                    <Route path="/" element={<Navigate to="/fleet" replace />} />
-                    <Route path="/dashboard" element={<Navigate to="/fleet" replace />} />
-                    <Route path="*" element={<Navigate to="/fleet" replace />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Routes>
               </Suspense>
@@ -178,15 +181,7 @@ const MainLayout: React.FC = () => {
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-zinc-400 pl-2 border-l border-zinc-800">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            <span className="text-zinc-300 font-medium">
-              {currentBlock !== null ? `Block #${currentBlock.toString()}` : 'Syncing...'}
-            </span>
-          </div>
+          <ConsoleFooterBlockTelemetry />
         </div>
 
         <div className="flex items-center gap-3 text-[11px] text-zinc-400 font-sans">

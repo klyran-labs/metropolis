@@ -162,6 +162,18 @@ export type SignerType = 'EOA' | 'ERC1271' | 'EIP7702' | 'TBA';
 export type SecurityTier = 'STANDARD' | 'TEE_ENCLAVE';
 export type GasMode = 'SELF_FUNDED' | 'PAYMASTER_SPONSORED';
 
+export type CircuitBreakerStatus = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+export interface CircuitBreakerConfig {
+  status: CircuitBreakerStatus;
+  failureThreshold: number;       // e.g. 3 consecutive denials
+  coolOffSeconds: number;         // e.g. 900 (15 min cool-down)
+  consecutiveFailures: number;
+  lastFailureTimestamp?: number;
+  trippedAt?: number;
+  reason?: string;
+}
+
 /**
  * Enterprise Agent Fleet Member for Control Plane
  */
@@ -174,7 +186,7 @@ export interface FleetAgent {
   state: AgentSpendState;
   /** Null when the registry has no recorded outcomes for this agent. */
   reputation: ReputationSummary | null;
-  status: 'ACTIVE' | 'REVOKED' | 'RATE_LIMITED';
+  status: 'ACTIVE' | 'REVOKED' | 'RATE_LIMITED' | 'CIRCUIT_TRIPPED';
   recentEvaluations: PolicyDecision[];
   poolId?: Hash | null;
   signerType?: SignerType;
@@ -182,6 +194,7 @@ export interface FleetAgent {
   gasMode?: GasMode;
   tbaAddress?: Address;
   enclaveMeasurement?: Hash;
+  circuitBreaker?: CircuitBreakerConfig;
 }
 
 /**

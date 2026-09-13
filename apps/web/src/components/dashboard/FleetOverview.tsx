@@ -26,6 +26,8 @@ import { type FleetAgent } from '@agentguard/shared-types';
 import { KillSwitchConfirmDialog } from '../common/KillSwitchConfirmDialog';
 import { FundAgentModal } from './FundAgentModal';
 import { Pagination } from '../common/Pagination';
+import { PageHeader } from '../common/PageHeader';
+import { Button } from '../common/Button';
 import { useRbac } from '../../context/RbacContext';
 import { useDashboard } from '../../context/DashboardContext';
 
@@ -112,6 +114,9 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
   const activeCount = agents.length - blockedAgents.length;
   const activePercent = agents.length > 0 ? Math.round((activeCount / agents.length) * 100) : 100;
   const haltedPercent = 100 - activePercent;
+  const totalCapacityWei = useMemo(() => {
+    return agents.reduce((acc, a) => acc + (a.policy?.maxPerWindow ?? 0n), 0n);
+  }, [agents]);
 
   // Filtered agents for table
   const filteredAgents = useMemo(() => {
@@ -179,65 +184,31 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
 
   return (
     <div className="space-y-4 font-sans">
-      {/* Executive Command Grid (Streamlined for immediate operational focus) */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
-        {/* Card 1: Executive Command Summary (8 cols) */}
-        <div className="xl:col-span-8 rounded-2xl border border-card-border bg-card p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative overflow-hidden shadow-xs">
-          <div className="flex items-start gap-4 z-10">
-            <div className="h-12 w-12 rounded-2xl bg-primary/15 border border-primary/25 text-primary flex items-center justify-center shrink-0 shadow-inner">
-              <Shield className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-fg tracking-tight">
-                  Autonomous Fleet Command & Spend Control
-                </h2>
-                <span className="rounded-full bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 border border-primary/20 font-mono">
-                  Live
-                </span>
-              </div>
-              <p className="text-xs text-fg-muted mt-1 max-w-xl leading-relaxed">
-                Real-time per-transaction spend caps, velocity limits, and instant emergency halts enforced on Monad.
-              </p>
-              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-fg-subtle font-mono">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <strong className="text-fg">{agents.length} Guarded Agents</strong>
-                </span>
-                <span>·</span>
-                <span>Sub-Second Settlement</span>
-                <span>·</span>
-                <span>Isolated State Partitions</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Action CTA Button */}
-          <div className="shrink-0 z-10 w-full sm:w-auto">
-            <button
-              type="button"
+      <PageHeader
+        title="Fleet Command"
+        description="Autonomous agent credentials, real-time spend ceilings, velocity windows, and instant emergency halts enforced on Monad."
+        badge={
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live Monad • {agents.length} Guarded
+          </span>
+        }
+        breadcrumbs={[{ label: 'AgentGuard', href: '/' }, { label: 'Fleet Command' }]}
+        actions={
+          agents.length > 0 && can('canRegisterAgents') && onOpenOnboarding ? (
+            <Button
+              variant="primary"
+              size="md"
+              leftIcon={<Shield className="w-3.5 h-3.5" />}
               onClick={onOpenOnboarding}
-              disabled={!can('canRegisterAgents')}
-              title={
-                !can('canRegisterAgents')
-                  ? `Registration disabled: Requires Fleet DevOps or Super Admin role (Current: ${roleConfig.label})`
-                  : 'Register new autonomous agent wallet'
-              }
-              className={`w-full sm:w-auto rounded-xl px-4 py-2.5 text-xs font-semibold shadow-xs transition flex items-center justify-center gap-2 ${
-                can('canRegisterAgents')
-                  ? 'bg-primary hover:bg-primary-hover text-white shadow-primary/25 cursor-pointer'
-                  : 'bg-card-muted text-fg-muted border border-card-border cursor-not-allowed opacity-80'
-              }`}
             >
-              {can('canRegisterAgents') ? (
-                <Shield className="w-3.5 h-3.5" />
-              ) : (
-                <Lock className="w-3.5 h-3.5 text-fg-muted" />
-              )}
-              <span>{can('canRegisterAgents') ? 'Register Agent' : 'Register Agent (Locked)'}</span>
-            </button>
-          </div>
-        </div>
+              Register Agent
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
 
         {/* Card 2: Enforced Fleet Capacity Summary (4 cols) */}
         <div className="xl:col-span-4 rounded-2xl border border-card-border bg-card p-5 flex flex-col justify-between shadow-xs">
@@ -252,10 +223,10 @@ export const FleetOverview: React.FC<FleetOverviewProps> = ({
 
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-2xl font-black text-fg tracking-tight font-mono">
-                25.0 MON
+                {formatEther(totalCapacityWei)} MON
               </span>
               <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">
-                100% Guarded
+                {activePercent}% Active
               </span>
             </div>
 

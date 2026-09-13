@@ -16,6 +16,8 @@ import {
   ExternalLink,
   LogOut,
   Wallet,
+  LayoutGrid,
+  Bot,
 } from 'lucide-react';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { NotificationDrawer } from '../common/NotificationDrawer';
@@ -26,10 +28,12 @@ import { MONAD_EXPLORER_URL } from '../../config/contracts';
 import { useRbac } from '../../context/RbacContext';
 
 export const SIDEBAR_NAV_ITEMS = [
+  { to: '/', label: 'Executive Dashboard', icon: LayoutGrid },
   { to: '/fleet', label: 'Fleet Command', icon: Shield },
+  { to: '/finance', label: 'Treasury & Finance', icon: Layers },
   { to: '/studio', label: 'Guardrail Studio', icon: Sliders },
-  { to: '/pools', label: 'Budget Pools', icon: Layers },
   { to: '/simulator', label: 'Risk Simulator', icon: Play },
+  { to: '/playground', label: 'Agent in Action', icon: Bot },
   { to: '/audit', label: 'Audit Trail', icon: FileText },
   { to: '/compliance', label: 'Policy Invariants', icon: ShieldCheck },
   { to: '/access', label: 'Team & IAM', icon: Users },
@@ -45,18 +49,26 @@ export const AgentGuardSidebar: React.FC<AgentGuardSidebarProps> = ({
   onOpenCommandPalette,
 }) => {
   const wallet = useWeb3Wallet();
-  const { balanceMon, refreshRoster } = useDashboard();
+  const { balanceMon } = useDashboard();
   const { logout: privyLogout } = usePrivy();
   const { roleConfig, canImpersonate, isImpersonating, setIsAssumeModalOpen, exitImpersonation, can } = useRbac();
 
   const visibleNavItems = useMemo(() => {
     return SIDEBAR_NAV_ITEMS.filter((item) => {
-      if (item.to === '/access') {
-        return can('canManageAccess');
+      switch (item.to) {
+        case '/access':
+          return can('canManageAccess');
+        case '/simulator':
+          return can('canRunSimulations');
+        case '/finance':
+          return can('canManageBudgetPools') || roleConfig.id === 'auditor';
+        case '/studio':
+          return can('canEditPolicy') || roleConfig.id === 'auditor';
+        default:
+          return true;
       }
-      return true;
     });
-  }, [can]);
+  }, [can, roleConfig.id]);
 
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -75,13 +87,6 @@ export const AgentGuardSidebar: React.FC<AgentGuardSidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Heartbeat refresh
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refreshRoster();
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [refreshRoster]);
 
   const handleCopyAddress = () => {
     if (!wallet.address) return;
@@ -103,7 +108,7 @@ export const AgentGuardSidebar: React.FC<AgentGuardSidebarProps> = ({
         {/* Top: Brand Logo Squircle */}
         <div className="flex flex-col items-center gap-4">
           <NavLink
-            to="/fleet"
+            to="/"
             title="AgentGuard Control Plane"
             className="group relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-purple-600 to-indigo-700 text-white font-black text-sm shadow-md shadow-primary/30 ring-1 ring-white/20 hover:scale-105 transition-all duration-200"
           >
@@ -127,6 +132,8 @@ export const AgentGuardSidebar: React.FC<AgentGuardSidebarProps> = ({
                 >
                   <NavLink
                     to={item.to}
+                    end={item.to === '/'}
+                    onClick={() => setHoveredItem(null)}
                     className={({ isActive }) =>
                       `flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-200 ${
                         isActive
@@ -140,7 +147,7 @@ export const AgentGuardSidebar: React.FC<AgentGuardSidebarProps> = ({
 
                   {/* Floating Tooltip */}
                   {hoveredItem === item.to && (
-                    <div className="absolute left-14 z-50 whitespace-nowrap rounded-lg bg-card px-3 py-1.5 text-xs font-semibold text-fg shadow-xl border border-card-border animate-fade-in-up">
+                    <div className="pointer-events-none absolute left-14 z-50 whitespace-nowrap rounded-lg bg-card px-3 py-1.5 text-xs font-semibold text-fg shadow-xl border border-card-border animate-fade-in-up">
                       {item.label}
                       <div className="absolute -left-1 top-1/2 -translate-y-1/2 border-4 border-transparent border-r-card" />
                     </div>

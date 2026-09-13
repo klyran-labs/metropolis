@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Shield, Layers, Sliders, Play, FileText, ShieldAlert, ArrowRight, X } from 'lucide-react';
+import { Search, Shield, Layers, Sliders, Play, FileText, ShieldAlert, ArrowRight, X, LayoutGrid, Users } from 'lucide-react';
 import { useDashboard } from '../../context/DashboardContext';
+import { useRbac } from '../../context/RbacContext';
 import { ReasonCode } from '@agentguard/shared-types';
 
 interface CommandPaletteProps {
@@ -12,6 +13,7 @@ interface CommandPaletteProps {
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const { agents, budgetPools, handleToggleKillSwitch } = useDashboard();
+  const { can, roleConfig } = useRbac();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -42,14 +44,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
 
   const q = query.toLowerCase().trim();
 
-  const navigationCommands = [
-    { label: 'Fleet Command', route: '/fleet', icon: Shield, detail: 'View monitored autonomous agents' },
-    { label: 'Budget Allocations', route: '/pools', icon: Layers, detail: 'Shared team budget pools and caps' },
-    { label: 'Guardrail Authoring', route: '/studio', icon: Sliders, detail: 'Configure per-transaction and window limits' },
-    { label: 'Risk Simulator', route: '/simulator', icon: Play, detail: 'Run 20-agent autonomous scenario' },
-    { label: 'Audit Trail', route: '/audit', icon: FileText, detail: 'Verifiable reason-code decision ledger' },
-    { label: 'Policy Invariants', route: '/compliance', icon: Shield, detail: 'Cryptographic risk governance and invariant attestation' },
-  ].filter((item) => !q || item.label.toLowerCase().includes(q) || item.detail.toLowerCase().includes(q));
+  const allNavigationCommands = [
+    { label: 'Executive Dashboard', route: '/', icon: LayoutGrid, detail: 'High-level institutional telemetry and fleet status', permitted: true },
+    { label: 'Fleet Command', route: '/fleet', icon: Shield, detail: 'View monitored autonomous agents', permitted: true },
+    { label: 'Treasury & Finance', route: '/finance', icon: Layers, detail: 'Shared team budget pools and admin reserves', permitted: can('canManageBudgetPools') || roleConfig.id === 'auditor' },
+    { label: 'Guardrail Authoring', route: '/studio', icon: Sliders, detail: 'Configure per-transaction and window limits', permitted: can('canEditPolicy') || roleConfig.id === 'auditor' },
+    { label: 'Risk Simulator', route: '/simulator', icon: Play, detail: 'Run 20-agent autonomous scenario', permitted: can('canRunSimulations') },
+    { label: 'Audit Trail', route: '/audit', icon: FileText, detail: 'Verifiable reason-code decision ledger', permitted: true },
+    { label: 'Policy Invariants', route: '/compliance', icon: Shield, detail: 'Cryptographic risk governance and invariant attestation', permitted: true },
+    { label: 'Team & IAM Governance', route: '/access', icon: Users, detail: 'Manage operator privileges and access matrix', permitted: can('canManageAccess') },
+  ];
+
+  const navigationCommands = allNavigationCommands
+    .filter((item) => item.permitted)
+    .filter((item) => !q || item.label.toLowerCase().includes(q) || item.detail.toLowerCase().includes(q));
 
   const matchingAgents = agents.filter(
     (a) => !q || a.name.toLowerCase().includes(q) || a.address.toLowerCase().includes(q)
@@ -172,7 +180,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
                     key={pool.poolId}
                     type="button"
                     onClick={() => {
-                      navigate('/pools');
+                      navigate('/finance');
                       onClose();
                     }}
                     className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left hover:bg-card-muted transition"

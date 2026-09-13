@@ -151,7 +151,7 @@ export const FleetDemoController: React.FC = () => {
             <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-0.5 text-[10px] font-semibold text-primary font-mono">
               20 Autonomous Agents
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 text-[10px] font-semibold font-mono">
+            <span className="inline-flex items-center gap-1 rounded-full bg-success-subtle text-success px-2.5 py-0.5 text-[10px] font-semibold font-mono">
               Isolated State Execution
             </span>
           </div>
@@ -160,9 +160,9 @@ export const FleetDemoController: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {logs.length > 0 && (
-            <Button variant="ghost" size="sm" leftIcon={<RotateCcw className="h-3.5 w-3.5" />} onClick={handleReset} disabled={isRunning}>
+            <Button variant="secondary" size="sm" leftIcon={<RotateCcw className="h-3.5 w-3.5" />} onClick={handleReset} disabled={isRunning}>
               Reset
             </Button>
           )}
@@ -179,23 +179,21 @@ export const FleetDemoController: React.FC = () => {
         </div>
       </div>
 
-      {/* Progress Phases Bar */}
-      {step > 0 && (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 text-xs font-semibold">
-          <div className={`rounded-xl border p-2.5 ${step >= 1 ? 'border-primary/40 bg-primary-subtle/20 text-primary' : 'border-card-border bg-card-muted text-fg-muted'}`}>
-            1. Normal Fleet Operations (20 Agents)
-          </div>
-          <div className={`rounded-xl border p-2.5 ${step >= 2 ? 'border-warning/40 bg-warning-subtle/20 text-warning' : 'border-card-border bg-card-muted text-fg-muted'}`}>
-            2. Rogue Burst (Agent #{rogueAgentIndex})
-          </div>
-          <div className={`rounded-xl border p-2.5 ${step >= 3 ? 'border-danger/40 bg-danger-subtle/20 text-danger' : 'border-card-border bg-card-muted text-fg-muted'}`}>
-            3. Instant Auto-Cap (ERR_4)
-          </div>
-          <div className={`rounded-xl border p-2.5 ${step >= 4 ? 'border-success/40 bg-success-subtle/20 text-success' : 'border-card-border bg-card-muted text-fg-muted'}`}>
-            4. Uninterrupted Fleet Execution
-          </div>
+      {/* Progress Phases Bar — Visible in idle and active states for predictability */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 text-xs font-semibold">
+        <div className={`rounded-xl border p-2.5 transition-colors ${step >= 1 ? 'border-primary/50 bg-primary-subtle text-primary shadow-xs' : 'border-card-border bg-card-muted/50 text-fg-muted'}`}>
+          1. Normal Fleet Operations (20 Agents)
         </div>
-      )}
+        <div className={`rounded-xl border p-2.5 transition-colors ${step >= 2 ? 'border-warning/50 bg-warning-subtle text-warning shadow-xs' : 'border-card-border bg-card-muted/50 text-fg-muted'}`}>
+          2. Rogue Burst (Agent #{rogueAgentIndex})
+        </div>
+        <div className={`rounded-xl border p-2.5 transition-colors ${step >= 3 ? 'border-danger/50 bg-danger-subtle text-danger shadow-xs' : 'border-card-border bg-card-muted/50 text-fg-muted'}`}>
+          3. Instant Auto-Cap (ERR_4)
+        </div>
+        <div className={`rounded-xl border p-2.5 transition-colors ${step >= 4 ? 'border-success/50 bg-success-subtle text-success shadow-xs' : 'border-card-border bg-card-muted/50 text-fg-muted'}`}>
+          4. Uninterrupted Fleet Execution
+        </div>
+      </div>
 
       {/* Status Banner when completed */}
       {step === 5 && (

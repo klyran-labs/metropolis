@@ -6,6 +6,7 @@ import { useDashboard } from '../../context/DashboardContext';
 import { LifecycleStudio } from './LifecycleStudio';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
+import { PageHeader } from '../common/PageHeader';
 
 /**
  * /lifecycle — 100% contextual and sharable agent lifecycle command view.
@@ -123,13 +124,29 @@ export const LifecycleView: React.FC = () => {
   }
 
   return (
-    <LifecycleStudio
-      agent={currentAgent}
-      agents={agents}
-      onSelectAgent={handleSelectAgent}
-      onSavePolicy={handleSavePolicy}
-      onToggleKillSwitch={handleToggleKillSwitch}
-    />
+    <div className="space-y-6 font-sans">
+      <PageHeader
+        title="Agent Lifecycle & Telemetry"
+        description="Inspect authoritative agent operational states, sliding spend records, and cryptographic invariants."
+        breadcrumbs={[
+          { label: 'AgentGuard', href: '/' },
+          { label: 'Fleet Command', href: '/fleet' },
+          ...(currentAgent ? [{ label: currentAgent.name }] : []),
+        ]}
+        badge={
+          <span className="rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-mono">
+            Active Lifecycle
+          </span>
+        }
+      />
+      <LifecycleStudio
+        agent={currentAgent}
+        agents={agents}
+        onSelectAgent={handleSelectAgent}
+        onSavePolicy={handleSavePolicy}
+        onToggleKillSwitch={handleToggleKillSwitch}
+      />
+    </div>
   );
 };
 
