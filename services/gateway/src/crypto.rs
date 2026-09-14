@@ -1,4 +1,4 @@
-use alloy::primitives::{keccak256, Address, PrimitiveSignature, B256, U256};
+use alloy::primitives::{Address, B256, PrimitiveSignature, U256, keccak256};
 use alloy::sol_types::SolValue;
 use std::str::FromStr;
 
@@ -30,7 +30,6 @@ pub fn compute_spend_request_hash(req: &SpendRequest) -> B256 {
     let spend_request_typehash = keccak256(
         b"SpendRequest(address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint64 nonce)",
     );
-    let nonce_u256 = U256::from(req.nonce);
     let encoded = (
         spend_request_typehash,
         req.agent,
@@ -39,7 +38,7 @@ pub fn compute_spend_request_hash(req: &SpendRequest) -> B256 {
         req.category,
         req.timestamp,
         req.deadline,
-        nonce_u256,
+        req.nonce,
     )
         .abi_encode();
 
@@ -77,7 +76,7 @@ pub fn parse_signature(sig_bytes: &[u8]) -> Result<PrimitiveSignature, String> {
         _ => return Err(format!("Invalid signature recovery id (v): {}", v)),
     };
 
-    Ok(PrimitiveSignature::from_scalars_and_parity(r.into(), s.into(), parity))
+    Ok(PrimitiveSignature::from_scalars_and_parity(r, s, parity))
 }
 
 /// Recovers the signer address from an EIP-712 digest and signature
@@ -101,8 +100,8 @@ pub fn parse_x402_authorization_header(
         raw
     };
 
-    use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
 
     // Decode base64
     let json_bytes = BASE64
@@ -119,8 +118,8 @@ pub fn parse_x402_authorization_header(
         .trim()
         .strip_prefix("0x")
         .unwrap_or(&payload.signature);
-    let sig_bytes = hex::decode(clean_sig)
-        .map_err(|e| format!("Hex decoding of signature failed: {}", e))?;
+    let sig_bytes =
+        hex::decode(clean_sig).map_err(|e| format!("Hex decoding of signature failed: {}", e))?;
 
     Ok((req, sig_bytes))
 }
@@ -152,9 +151,7 @@ pub fn parse_spend_request_wire(wire: &SpendRequestWire) -> Result<SpendRequest,
         .map_err(|e| format!("Invalid timestamp '{}': {}", wire.timestamp, e))?;
     let deadline = U256::from_str(&wire.deadline)
         .map_err(|e| format!("Invalid deadline '{}': {}", wire.deadline, e))?;
-    let nonce = wire
-        .nonce
-        .parse::<u64>()
+    let nonce = U256::from_str(&wire.nonce)
         .map_err(|e| format!("Invalid nonce '{}': {}", wire.nonce, e))?;
 
     Ok(SpendRequest {

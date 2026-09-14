@@ -7,16 +7,16 @@ pragma solidity ^0.8.26;
  */
 interface IReputationRegistry {
     enum ReputationOutcome {
-        SETTLED,   // 0
-        DISPUTED,  // 1
-        SLASHED,   // 2
-        TIMEOUT    // 3
+        SETTLED, // 0
+        DISPUTED, // 1
+        SLASHED, // 2
+        TIMEOUT // 3
     }
 
     struct ReputationMetrics {
-        uint32 scoreBps;           // 0 to 1,000,000 parts-per-million (100.00%). Named `scoreBps`
-                                    // for historical reasons; NOT a 0-10,000 basis-points scale
-                                    // (see docs/ADR/0004-ewma-reputation-mechanics.md).
+        uint32 scoreBps; // 0 to 1,000,000 parts-per-million (100.00%). Named `scoreBps`
+        // for historical reasons; NOT a 0-10,000 basis-points scale
+        // (see docs/ADR/0004-ewma-reputation-mechanics.md).
         uint32 totalTransactions;
         uint32 settledCount;
         uint32 slashedCount;
@@ -32,12 +32,7 @@ interface IReputationRegistry {
         uint32 newScoreBps
     );
 
-    function recordOutcome(
-        address agent,
-        address counterparty,
-        ReputationOutcome outcome,
-        uint256 amount
-    ) external;
+    function recordOutcome(address agent, address counterparty, ReputationOutcome outcome, uint256 amount) external;
 
     function getMetrics(address agent) external view returns (ReputationMetrics memory);
     function getScore(address agent) external view returns (uint32 scoreBps);

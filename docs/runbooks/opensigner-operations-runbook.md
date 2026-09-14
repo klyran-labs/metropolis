@@ -6,7 +6,7 @@ This runbook covers health checks, operations, key backup, master key rotation, 
 ---
 
 ## 1. Health & Readiness Probes
-The OpenSigner container exposes HTTP status probes on port `3001`:
+The OpenSigner service exposes liveness and readiness probes. Browser operators use the authenticated gateway route; direct service access is reserved for operations:
 
 ```bash
 # Liveness probe
@@ -35,14 +35,15 @@ curl -f http://localhost:3001/ready
 ### Example: Provisioning a Sealed Agent Keypair
 ```bash
 curl -X POST http://localhost:3001/api/v1/wallets \
+  -H "Authorization: Bearer $OPENSIGNER_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"label": "deepseek_inference_bot"}'
+  -d '{"label": "controlled-agent"}'
 # Response:
 # {
 #   "success": true,
 #   "wallet": {
 #     "walletId": "wallet_8f3b2a1c...",
-#     "address": "0x1234567890123456789012345678901234567890",
+#     "address": "<sealed-wallet-address>",
 #     "createdAt": 1741500000000,
 #     "label": "deepseek_inference_bot"
 #   }
@@ -52,15 +53,16 @@ curl -X POST http://localhost:3001/api/v1/wallets \
 ### Example: Requesting an EIP-712 Signature
 ```bash
 curl -X POST http://localhost:3001/api/v1/sign-spend-request \
+  -H "Authorization: Bearer $OPENSIGNER_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "walletIdOrAddress": "0x1234567890123456789012345678901234567890",
-    "verifyingContract": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
-    "chainId": 10143,
+    "walletIdOrAddress": "<sealed-wallet-address>",
+    "verifyingContract": "<verified-agent-wallet-guard-address>",
+    "chainId": <configured-chain-id>,
     "request": {
-      "agent": "0x1234567890123456789012345678901234567890",
-      "merchant": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-      "amount": "1000000000000000000",
+      "agent": "<sealed-wallet-address>",
+      "merchant": "<configured-merchant-address>",
+      "amount": "<base-unit-amount>",
       "category": "0x0000000000000000000000000000000000000000000000000000000000000000",
       "timestamp": 1741500000,
       "deadline": 1741503600,
@@ -71,7 +73,7 @@ curl -X POST http://localhost:3001/api/v1/sign-spend-request \
 # {
 #   "success": true,
 #   "signature": "0x...",
-#   "signer": "0x1234567890123456789012345678901234567890",
+#   "signer": "<sealed-wallet-address>",
 #   "domain": { ... },
 #   "request": { ... }
 # }

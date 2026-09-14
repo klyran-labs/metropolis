@@ -1,4 +1,22 @@
 services:
+  agentguard-postgres:
+    image: postgres:18-alpine
+    container_name: agentguard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentguard
+      POSTGRES_USER: agentguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - agentguard-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentguard -d agentguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - agentguard-network
+
   monad-devnet:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: monad-devnet
@@ -19,20 +37,21 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.web
       args:
-        VITE_APP_ENV: production
+        VITE_APP_ENV: local
         VITE_CHAIN_ID: "10143"
-        VITE_RPC_URL: ${VITE_RPC_URL:-http://127.0.0.1:8545}
-        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
-        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
-        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
-        VITE_USDC_TOKEN_ADDRESS: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
-        VITE_PRIVY_APP_ID: cmton65ao004l0cl11tgmwiah
+        VITE_RPC_URL: ${VITE_RPC_URL:-http://localhost:8545}
+        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:?VITE_POLICY_ENGINE_ADDRESS is required}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:?VITE_REPUTATION_REGISTRY_ADDRESS is required}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:?VITE_AGENT_WALLET_GUARD_ADDRESS is required}
+        VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:?VITE_USDC_TOKEN_ADDRESS is required}
+        VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
+        VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
     container_name: agentguard-web
     restart: unless-stopped
     ports:
       - "3110:80"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
       interval: 15s
@@ -53,22 +72,35 @@ services:
     depends_on:
       monad-devnet:
         condition: service_healthy
+      agentguard-postgres:
+        condition: service_healthy
+      agentguard-opensigner:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - AGENTGUARD_PROFILE=local
       - PORT=8080
       - MONAD_CHAIN_ID=10143
-      - MONAD_RPC_URL=${MONAD_RPC_URL:-http://monad-devnet:8545}
-      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-0x5fbdb2315678afecb367f032d93f642f64180aa3}
-      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-0xe7f1725e7734ce288f8367e1bb143e90bb3f0512}
-      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0}
-      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:-0xf817257fed379853cDe0fa4F97AB987181B1E5Ea}
-      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:-0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC}
-      - GATEWAY_RELAYER_PRIVATE_KEY=${GATEWAY_RELAYER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
-      - PRIVY_APP_ID=${PRIVY_APP_ID:-cmton65ao004l0cl11tgmwiah}
-      - PRIVY_APP_SECRET=${PRIVY_APP_SECRET:-}
-      - INITIAL_SUPER_ADMIN_DIDS=${INITIAL_SUPER_ADMIN_DIDS:-}
+      - MONAD_RPC_URL=http://monad-devnet:8545
+      - DEPLOYMENT_MANIFEST_PATH=/app/deploy/environments/local/deployment-manifest.json
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:?POLICY_ENGINE_ADDRESS is required}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:?REPUTATION_REGISTRY_ADDRESS is required}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:?AGENT_WALLET_GUARD_ADDRESS is required}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:?USDC_TOKEN_ADDRESS is required}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:?GATEWAY_MERCHANT_ADDRESS is required}
+      - OPENSIGNER_URL=http://agentguard-opensigner:3001
+      - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
+      - DATABASE_URL=postgres://agentguard:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@agentguard-postgres:5432/agentguard
+      - PRIVY_APP_ID=${PRIVY_APP_ID:?PRIVY_APP_ID is required}
+      - PRIVY_ISSUER=${PRIVY_ISSUER:?PRIVY_ISSUER is required}
+      - PRIVY_JWKS_URL=${PRIVY_JWKS_URL:?PRIVY_JWKS_URL is required}
+      - INFERENCE_PRICE_BASE_UNITS=${INFERENCE_PRICE_BASE_UNITS:?INFERENCE_PRICE_BASE_UNITS is required}
+      - INFERENCE_SERVICE_ID=${INFERENCE_SERVICE_ID:?INFERENCE_SERVICE_ID is required}
+      - INFERENCE_CATEGORY=${INFERENCE_CATEGORY:?INFERENCE_CATEGORY is required}
+      - EVENT_START_BLOCK=${EVENT_START_BLOCK:?EVENT_START_BLOCK is required}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
       interval: 15s
@@ -89,12 +121,13 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - OPENSIGNER_PORT=3001
-      - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:-agentguard-devnet-master-enclave-secret-2026}
+      - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:?OPENSIGNER_MASTER_KEY is required}
+      - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
       - OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
     volumes:
       - opensigner-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3001/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/health || exit 1"]
       interval: 15s
       timeout: 3s
       retries: 3
@@ -102,6 +135,7 @@ services:
       - agentguard-network
 
 volumes:
+  agentguard-postgres-data:
   opensigner-data:
 
 networks:

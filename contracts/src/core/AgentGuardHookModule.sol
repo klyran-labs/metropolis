@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IPolicyEngine } from "../interfaces/IPolicyEngine.sol";
-import { IReputationRegistry } from "../interfaces/IReputationRegistry.sol";
-import { IERC7579Hook, IERC7579Validator } from "../interfaces/IERC7579.sol";
+import {IPolicyEngine} from "../interfaces/IPolicyEngine.sol";
+import {IReputationRegistry} from "../interfaces/IReputationRegistry.sol";
+import {IERC7579Hook, IERC7579Validator} from "../interfaces/IERC7579.sol";
 
 /**
  * @title AgentGuardHookModule
@@ -54,13 +54,8 @@ contract AgentGuardHookModule is IERC7579Hook, IERC7579Validator {
         // Attempt decoding standard spend request payload
         // Format: (address merchant, uint256 amount, bytes32 category, uint256 deadline, uint256 nonce)
         if (msgData.length >= 4 + 32 * 5) {
-            (
-                address merchant,
-                uint256 amount,
-                bytes32 category,
-                uint256 deadline,
-                uint256 nonce
-            ) = abi.decode(msgData[4:], (address, uint256, bytes32, uint256, uint256));
+            (address merchant, uint256 amount, bytes32 category, uint256 deadline, uint256 nonce) =
+                abi.decode(msgData[4:], (address, uint256, bytes32, uint256, uint256));
 
             IPolicyEngine.SpendRequest memory req = IPolicyEngine.SpendRequest({
                 agent: msg.sender,
@@ -93,12 +88,7 @@ contract AgentGuardHookModule is IERC7579Hook, IERC7579Validator {
         if (hookData.length == 0) return;
 
         (address agent, address merchant, uint256 amount) = abi.decode(hookData, (address, address, uint256));
-        reputationRegistry.recordOutcome(
-            agent,
-            merchant,
-            IReputationRegistry.ReputationOutcome.SETTLED,
-            amount
-        );
+        reputationRegistry.recordOutcome(agent, merchant, IReputationRegistry.ReputationOutcome.SETTLED, amount);
     }
 
     /**

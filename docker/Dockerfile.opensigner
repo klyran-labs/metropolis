@@ -42,6 +42,6 @@ VOLUME ["/data"]
 EXPOSE 3001
 
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
-  CMD wget --spider -q http://127.0.0.1:3001/health || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:3001/health || exit 1
 
 ENTRYPOINT ["node", "services/opensigner/dist/index.js"]

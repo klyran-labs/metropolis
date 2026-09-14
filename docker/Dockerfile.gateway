@@ -15,6 +15,8 @@ COPY services/gateway/Cargo.toml services/gateway/Cargo.lock ./
 # Copy source and tests
 COPY services/gateway/src ./src
 COPY services/gateway/tests ./tests
+COPY services/gateway/migrations ./migrations
+COPY deploy/environments ./deploy/environments
 
 # Compile optimized release binary
 RUN cargo build --release
@@ -27,9 +29,7 @@ WORKDIR /app
 # CA certificates & openssl libraries for outbound HTTPS calls to Privy Server API & Monad RPCs
 RUN apk add --no-cache ca-certificates tzdata wget libssl3 libcrypto3
 
-ENV PORT=8080 \
-    MONAD_CHAIN_ID=10143 \
-    MONAD_RPC_URL=https://testnet-rpc.monad.xyz
+ENV PORT=8080
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/agentguard-gateway /app/agentguard-gateway

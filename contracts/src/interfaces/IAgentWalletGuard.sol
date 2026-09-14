@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IPolicyEngine } from "./IPolicyEngine.sol";
+import {IPolicyEngine} from "./IPolicyEngine.sol";
 
 /**
  * @title IAgentWalletGuard
@@ -9,11 +9,7 @@ import { IPolicyEngine } from "./IPolicyEngine.sol";
  */
 interface IAgentWalletGuard {
     event PaymentExecuted(
-        address indexed agent,
-        address indexed merchant,
-        uint256 amount,
-        uint256 nonce,
-        address token
+        address indexed agent, address indexed merchant, uint256 amount, uint256 nonce, address token
     );
 
     event PaymentBlocked(

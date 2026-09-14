@@ -25,7 +25,7 @@ We integrate **Alibaba Cloud's Qwen 3.8 Max** in a **dual-role architecture**:
 │   │  • Onchain Denial Diagnostic Assistant ("Why did tx 0x1a2b fail at block 402?")│   │
 │   └────────────────────────┬───────────────────────────────┬───────────────────────┘   │
 └────────────────────────────┼───────────────────────────────┼───────────────────────────┘
-                             │ Pre-fills PolicyStudio        │ Explains Onchain Events
+                             │ Pre-fills tenant policy workspace │ Explains onchain events
                              ▼                               ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                 Settlement & Transport Adapters (packages/x402-middleware)             │
@@ -59,7 +59,7 @@ We integrate **Alibaba Cloud's Qwen 3.8 Max** in a **dual-role architecture**:
 ### 2. Frontend UI Risk Copilot Components
 * **Natural Language Policy Authoring ("Auto-Configuring Agents")**:
   - Operators enter plain English requirements: e.g., *"Configure an arbitrage trading bot with a 0.5 MON max per tx, 3.0 MON hourly budget, 5 tx velocity cap, whitelisting Uniswap and Pyth, with a circuit breaker tripping after 3 failures."*
-  - Qwen 3.8 Max extracts structured parameters and populates `PolicyStudio.tsx` and `AgentOnboardingModal.tsx` automatically.
+  - Qwen 3.8 Max is intended to extract structured parameters for the tenant policy workspace after provider credentials and an explicit production integration are provisioned.
   - The operator reviews and executes `setPolicy()` on Monad with a single click.
 * **Intelligent Onchain Risk & Denial Diagnostics**:
   - Decodes onchain `SpendEvaluated` events and maps machine-readable reason codes (`ERR_VELOCITY_EXCEEDED`, `ERR_MAX_PER_WINDOW`, `ERR_KILL_SWITCH`, `ERR_BUDGET_DEPLETED`) into clear remediation advice.

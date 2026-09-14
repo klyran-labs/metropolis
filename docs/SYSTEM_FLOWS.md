@@ -101,7 +101,7 @@ sequenceDiagram
             UI-->>User: Display only tenant's provisioned agents
         end
     else fleetScope == "network" (Admin / Compliance Audit)
-        Note over UI: Permitted only for super_admin / org_admin / security_auditor
+        Note over UI: Permitted only for super_admin / sec_ops / auditor
         UI-->>User: Display full global network fleet
     end
 ```
@@ -134,8 +134,8 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor Admin as Connected Operator (0xUser)
-    participant Modal as AgentOnboardingModal (Web UI)
-    participant Signer as OpenSigner Enclave (Port 3001)
+    participant Workspace as Tenant policy workspace (Web UI)
+    participant Signer as OpenSigner Enclave
     participant Vault as AES-256-GCM Vault (/data/wallets.json)
     participant Agent as Autonomous LLM Agent
     participant PE as PolicyEngine.sol (Monad 10143)
@@ -198,4 +198,3 @@ sequenceDiagram
     end
     end
 ```
-

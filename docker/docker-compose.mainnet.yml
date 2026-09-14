@@ -1,0 +1,127 @@
+services:
+  agentguard-postgres:
+    image: postgres:18-alpine
+    container_name: agentguard-postgres-mainnet
+    restart: always
+    environment:
+      POSTGRES_DB: agentguard
+      POSTGRES_USER: agentguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - agentguard-postgres-mainnet-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentguard -d agentguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - agentguard-mainnet-network
+
+  agentguard-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: agentguard-gateway-mainnet
+    restart: always
+    depends_on:
+      agentguard-postgres:
+        condition: service_healthy
+      agentguard-opensigner:
+        condition: service_healthy
+    ports:
+      - "${PORT_GATEWAY:-8080}:8080"
+    environment:
+      - NODE_ENV=production
+      - AGENTGUARD_PROFILE=mainnet
+      - PORT=8080
+      - MONAD_CHAIN_ID=143
+      - DEPLOYMENT_MANIFEST_PATH=/app/deploy/environments/mainnet/deployment-manifest.json
+      - MONAD_RPC_URL=${MONAD_RPC_URL:?MONAD_RPC_URL is required}
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:?POLICY_ENGINE_ADDRESS is required}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:?REPUTATION_REGISTRY_ADDRESS is required}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:?AGENT_WALLET_GUARD_ADDRESS is required}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:?USDC_TOKEN_ADDRESS is required}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:?GATEWAY_MERCHANT_ADDRESS is required}
+      - OPENSIGNER_URL=http://agentguard-opensigner-mainnet:3001
+      - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
+      - DATABASE_URL=postgres://agentguard:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@agentguard-postgres:5432/agentguard
+      - PRIVY_APP_ID=${PRIVY_APP_ID:?PRIVY_APP_ID is required}
+      - PRIVY_ISSUER=${PRIVY_ISSUER:?PRIVY_ISSUER is required}
+      - PRIVY_JWKS_URL=${PRIVY_JWKS_URL:?PRIVY_JWKS_URL is required}
+      - INFERENCE_PRICE_BASE_UNITS=${INFERENCE_PRICE_BASE_UNITS:?INFERENCE_PRICE_BASE_UNITS is required}
+      - INFERENCE_SERVICE_ID=${INFERENCE_SERVICE_ID:?INFERENCE_SERVICE_ID is required}
+      - INFERENCE_CATEGORY=${INFERENCE_CATEGORY:?INFERENCE_CATEGORY is required}
+      - EVENT_START_BLOCK=${EVENT_START_BLOCK:?EVENT_START_BLOCK is required}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - agentguard-mainnet-network
+
+  agentguard-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        VITE_APP_ENV: mainnet
+        VITE_CHAIN_ID: "143"
+        VITE_RPC_URL: ${VITE_RPC_URL:?VITE_RPC_URL is required}
+        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:?VITE_POLICY_ENGINE_ADDRESS is required}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:?VITE_REPUTATION_REGISTRY_ADDRESS is required}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:?VITE_AGENT_WALLET_GUARD_ADDRESS is required}
+        VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:?VITE_USDC_TOKEN_ADDRESS is required}
+        VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
+        VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
+    container_name: agentguard-web-mainnet
+    restart: always
+    ports:
+      - "${PORT_WEB:-80}:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      agentguard-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-mainnet-network
+
+  agentguard-opensigner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.opensigner
+    container_name: agentguard-opensigner-mainnet
+    restart: always
+    ports:
+      - "${PORT_OPENSIGNER:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - OPENSIGNER_PORT=3001
+      - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:?OPENSIGNER_MASTER_KEY is required}
+      - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
+      - OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
+    volumes:
+      - opensigner-mainnet-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-mainnet-network
+
+volumes:
+  agentguard-postgres-mainnet-data:
+  opensigner-mainnet-data:
+
+networks:
+  agentguard-mainnet-network:
+    driver: bridge

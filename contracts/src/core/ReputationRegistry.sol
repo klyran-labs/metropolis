@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IReputationRegistry } from "../interfaces/IReputationRegistry.sol";
+import {IReputationRegistry} from "../interfaces/IReputationRegistry.sol";
 
 /**
  * @title ReputationRegistry
@@ -33,12 +33,11 @@ contract ReputationRegistry is IReputationRegistry {
         authorizedReporters[reporter] = authorized;
     }
 
-    function recordOutcome(
-        address agent,
-        address counterparty,
-        ReputationOutcome outcome,
-        uint256 amount
-    ) external override onlyReporter {
+    function recordOutcome(address agent, address counterparty, ReputationOutcome outcome, uint256 amount)
+        external
+        override
+        onlyReporter
+    {
         if (agent == address(0)) revert ZeroAddress();
 
         ReputationMetrics storage m = _metrics[agent];

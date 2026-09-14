@@ -12,11 +12,10 @@ import "../src/core/AgentWalletGuard.sol";
  * then wires AgentWalletGuard as the sole authorized PolicyEngine caller for evaluateAndSpend.
  */
 contract DeployAgentGuard {
-    function run() external returns (
-        address policyEngineAddr,
-        address reputationRegistryAddr,
-        address agentWalletGuardAddr
-    ) {
+    function run()
+        external
+        returns (address policyEngineAddr, address reputationRegistryAddr, address agentWalletGuardAddr)
+    {
         // 1. Deploy O(1) PolicyEngine with single 32-byte slot packing
         PolicyEngine policyEngine = new PolicyEngine();
         policyEngineAddr = address(policyEngine);
@@ -26,10 +25,7 @@ contract DeployAgentGuard {
         reputationRegistryAddr = address(reputationRegistry);
 
         // 3. Deploy AgentWalletGuard gating EIP-712 spend requests
-        AgentWalletGuard guard = new AgentWalletGuard(
-            policyEngineAddr,
-            reputationRegistryAddr
-        );
+        AgentWalletGuard guard = new AgentWalletGuard(policyEngineAddr, reputationRegistryAddr);
         agentWalletGuardAddr = address(guard);
 
         // 4. Authorize AgentWalletGuard as the only contract permitted to call

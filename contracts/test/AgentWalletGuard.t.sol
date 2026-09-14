@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { PolicyEngine } from "../src/core/PolicyEngine.sol";
-import { ReputationRegistry } from "../src/core/ReputationRegistry.sol";
-import { AgentWalletGuard } from "../src/core/AgentWalletGuard.sol";
-import { IPolicyEngine } from "../src/interfaces/IPolicyEngine.sol";
+import {Test} from "forge-std/Test.sol";
+import {PolicyEngine} from "../src/core/PolicyEngine.sol";
+import {ReputationRegistry} from "../src/core/ReputationRegistry.sol";
+import {AgentWalletGuard} from "../src/core/AgentWalletGuard.sol";
+import {IPolicyEngine} from "../src/interfaces/IPolicyEngine.sol";
 
 /// @notice Minimal ERC-20 mock. Intentionally returns `bool` (standard-compliant,
 /// e.g. USDC-shaped) to exercise the primary settlement path; the no-return-data
@@ -85,14 +85,17 @@ contract AgentWalletGuardTest is Test {
         reputation.setReporter(address(guard), true);
 
         vm.prank(agent);
-        engine.setPolicy(agent, IPolicyEngine.SpendPolicy({
-            maxPerTx: 1 ether,
-            maxPerWindow: 5 ether,
-            windowSeconds: 3600,
-            maxVelocity: 10,
-            killSwitch: false,
-            whitelistEnabled: false
-        }));
+        engine.setPolicy(
+            agent,
+            IPolicyEngine.SpendPolicy({
+                maxPerTx: 1 ether,
+                maxPerWindow: 5 ether,
+                windowSeconds: 3600,
+                maxVelocity: 10,
+                killSwitch: false,
+                whitelistEnabled: false
+            })
+        );
 
         token = new MockERC20();
         token.mint(agent, 10 ether);
@@ -106,9 +109,18 @@ contract AgentWalletGuardTest is Test {
     }
 
     function _digest(IPolicyEngine.SpendRequest memory req) internal view returns (bytes32) {
-        bytes32 structHash = keccak256(abi.encode(
-            SPEND_REQUEST_TYPEHASH, req.agent, req.merchant, req.amount, req.category, req.timestamp, req.deadline, req.nonce
-        ));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SPEND_REQUEST_TYPEHASH,
+                req.agent,
+                req.merchant,
+                req.amount,
+                req.category,
+                req.timestamp,
+                req.deadline,
+                req.nonce
+            )
+        );
         return keccak256(abi.encodePacked("\x19\x01", guard.DOMAIN_SEPARATOR(), structHash));
     }
 

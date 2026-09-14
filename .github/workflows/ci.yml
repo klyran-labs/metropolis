@@ -54,7 +54,7 @@ jobs:
             echo "Prohibited mock or fallback data found in apps/web/src"
             exit 1
           fi
-          test -s apps/web/src/config/env.ts
+          test -s apps/web/src/configuration.ts
 
       - name: Typecheck TypeScript Workspaces
         run: |
@@ -121,44 +121,71 @@ jobs:
       - name: Run x402 / AP2 Middleware Tests
         run: node --test packages/x402-middleware/test/middleware.test.mjs
 
-      - name: Run Live Protocol Simulation Demo
-        run: node scripts/agentguard-live-demo.mjs
-
-      - name: Build Production Web Console With Explicit Configuration
+      - name: Build Local-Profile Web Console
         env:
-          VITE_APP_ENV: production
+          VITE_APP_ENV: local
           VITE_CHAIN_ID: 10143
-          VITE_RPC_URL: https://testnet-rpc.monad.xyz
-          VITE_WS_URL: wss://testnet-rpc.monad.xyz
-          VITE_POLICY_ENGINE_ADDRESS: 0x2222222222222222222222222222222222222222
-          VITE_REPUTATION_REGISTRY_ADDRESS: 0x3333333333333333333333333333333333333333
-          VITE_AGENT_WALLET_GUARD_ADDRESS: 0x4444444444444444444444444444444444444444
-          VITE_USDC_TOKEN_ADDRESS: 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea
           VITE_PRIVY_APP_ID: cmton65ao004l0cl11tgmwiah
         run: npm run build --workspace=@agentguard/web
 
   container-builds:
-    name: Production Docker Container Build Gate
+    name: Runtime Container Build Gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build Docker Stack
-        run: docker compose -f docker/docker-compose.yml build
-
-      - name: Build Production Web Image With Explicit Configuration
+      - name: Validate all runtime compose profiles
         run: |
-          docker build -f docker/Dockerfile.web \
-            --build-arg VITE_APP_ENV=production \
-            --build-arg VITE_CHAIN_ID=10143 \
-            --build-arg VITE_RPC_URL=https://testnet-rpc.monad.xyz \
-            --build-arg VITE_WS_URL=wss://testnet-rpc.monad.xyz \
-            --build-arg VITE_POLICY_ENGINE_ADDRESS=0x2222222222222222222222222222222222222222 \
-            --build-arg VITE_REPUTATION_REGISTRY_ADDRESS=0x3333333333333333333333333333333333333333 \
-            --build-arg VITE_AGENT_WALLET_GUARD_ADDRESS=0x4444444444444444444444444444444444444444 \
-            --build-arg VITE_USDC_TOKEN_ADDRESS=0xf817257fed379853cDe0fa4F97AB987181B1E5Ea \
-            --build-arg VITE_PRIVY_APP_ID=cmton65ao004l0cl11tgmwiah .
+          docker compose -f docker/docker-compose.yml config --no-interpolate --quiet
+          docker compose -f docker/docker-compose.testnet.yml config --no-interpolate --quiet
+          docker compose -f docker/docker-compose.mainnet.yml config --no-interpolate --quiet
 
       - name: Build Production Gateway Image
         run: docker build -f docker/Dockerfile.gateway .
+
+  rust-gateway:
+    name: Rust Gateway Tests and Lints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Check formatting
+        run: cargo fmt --manifest-path services/gateway/Cargo.toml -- --check
+      - name: Run tests
+        run: cargo test --manifest-path services/gateway/Cargo.toml
+      - name: Run Clippy
+        run: cargo clippy --manifest-path services/gateway/Cargo.toml --all-targets -- -D warnings
+
+  postgres-migrations:
+    name: PostgreSQL 18 Migration Gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: agentguard
+          POSTGRES_USER: agentguard
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentguard -d agentguard"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Apply migrations
+        env:
+          PGPASSWORD: ci-password
+        run: |
+          for migration in services/gateway/migrations/*.sql; do
+            psql -h 127.0.0.1 -U agentguard -d agentguard -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          test "$(psql -At -h 127.0.0.1 -U agentguard -d agentguard -c 'SELECT uuid_extract_version(uuidv7())')" = "7"

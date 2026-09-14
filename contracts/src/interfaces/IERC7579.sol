@@ -26,5 +26,8 @@ interface IERC7579Hook is IERC7579Module {
  */
 interface IERC7579Validator is IERC7579Module {
     function validateUserOp(bytes32 userOpHash, bytes calldata signature) external view returns (uint256 validationData);
-    function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata data) external view returns (bytes4);
+    function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata data)
+        external
+        view
+        returns (bytes4);
 }

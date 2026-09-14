@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IPolicyEngine } from "../interfaces/IPolicyEngine.sol";
-import { TransientReentrancyGuard } from "../libraries/TransientReentrancyGuard.sol";
+import {IPolicyEngine} from "../interfaces/IPolicyEngine.sol";
+import {TransientReentrancyGuard} from "../libraries/TransientReentrancyGuard.sol";
 
 /**
  * @title PolicyEngine
@@ -86,7 +86,10 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         emit AuthorizedCallerUpdated(caller, allowed);
     }
 
-    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds) external override {
+    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds)
+        external
+        override
+    {
         if (msg.sender != owner) revert Unauthorized();
         if (poolId == bytes32(0)) revert InvalidPolicyParameters();
         if (windowSeconds == 0) revert InvalidPolicyParameters();
@@ -250,7 +253,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             PackedBudgetPool memory pool = _budgetPools[poolId];
             if (pool.active) {
                 uint128 poolSpent = pool.spentBudget;
-                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds)) {
+                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds))
+                {
                     poolSpent = 0;
                 }
                 if (uint256(poolSpent) + req.amount > pool.totalBudget) {
@@ -312,7 +316,12 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         });
     }
 
-    function evaluateAndSpend(SpendRequest calldata req) external override nonReentrant returns (PolicyDecision memory decision) {
+    function evaluateAndSpend(SpendRequest calldata req)
+        external
+        override
+        nonReentrant
+        returns (PolicyDecision memory decision)
+    {
         // Authorization gate: only the agent itself, its registered admin, or an
         // explicitly authorized caller (the deployed AgentWalletGuard) may consume
         // spend/velocity budget. Without this check, any address could call this
@@ -361,7 +370,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         if (poolId != bytes32(0)) {
             PackedBudgetPool storage pool = _budgetPools[poolId];
             if (pool.active) {
-                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds)) {
+                if (pool.windowStart == 0 || block.timestamp >= uint256(pool.windowStart) + uint256(pool.windowSeconds))
+                {
                     pool.spentBudget = 0;
                     pool.windowStart = uint32(block.timestamp);
                 }
@@ -383,12 +393,12 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         });
     }
 
-    function getAgentState(address agent) external view override returns (
-        uint128 spentInWindow,
-        uint32 windowStart,
-        uint32 txCountInWindow,
-        uint64 nonce
-    ) {
+    function getAgentState(address agent)
+        external
+        view
+        override
+        returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce)
+    {
         PackedState memory s = _states[agent];
         return (s.spentInWindow, s.windowStart, s.txCountInWindow, s.nonce);
     }

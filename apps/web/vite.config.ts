@@ -6,7 +6,7 @@ import path from "path";
 export default defineConfig(({ mode }) => {
   const envDir = path.resolve(import.meta.dirname || process.cwd());
   const env = { ...loadEnv(mode, process.cwd(), ""), ...loadEnv(mode, envDir, "") };
-  const isDeployment = env.VITE_APP_ENV === "production" || env.VITE_APP_ENV === "staging";
+  const isDeployment = env.VITE_APP_ENV === "testnet" || env.VITE_APP_ENV === "mainnet";
   if (isDeployment) {
     for (const key of ["VITE_CHAIN_ID", "VITE_RPC_URL", "VITE_POLICY_ENGINE_ADDRESS", "VITE_REPUTATION_REGISTRY_ADDRESS", "VITE_AGENT_WALLET_GUARD_ADDRESS", "VITE_USDC_TOKEN_ADDRESS", "VITE_PRIVY_APP_ID"]) {
       if (!env[key]) throw new Error(`ProductionConfigurationError: ${key} must be explicitly configured.`);
@@ -16,8 +16,9 @@ export default defineConfig(({ mode }) => {
         throw new Error(`DeploymentConfigurationError: ${key} must be a valid non-zero contract address.`);
       }
     }
-    if (Number(env.VITE_CHAIN_ID) !== 10143) {
-      throw new Error("DeploymentConfigurationError: VITE_CHAIN_ID must be Monad Testnet chain 10143.");
+    const expectedChainId = env.VITE_APP_ENV === "mainnet" ? 143 : 10143;
+    if (Number(env.VITE_CHAIN_ID) !== expectedChainId) {
+      throw new Error(`DeploymentConfigurationError: VITE_CHAIN_ID must match ${env.VITE_APP_ENV}.`);
     }
   }
   return {

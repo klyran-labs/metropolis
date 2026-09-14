@@ -1,198 +1,238 @@
-
-use alloy::primitives::{keccak256, Address, B256, U256};
-use alloy::signers::local::PrivateKeySigner;
-use alloy::signers::SignerSync;
-use axum::http::HeaderMap;
-use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD};
-use base64::Engine;
-
-use agentguard_gateway::config::Config;
-use agentguard_gateway::crypto::{
-    compute_domain_separator, compute_eip712_digest, compute_spend_request_hash,
-    parse_x402_authorization_header, recover_signer,
+use agentguard_gateway::{
+    abac::{self, AbacContext, AbacPolicy, AgentEnvironment, RiskTier},
+    auth::{AuthService, IdentityKind, RequestContext},
+    config::Config,
+    crypto::{
+        compute_domain_separator, compute_eip712_digest, compute_spend_request_hash,
+        parse_x402_authorization_header, recover_signer,
+    },
+    pbac::{self, PbacConditions, PbacInput, PbacPolicy, PolicyEffect},
+    rbac::{self, Capability, Role},
+    repository::PgRepository,
+    tenant::TenantContext,
+    types::{OnchainReasonCode, SpendRequest, SpendRequestWire, X402AuthorizationPayload},
 };
-use agentguard_gateway::privy::{authenticate_caller, decode_jwt_payload};
-use agentguard_gateway::types::{ReasonCode, SpendRequest, SpendRequestWire, X402AuthorizationPayload};
+use alloy::primitives::{Address, U256, keccak256};
+use alloy::signers::SignerSync;
+use alloy::signers::local::PrivateKeySigner;
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use chrono::Utc;
+use ipnet::IpNet;
+use std::net::IpAddr;
+use uuid::Uuid;
 
 #[test]
-fn test_invariant_4_reason_codes() {
-    let test_cases = [
-        (0u8, ReasonCode::None, "ERR_NONE"),
-        (1, ReasonCode::KillSwitch, "ERR_KILL_SWITCH"),
-        (2, ReasonCode::ExceedsMaxPerTx, "ERR_EXCEEDS_MAX_PER_TX"),
-        (3, ReasonCode::ExceedsMaxPerWindow, "ERR_EXCEEDS_MAX_PER_WINDOW"),
-        (4, ReasonCode::VelocityExceeded, "ERR_VELOCITY_EXCEEDED"),
-        (5, ReasonCode::MerchantNotWhitelisted, "ERR_MERCHANT_NOT_WHITELISTED"),
-        (6, ReasonCode::BudgetDepleted, "ERR_BUDGET_DEPLETED"),
-        (7, ReasonCode::Uncalibrated, "ERR_UNCALIBRATED"),
-        (8, ReasonCode::Expired, "ERR_EXPIRED"),
-        (9, ReasonCode::SignatureInvalid, "ERR_SIGNATURE_INVALID"),
-        (10, ReasonCode::Custom, "ERR_CUSTOM"),
+fn onchain_reason_codes_match_solidity_enum() {
+    let expected = [
+        (0, "ERR_NONE"),
+        (1, "ERR_KILL_SWITCH"),
+        (2, "ERR_MAX_PER_TX"),
+        (3, "ERR_MAX_PER_WINDOW"),
+        (4, "ERR_VELOCITY_EXCEEDED"),
+        (5, "ERR_MERCHANT_NOT_ALLOWED"),
+        (6, "ERR_BUDGET_DEPLETED"),
+        (7, "ERR_EXPIRED"),
+        (8, "ERR_NONCE_REUSED"),
+        (9, "ERR_SIGNATURE_INVALID"),
     ];
-
-    for (code_num, expected_enum, expected_str) in test_cases {
-        let parsed = ReasonCode::from_u8(code_num);
-        assert_eq!(parsed, expected_enum);
-        assert_eq!(parsed.as_u8(), code_num);
-        assert_eq!(parsed.as_str(), expected_str);
-        assert!(!parsed.message().is_empty());
-        assert!(!parsed.remediation().is_empty());
+    for (code, name) in expected {
+        let reason = OnchainReasonCode::from_u8(code).expect("canonical code");
+        assert_eq!(reason.as_u8(), code);
+        assert_eq!(reason.as_str(), name);
+        if code != 0 {
+            assert_ne!(reason.as_str(), "ERR_NONE");
+        }
     }
+    assert!(OnchainReasonCode::from_u8(10).is_none());
 }
 
 #[test]
-fn test_domain_separator_and_struct_hash() {
-    let chain_id = 10143u64;
-    let guard_address = Address::repeat_byte(0x42);
-
-    let domain_sep = compute_domain_separator(chain_id, guard_address);
-    assert_ne!(domain_sep, B256::ZERO);
-
-    let req = SpendRequest {
-        agent: Address::repeat_byte(0x11),
-        merchant: Address::repeat_byte(0x22),
-        amount: U256::from(1000000),
-        category: keccak256(b"compute_ai"),
-        timestamp: U256::from(1726000000),
-        deadline: U256::from(1726003600),
-        nonce: 1,
-    };
-
-    let struct_hash = compute_spend_request_hash(&req);
-    assert_ne!(struct_hash, B256::ZERO);
-
-    let digest = compute_eip712_digest(domain_sep, struct_hash);
-    assert_ne!(digest, B256::ZERO);
-}
-
-#[test]
-fn test_eip712_signature_recovery() {
-    // Generate a random signer
+fn eip712_signature_recovery_uses_uint256_nonce() {
     let signer = PrivateKeySigner::random();
-    let agent_address = signer.address();
-
-    let chain_id = 10143u64;
-    let guard_address = Address::repeat_byte(0x33);
-    let domain_sep = compute_domain_separator(chain_id, guard_address);
-
-    let req = SpendRequest {
-        agent: agent_address,
-        merchant: Address::repeat_byte(0x44),
-        amount: U256::from(5000000),
-        category: keccak256(b"storage"),
-        timestamp: U256::from(1726000000),
-        deadline: U256::from(1726003600),
-        nonce: 42,
+    let request = SpendRequest {
+        agent: signer.address(),
+        merchant: Address::repeat_byte(0x22),
+        amount: U256::from(5_000_000u64),
+        category: keccak256("compute_ai"),
+        timestamp: U256::from(1_726_000_000u64),
+        deadline: U256::from(1_726_003_600u64),
+        nonce: U256::from(u128::MAX) + U256::from(1u8),
     };
-
-    let struct_hash = compute_spend_request_hash(&req);
-    let digest = compute_eip712_digest(domain_sep, struct_hash);
-
-    // Sign the digest
-    let signature = signer.sign_hash_sync(&digest).expect("Failed to sign hash");
-    let sig_bytes = signature.as_bytes();
-    assert_eq!(sig_bytes.len(), 65);
-
-    // Recover using gateway crypto function
-    let recovered = recover_signer(digest, &sig_bytes).expect("Failed to recover signer");
-    assert_eq!(recovered, agent_address);
-
-    // Verify corrupted signature fails or returns wrong address
-    let mut corrupted_sig = sig_bytes;
-    corrupted_sig[10] ^= 0xff;
-    let corrupted_result = recover_signer(digest, &corrupted_sig);
-    if let Ok(corrupted_address) = corrupted_result {
-        assert_ne!(corrupted_address, agent_address);
-    }
+    let domain = compute_domain_separator(10143, Address::repeat_byte(0x33));
+    let digest = compute_eip712_digest(domain, compute_spend_request_hash(&request));
+    let signature = signer.sign_hash_sync(&digest).expect("sign request");
+    assert_eq!(
+        recover_signer(digest, &signature.as_bytes()).unwrap(),
+        signer.address()
+    );
 }
 
 #[test]
-fn test_x402_authorization_payload_parsing() {
+fn x402_wire_parser_rejects_invalid_nonce_and_preserves_large_nonce() {
     let wire = SpendRequestWire {
         agent: "0x1111111111111111111111111111111111111111".to_string(),
-        merchant: "0x2222222222222222222222222222222222222222".to_string(),
+        merchant: format!("{:#x}", Address::repeat_byte(0x22)),
         amount: "1000000".to_string(),
-        category: "0x3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        category: keccak256("storage").to_string(),
         timestamp: "1726000000".to_string(),
         deadline: "1726003600".to_string(),
-        nonce: "1".to_string(),
+        nonce: "340282366920938463463374607431768211456".to_string(),
     };
-
-    let dummy_sig = "0x".to_string() + &"aa".repeat(65);
     let payload = X402AuthorizationPayload {
         request: wire,
-        signature: dummy_sig,
+        signature: format!("0x{}", "aa".repeat(65)),
     };
-
-    let json_bytes = serde_json::to_vec(&payload).unwrap();
-    let b64 = BASE64.encode(&json_bytes);
-
-    let auth_header = format!("x402 {}", b64);
-    let (parsed_req, parsed_sig) = parse_x402_authorization_header(&auth_header)
-        .expect("Should parse x402 header successfully");
-
-    assert_eq!(parsed_req.amount, U256::from(1000000));
-    assert_eq!(parsed_req.nonce, 1);
-    assert_eq!(parsed_sig.len(), 65);
-    assert_eq!(parsed_sig[0], 0xaa);
+    let header = format!(
+        "x402 {}",
+        BASE64.encode(serde_json::to_vec(&payload).unwrap())
+    );
+    let (request, signature) = parse_x402_authorization_header(&header).unwrap();
+    assert_eq!(request.nonce, U256::from(u128::MAX) + U256::from(1u8));
+    assert_eq!(signature.len(), 65);
 }
 
 #[test]
-fn test_privy_jwt_and_super_admin_auth() {
-    // 1. Construct simulated JWT
-    let payload_json = serde_json::json!({
-        "sub": "did:privy:cm7admin123456",
-        "iss": "privy.io",
-        "aud": "cmton65ao004l0cl11tgmwiah",
-        "custom_metadata": {
-            "role": "super_admin"
-        }
-    });
+fn rbac_matches_six_role_capability_matrix() {
+    assert!(rbac::role_allows(Role::SuperAdmin, Capability::ManageIam));
+    assert!(rbac::role_allows(
+        Role::SecOps,
+        Capability::TripCircuitBreaker
+    ));
+    assert!(rbac::role_allows(
+        Role::Treasury,
+        Capability::ManageTreasury
+    ));
+    assert!(rbac::role_allows(
+        Role::FleetDevops,
+        Capability::SubscribeTelemetry
+    ));
+    assert!(rbac::role_allows(
+        Role::AgentDeveloper,
+        Capability::AuthorPolicy
+    ));
+    assert!(rbac::role_allows(Role::Auditor, Capability::ReadAudit));
+    assert!(!rbac::role_allows(
+        Role::Auditor,
+        Capability::TripCircuitBreaker
+    ));
+}
 
-    let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload_json).unwrap());
-    let token = format!("header.{}.signature", payload_b64);
+fn request_context(role: Role, mfa_authenticated: bool) -> RequestContext {
+    RequestContext {
+        subject: "did:privy:test".to_string(),
+        role,
+        platform_role: None,
+        tenant: TenantContext {
+            org_id: "org-test".to_string(),
+            enterprise_address: Address::repeat_byte(0x44),
+        },
+        mfa_authenticated,
+        identity_kind: IdentityKind::Privy,
+        api_key_id: None,
+        capabilities: Vec::new(),
+        client_ip: Some("192.0.2.10".parse().unwrap()),
+    }
+}
 
-    let decoded = decode_jwt_payload(&token).expect("Failed to decode JWT payload");
-    assert_eq!(decoded.sub.as_deref(), Some("did:privy:cm7admin123456"));
-
-    let config = Config {
-        port: 8080,
-        chain_id: 10143,
-        rpc_url: "https://testnet-rpc.monad.xyz".to_string(),
-        policy_engine_address: Address::ZERO,
-        reputation_registry_address: Address::ZERO,
-        agent_wallet_guard_address: Address::ZERO,
-        usdc_token_address: Address::ZERO,
-        merchant_address: Address::ZERO,
-        relayer_private_key: None,
-        privy_app_id: "cmton65ao004l0cl11tgmwiah".to_string(),
-        privy_app_secret: Some("test_secret_key_123".to_string()),
-        initial_super_admin_dids: vec!["did:privy:bootstrapped_super_admin".to_string()],
+#[test]
+fn pbac_deny_precedes_allow_and_enforces_multisig() {
+    let context = request_context(Role::Treasury, true);
+    let allow = PbacPolicy {
+        id: Uuid::now_v7(),
+        org_id: "org-test".to_string(),
+        version: 1,
+        effect: PolicyEffect::Allow,
+        principals: vec!["*".to_string()],
+        actions: vec!["treasury.*".to_string()],
+        resources: vec!["*".to_string()],
+        conditions: PbacConditions {
+            max_amount: Some(U256::from(10_000u64)),
+            required_multisig_signatures: Some(2),
+            eligible_approver_roles: vec![Role::Treasury],
+            require_mfa: Some(true),
+        },
     };
+    let deny = PbacPolicy {
+        id: Uuid::now_v7(),
+        org_id: "org-test".to_string(),
+        version: 2,
+        effect: PolicyEffect::Deny,
+        principals: vec!["*".to_string()],
+        actions: vec!["treasury.*".to_string()],
+        resources: vec!["*".to_string()],
+        conditions: PbacConditions::default(),
+    };
+    let decision = pbac::evaluate(
+        &[allow.clone(), deny],
+        &context,
+        PbacInput {
+            action: "treasury.allocate",
+            resource: "pool:1",
+            amount: Some(U256::from(1_000u64)),
+            approval_count: 2,
+        },
+    );
+    assert!(!decision.allowed);
+    let decision = pbac::evaluate(
+        &[allow],
+        &context,
+        PbacInput {
+            action: "treasury.allocate",
+            resource: "pool:1",
+            amount: Some(U256::from(1_000u64)),
+            approval_count: 1,
+        },
+    );
+    assert!(!decision.allowed);
+}
 
-    // Test token auth
-    let mut headers = HeaderMap::new();
-    headers.insert("privy-id-token", token.parse().unwrap());
-    let auth = authenticate_caller(&headers, &config).expect("Caller should authenticate");
-    assert!(auth.is_super_admin);
-    assert_eq!(auth.did, "did:privy:cm7admin123456");
+#[test]
+fn abac_rejects_unapproved_network_and_mfa() {
+    let policy = AbacPolicy {
+        allowed_cidrs: vec!["10.0.0.0/8".parse::<IpNet>().unwrap()],
+        require_mfa: true,
+        max_amount: None,
+        max_gas_price: None,
+        trading_start_hour_utc: 0,
+        trading_end_hour_utc: 24,
+        allowed_environments: vec![AgentEnvironment::Production],
+        blocked_risk_tiers: vec![RiskTier::Tier1Critical],
+    };
+    let context = AbacContext {
+        client_ip: "192.0.2.10".parse::<IpAddr>().unwrap(),
+        amount: None,
+        gas_price: None,
+        environment: AgentEnvironment::Production,
+        risk_tier: RiskTier::Tier2Standard,
+        now: Utc::now(),
+    };
+    assert_eq!(
+        abac::evaluate(&policy, &request_context(Role::Treasury, false), context),
+        Err(agentguard_gateway::error::AccessReasonCode::MfaRequired)
+    );
+    assert_eq!(
+        abac::evaluate(&policy, &request_context(Role::Treasury, true), context),
+        Err(agentguard_gateway::error::AccessReasonCode::IpNotAllowed)
+    );
+}
 
-    // Test secret auth
-    let mut secret_headers = HeaderMap::new();
-    secret_headers.insert("x-admin-secret", "test_secret_key_123".parse().unwrap());
-    let secret_auth = authenticate_caller(&secret_headers, &config)
-        .expect("Admin secret should authenticate");
-    assert!(secret_auth.is_super_admin);
-
-    // Test initial allowlist DID auth
-    let mut did_headers = HeaderMap::new();
-    did_headers.insert("x-caller-did", "did:privy:bootstrapped_super_admin".parse().unwrap());
-    let did_auth = authenticate_caller(&did_headers, &config)
-        .expect("Allowlist DID should authenticate");
-    assert!(did_auth.is_super_admin);
-
-    // Test unauthorized
-    let empty_headers = HeaderMap::new();
-    let unauth = authenticate_caller(&empty_headers, &config);
-    assert!(unauth.is_err());
+#[tokio::test]
+async fn unverified_privy_jwt_is_rejected_before_database_access() {
+    let config = Config::test();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    let repository = PgRepository::new(pool);
+    let auth = AuthService::new(config, reqwest::Client::new(), repository);
+    let headers = axum::http::HeaderMap::from_iter([(
+        axum::http::header::AUTHORIZATION,
+        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmb3JnZWQifQ.invalid"
+            .parse()
+            .unwrap(),
+    )]);
+    let error = auth.authenticate(&headers, None).await.unwrap_err();
+    assert_eq!(
+        error.reason_code,
+        agentguard_gateway::error::AccessReasonCode::Unauthenticated
+    );
 }

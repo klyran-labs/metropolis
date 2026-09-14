@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IPolicyEngine } from "../interfaces/IPolicyEngine.sol";
-import { IReputationRegistry } from "../interfaces/IReputationRegistry.sol";
-import { IAgentWalletGuard } from "../interfaces/IAgentWalletGuard.sol";
-import { IERC1271 } from "../interfaces/IERC1271.sol";
-import { IERC20Permit } from "../interfaces/IERC20Permit.sol";
-import { TransientReentrancyGuard } from "../libraries/TransientReentrancyGuard.sol";
+import {IPolicyEngine} from "../interfaces/IPolicyEngine.sol";
+import {IReputationRegistry} from "../interfaces/IReputationRegistry.sol";
+import {IAgentWalletGuard} from "../interfaces/IAgentWalletGuard.sol";
+import {IERC1271} from "../interfaces/IERC1271.sol";
+import {IERC20Permit} from "../interfaces/IERC20Permit.sol";
+import {TransientReentrancyGuard} from "../libraries/TransientReentrancyGuard.sol";
 
 interface IERC20Minimal {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
@@ -107,9 +107,7 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             )
         );
 
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash)
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
 
         // 2. Cryptographic Signer Verification (Supports EOA ecrecover and ERC-1271 smart contract wallets)
         if (!_verifySigner(req.agent, digest, signature)) {
@@ -128,7 +126,7 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
         if (token == address(0)) {
             // Native MON settlement
             if (address(this).balance < req.amount) revert InsufficientNativeBalance();
-            (bool sent, ) = req.merchant.call{value: req.amount}("");
+            (bool sent,) = req.merchant.call{value: req.amount}("");
             if (!sent) revert NativeTransferFailed();
         } else {
             // ERC-20 stablecoin settlement (e.g. USDC on Monad)
@@ -137,15 +135,12 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
 
         // 5. Update Onchain Reputation Incrementally
         reputationRegistry.recordOutcome(
-            req.agent,
-            req.merchant,
-            IReputationRegistry.ReputationOutcome.SETTLED,
-            req.amount
+            req.agent, req.merchant, IReputationRegistry.ReputationOutcome.SETTLED, req.amount
         );
 
         // 6. Forward Optional Execution Payload (e.g. AP2 mandate or merchant callback)
         if (extraCallData.length > 0) {
-            (bool callSuccess, ) = req.merchant.call(extraCallData);
+            (bool callSuccess,) = req.merchant.call(extraCallData);
             // Non-reverting callback failure allows payment settlement to persist
             callSuccess;
         }
@@ -154,12 +149,15 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
         return true;
     }
 
-    function _verifySigner(address expectedSigner, bytes32 digest, bytes calldata signature) internal view returns (bool) {
+    function _verifySigner(address expectedSigner, bytes32 digest, bytes calldata signature)
+        internal
+        view
+        returns (bool)
+    {
         // If agent is a smart contract (Safe, ERC-4337, multi-sig), verify via ERC-1271
         if (expectedSigner.code.length > 0) {
-            (bool ok, bytes memory res) = expectedSigner.staticcall(
-                abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, signature)
-            );
+            (bool ok, bytes memory res) =
+                expectedSigner.staticcall(abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, signature));
             return (ok && res.length >= 32 && abi.decode(res, (bytes4)) == ERC1271_MAGICVALUE);
         }
         // Fallback: standard EOA ecrecover
@@ -167,9 +165,8 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
     }
 
     function _safeTransferFrom(address token, address from, address to, uint256 amount) internal {
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(IERC20Minimal.transferFrom.selector, from, to, amount)
-        );
+        (bool success, bytes memory data) =
+            token.call(abi.encodeWithSelector(IERC20Minimal.transferFrom.selector, from, to, amount));
         if (!success || (data.length != 0 && !abi.decode(data, (bool)))) {
             revert ERC20TransferFailed();
         }

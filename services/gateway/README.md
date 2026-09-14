@@ -1,82 +1,81 @@
-# AgentGuard High-Throughput Rust Payment & Policy Gateway
+# AgentGuard Gateway
 
-High-throughput, sub-millisecond autonomous agent gateway written in **Rust** using **Tokio**, **Axum**, and **Alloy-RS**. Implements cryptographic x402 payment negotiation, Monad Parallel EVM policy evaluation (`IPolicyEngine`), Cancun transient reentrancy compatibility, and institutional Privy custom metadata role administration.
+The gateway is the authoritative Rust/Axum enforcement boundary for the configured product. It verifies human Privy identities and scoped machine credentials, evaluates tenant RBAC/PBAC/ABAC controls, evaluates the deployed Monad `PolicyEngine`, indexes finalized contract events into PostgreSQL 18, and exposes tenant-filtered SSE telemetry.
 
----
+The current settlement boundary is `PolicyEngine` and `AgentWalletGuard`. CircuitVault-specific settlement is intentionally unavailable until an authoritative contract source, ABI, deployment address, and verified bytecode manifest are supplied.
 
-## 1. Architecture & Core Capabilities
+## Runtime guarantees
 
-1. **Sub-Millisecond Payment Verification**:
-   - Computes EIP-712 typed data hashes and verifies agent signatures in sub-50 microseconds.
-   - Evaluates onchain spend invariants against Monad parallel EVM disjoint storage partitions.
-   - Strictly conforms to Invariant #4: Every rejection returns a machine-readable reason code with actionable remediation.
+- Privy JWTs are verified with cached RSA JWKS, issuer, audience, expiry, and not-before validation; Privy metadata is never trusted for tenant, role, enterprise address, or MFA authorization.
+- Machine credentials are stored only as SHA-256 hashes and are scoped to an organization and agent.
+- Every backend-generated identifier and PostgreSQL UUID identifier uses UUID v7 for time-ordered tracing and durable index locality; PostgreSQL rejects non-v7 values.
+- Every protected request carries a tenant context resolved from active PostgreSQL membership. Cross-tenant reads, writes, and telemetry delivery are rejected.
+- RBAC uses exactly `super_admin`, `sec_ops`, `treasury`, `fleet_devops`, `agent_developer`, and `auditor`.
+- PBAC deny rules, approval requirements, and ABAC network/MFA/environment/schedule controls run before handlers access state.
+- Onchain reason codes exactly match `contracts/src/interfaces/IPolicyEngine.sol`.
+- Chain events are deduplicated by chain, transaction hash, and log index; only finalized events are broadcast as evidence.
+- Startup runs PostgreSQL migrations and readiness is unhealthy unless both PostgreSQL and Monad RPC are reachable.
 
-2. **Privy Role & Permission Provisioning API**:
-   - `GET /api/v1/users/:did/role`: Query operator roles and custom metadata.
-   - `POST /api/v1/users/:did/role`: Atomically update operator roles on remote Privy via Server API.
-   - Super Admin Guard: Only callers in `INITIAL_SUPER_ADMIN_DIDS`, verified JWT with `super_admin` claim, or valid `X-Admin-Secret` can mutate operator permissions.
+## Endpoints
 
-3. **Production Containerization**:
-   - Multi-stage Alpine container (`docker/Dockerfile.gateway`) with a minimal footprint (~14MB runtime).
-   - Dynamic health checks via `wget --spider http://127.0.0.1:8080/health`.
+| Endpoint | Method | Access | Purpose |
+|---|---:|---|---|
+| `/health` | GET | Public | Liveness only |
+| `/ready` | GET | Public | PostgreSQL and Monad dependency readiness |
+| `/v1/inference` | GET/POST | x402 EIP-712 | Read-only onchain policy evaluation |
+| `/api/v1/telemetry/stream` | GET | Tenant-authenticated | Tenant-filtered finalized event stream |
+| `/api/v1/agents` | GET/POST | Tenant-authenticated | Tenant fleet registration and reads |
+| `/api/v1/plans` | GET | Tenant-authenticated | Real subscription plan catalog |
+| `/api/v1/subscription` | GET | Tenant-authenticated | Current tenant subscription |
+| `/api/v1/subscription/checkout` | POST | Treasury-authorized | Create an onchain payment intent |
+| `/api/v1/billing/payments/:payment_id/submit` | POST | Treasury-authorized | Confirm a real guard transaction receipt |
+| `/api/v1/platform/plans` | GET/POST | Platform-authorized | Plan catalog administration |
+| `/api/v1/platform/tenants` | GET/POST | Platform-authorized | Tenant directory and creation |
+| `/api/v1/users/:subject/role` | GET | Tenant-authenticated | Read an in-scope operator role |
+| `/api/v1/users/:subject/role` | POST | `super_admin` | Update PostgreSQL role state |
+| `/api/v1/tenant/operators` | GET | `super_admin` | List the current tenant membership directory |
+| `/api/v1/signing/vault` | GET/POST | tenant policy authority | List or provision tenant-owned sealed signing addresses through OpenSigner |
+| `/api/v1/platform/subscriptions` | GET | platform billing capability | List subscription lifecycle state across tenants |
+| `/api/v1/platform/billing/ledger` | GET | platform billing capability | List confirmed accounting entries |
+| `/api/v1/platform/operators` | GET/POST | platform super admin | Inspect or update platform operator access |
 
----
+The inference endpoint reports policy approval only. It does not claim that a settlement or upstream inference occurred without a real transaction and provider receipt.
 
-## 2. API Reference
+## Required configuration
 
-### Health & Status
-- `GET /health` / `GET /ready` / `GET /api/v1/health`
-  Returns service status, configured chain ID, contract addresses, and Unix timestamp.
+The gateway fails closed when any required value is missing or invalid.
 
-### x402 Payment Protocol
-- `POST /v1/inference` / `GET /v1/inference`
-  - **No Authorization**: Returns `HTTP 402 Payment Required` with `WWW-Authenticate: x402` and challenge payload.
-  - **Valid x402 Authorization**: Cryptographically verifies signature, checks deadline, simulates `PolicyEngine.evaluate(req)` on Monad, and settles payment.
-  - **Policy Rejection**: Returns `HTTP 403 Forbidden` with standardized `ReasonCode` (1 to 10).
+| Variable | Purpose |
+|---|---|
+| `AGENTGUARD_PROFILE` | `local`, `testnet`, or `mainnet` |
+| `MONAD_CHAIN_ID` | `10143` for local/testnet or `143` for mainnet |
+| `DEPLOYMENT_MANIFEST_PATH` | Authoritative profile deployment manifest |
+| `MONAD_RPC_URL` | Monad JSON-RPC endpoint |
+| `POLICY_ENGINE_ADDRESS` | Deployed PolicyEngine address |
+| `REPUTATION_REGISTRY_ADDRESS` | Deployed ReputationRegistry address |
+| `AGENT_WALLET_GUARD_ADDRESS` | Deployed AgentWalletGuard address |
+| `USDC_TOKEN_ADDRESS` | Deployed settlement token address |
+| `GATEWAY_MERCHANT_ADDRESS` | Configured x402 payee |
+| `OPENSIGNER_URL` | Internal sovereign signing service endpoint |
+| `OPENSIGNER_API_TOKEN` | Gateway-to-vault authentication secret |
+| `DATABASE_URL` | PostgreSQL 18 connection string |
+| `PRIVY_APP_ID` | Privy application identifier |
+| `PRIVY_ISSUER` | Expected Privy JWT issuer |
+| `PRIVY_JWKS_URL` | Privy RSA signing-key endpoint |
+| `INFERENCE_PRICE_BASE_UNITS` | Configured x402 challenge amount |
+| `INFERENCE_SERVICE_ID` | Configured x402 service identifier |
+| `INFERENCE_CATEGORY` | Configured x402 category |
+| `EVENT_START_BLOCK` | First block included in event backfill |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins permitted by the gateway |
 
-### Privy Role Management
-- `GET /api/v1/users/:did/role`
-  - Headers: `Authorization: Bearer <jwt>`, `privy-id-token: <jwt>`, or `x-admin-secret: <secret>`.
-- `POST /api/v1/users/:did/role`
-  - Headers: Requires Super Admin authorization.
-  - Body:
-    ```json
-    {
-      "role": "treasury_manager",
-      "permissions": {
-        "canReallocateBudget": true
-      }
-    }
-    ```
+Optional values include `PORT`, `MONAD_FINALITY_BLOCKS`, `EVENT_POLL_INTERVAL_MS`, `PRIVY_JWKS_CACHE_SECONDS`, and `TRUST_PROXY_HEADERS`.
 
----
-
-## 3. Configuration
-
-| Environment Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | HTTP listen port |
-| `MONAD_CHAIN_ID` | `10143` | Monad Network Chain ID |
-| `MONAD_RPC_URL` | `https://testnet-rpc.monad.xyz` | Monad JSON-RPC endpoint |
-| `POLICY_ENGINE_ADDRESS` | `0x5fb...` | Deployed `PolicyEngine` contract |
-| `AGENT_WALLET_GUARD_ADDRESS`| `0x9fe...` | Deployed `AgentWalletGuard` contract |
-| `USDC_TOKEN_ADDRESS` | `0xf81...` | Settlement token address |
-| `GATEWAY_MERCHANT_ADDRESS` | `0x3c4...` | Target merchant payee address |
-| `PRIVY_APP_ID` | `cmton65ao004l0cl11tgmwiah` | Privy App ID |
-| `PRIVY_APP_SECRET` | *(Optional)* | Privy Server API Secret |
-| `INITIAL_SUPER_ADMIN_DIDS` | *(Optional)* | Comma-separated list of bootstrap Super Admin DIDs |
-
----
-
-## 4. Local Build & Tests
+## Development and verification
 
 ```bash
-# Run unit & cryptographic invariant tests
-cargo test
-
-# Build optimized release binary
-cargo build --release
-
-# Run locally
-./target/release/agentguard-gateway
+cargo fmt --manifest-path services/gateway/Cargo.toml -- --check
+cargo check --manifest-path services/gateway/Cargo.toml
+cargo test --manifest-path services/gateway/Cargo.toml
 ```
+
+The local, testnet, and mainnet compose stacks use PostgreSQL 18. Local addresses must come from the local deployment flow; testnet and mainnet remain unavailable until their verified manifests are provisioned. None of the profiles provide synthetic addresses, development private keys, default roles, or fabricated chain data.

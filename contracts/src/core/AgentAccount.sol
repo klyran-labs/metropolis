@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC6551Account } from "../interfaces/IERC6551.sol";
-import { IERC1271 } from "../interfaces/IERC1271.sol";
+import {IERC6551Account} from "../interfaces/IERC6551.sol";
+import {IERC1271} from "../interfaces/IERC1271.sol";
 
 interface IERC721Minimal {
     function ownerOf(uint256 tokenId) external view returns (address);

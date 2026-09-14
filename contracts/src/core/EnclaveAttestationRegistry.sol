@@ -47,12 +47,10 @@ contract EnclaveAttestationRegistry {
         emit VerifierUpdated(verifier, authorized);
     }
 
-    function registerEnclave(
-        address agent,
-        bytes32 mrenclave,
-        bytes32 reportDataHash,
-        uint64 validDurationSeconds
-    ) external onlyVerifier {
+    function registerEnclave(address agent, bytes32 mrenclave, bytes32 reportDataHash, uint64 validDurationSeconds)
+        external
+        onlyVerifier
+    {
         if (agent == address(0)) revert ZeroAddress();
 
         uint64 nowSec = uint64(block.timestamp);

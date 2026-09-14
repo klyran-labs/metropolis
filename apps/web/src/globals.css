@@ -1,552 +1,406 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
-
 @theme {
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-
-  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.02);
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
-  --shadow-md: 0 2px 6px -1px rgba(0, 0, 0, 0.03), 0 1px 3px -1px rgba(0, 0, 0, 0.02);
-  --shadow-lg: 0 4px 12px -2px rgba(0, 0, 0, 0.04), 0 2px 4px -2px rgba(0, 0, 0, 0.02);
-  --shadow-xl: 0 6px 16px -4px rgba(0, 0, 0, 0.05), 0 4px 6px -3px rgba(0, 0, 0, 0.02);
-  --shadow-2xl: 0 10px 24px -5px rgba(0, 0, 0, 0.06), 0 6px 10px -4px rgba(0, 0, 0, 0.02);
-
-  /* Radius scale, mapped to the tokens below so rounded-card / rounded-pill work. */
-  --radius-card: 1.25rem;
-  --radius-pill: 9999px;
-
-  /*
-   * Color tokens: point Tailwind's color namespace at the CSS custom
-   * properties defined in :root / .dark below. Because the underlying
-   * --primary/--danger/etc. variables flip value per .dark, every
-   * Tailwind utility generated from these (bg-primary, hover:bg-primary-hover,
-   * text-danger, border-success/50, ring-info, ...) is dark-mode aware for
-   * free — no dark: variant needed on the utility itself.
-   */
-  --color-app: var(--background);
-  --color-app-subtle: var(--background-subtle);
-  --color-card: var(--card-bg);
-  --color-card-elevated: var(--card-bg-elevated);
-  --color-card-muted: var(--card-bg-muted);
-  --color-card-border: var(--card-border);
-
-  --color-fg: var(--foreground);
-  --color-fg-muted: var(--foreground-muted);
-  --color-fg-subtle: var(--foreground-subtle);
-
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-subtle: var(--primary-subtle);
-
-  --color-success: var(--success);
-  --color-success-hover: var(--success-hover);
-  --color-success-subtle: var(--success-subtle);
-
-  --color-warning: var(--warning);
-  --color-warning-hover: var(--warning-hover);
-  --color-warning-subtle: var(--warning-subtle);
-
-  --color-danger: var(--danger);
-  --color-danger-hover: var(--danger-hover);
-  --color-danger-subtle: var(--danger-subtle);
-
-  --color-info: var(--info);
-  --color-info-hover: var(--info-hover);
-  --color-info-subtle: var(--info-subtle);
+  --spacing-8: 8px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-46: 46px;
+  --spacing-48: 48px;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   AgentGuard Design Token System
-   All semantic color tokens are defined here. Components reference these
-   tokens via Tailwind's `dark:` prefix (class-based dark mode).
-   NEVER hardcode raw hex values in component JSX — use these tokens or
-   the corresponding Tailwind utility classes (bg-primary, text-primary).
-   ═══════════════════════════════════════════════════════════════════════ */
-
-@layer base {
-  /* ── Default Light Mode Tokens (:root active when html has no .dark class) ── */
-  :root {
-    /* Surfaces: Institutional Slate-White Modern Executive Palette with subtle violet warmth */
-    --background:           #f8f9fd;   /* Soft slate-lavender canvas */
-    --background-subtle:    #ffffff;   /* Elevated workspace container */
-    --card-bg:              #ffffff;   /* Pure white card surface */
-    --card-bg-elevated:     #ffffff;   /* Elevated card surface */
-    --card-bg-muted:        #f3f4fa;   /* Subtle table/row/subpanel fill */
-    --card-border:          #e5e7f2;   /* Precision border */
-    --card-border-hover:    rgba(124, 58, 237, 0.4);
-
-    /* Brand: Material Design 3 Deep Royal Purple */
-    --primary:              #7c3aed;   /* Rich royal purple (high contrast WCAG AAA) */
-    --primary-hover:        #6d28d9;   /* Deep violet hover */
-    --primary-subtle:       rgba(124, 58, 237, 0.08);
-
-    /* Accents */
-    --accent-cyan:          #06b6d4;
-    --accent-emerald:       #10b981;
-    --accent-amber:         #f59e0b;
-    --accent-rose:          #f43f5e;
-    --accent-purple:        #9333ea;
-    --accent-orange:        #f97316;
-
-    /* Semantic Status (single source of truth for badges, buttons, notices) */
-    --success:               #10b981;
-    --success-hover:         #059669;
-    --success-subtle:        rgba(16, 185, 129, 0.10);
-    --warning:               #f59e0b;
-    --warning-hover:         #d97706;
-    --warning-subtle:        rgba(245, 158, 11, 0.10);
-    --danger:                #f8285a;
-    --danger-hover:          #d81a48;
-    --danger-subtle:         rgba(248, 40, 90, 0.10);
-    --info:                  #7c3aed;
-    --info-hover:            #6d28d9;
-    --info-subtle:           rgba(124, 58, 237, 0.10);
-
-    /* Typography */
-    --foreground:           #0f172a;   /* High-contrast Slate-900 */
-    --foreground-muted:     #475569;   /* Crisp Slate-600 */
-    --foreground-subtle:    #94a3b8;   /* Subtle Slate-400 */
-
-    /* Border Radius Tokens */
-    --radius-card:          1.75rem;   /* 28px — main cards */
-    --radius-pill:          9999px;    /* full pill */
-    --radius-lg:            1rem;      /* 16px */
-    --radius-md:            0.75rem;   /* 12px */
-    --radius-sm:            0.5rem;    /* 8px */
-
-    /* Z-index Scale */
-    --z-header:             40;
-    --z-modal:              50;
-    --z-toast:              60;
-
-    /* Animation */
-    --ease-bounce:          cubic-bezier(0.16, 1, 0.3, 1);
-    --ease-smooth:          cubic-bezier(0.4, 0, 0.2, 1);
-
-    /* Scrollbar */
-    scrollbar-color: #cbd5e1 transparent;
-    scrollbar-width: thin;
-    color-scheme: light;
-  }
-
-  /* ── Dark Mode Tokens (applied when <html class="dark">) ─────── */
-  .dark {
-    /* Surfaces: Matte Obsidian with Monad Midnight Amethyst Undertones */
-    --background:           #0b0c10;
-    --background-subtle:    #0f1017;
-    --card-bg:              #13141d;
-    --card-bg-elevated:     #191b26;
-    --card-bg-muted:        #0f1018;
-    --card-border:          #232536;
-    --card-border-hover:    rgba(131, 110, 249, 0.45);
-
-    /* Brand: Official Monad Amethyst & Electric Violet */
-    --primary:              #836ef9;
-    --primary-hover:        #9684fa;
-    --primary-subtle:       rgba(131, 110, 249, 0.15);
-
-    --success:               #10b981;
-    --success-hover:         #059669;
-    --success-subtle:        rgba(16, 185, 129, 0.12);
-    --warning:               #f59e0b;
-    --warning-hover:         #d97706;
-    --warning-subtle:        rgba(245, 158, 11, 0.12);
-    --danger:                #f8285a;
-    --danger-hover:          #d81a48;
-    --danger-subtle:         rgba(248, 40, 90, 0.12);
-    --info:                  #836ef9;
-    --info-hover:            #9684fa;
-    --info-subtle:           rgba(131, 110, 249, 0.15);
-
-    --foreground:           #ffffff;
-    --foreground-muted:     #9a9cae;
-    --foreground-subtle:    #56596e;
-
-    scrollbar-color: #20222b transparent;
-    color-scheme: dark;
-  }
-
-  /* View Transition root styles for theme switching */
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none;
-    mix-blend-mode: normal;
-  }
-  ::view-transition-old(root) {
-    z-index: 1;
-  }
-  ::view-transition-new(root) {
-    z-index: 9999;
-  }
-
-  /* Universal Light-Mode Compatibility Overrides for Hardcoded Hex Surfaces */
-  html:not(.dark) .bg-\[\#0c0d12\] {
-    background-color: var(--background) !important;
-  }
-  html:not(.dark) .bg-\[\#0f1015\] {
-    background-color: var(--background-subtle) !important;
-  }
-  html:not(.dark) .bg-\[\#14151a\] {
-    background-color: var(--card-bg) !important;
-  }
-  html:not(.dark) .bg-\[\#181920\] {
-    background-color: var(--card-bg-elevated) !important;
-  }
-  html:not(.dark) .bg-\[\#101116\],
-  html:not(.dark) .bg-\[\#0d0e12\],
-  html:not(.dark) .bg-\[\#0d0e13\],
-  html:not(.dark) .bg-\[\#0e0f14\],
-  html:not(.dark) .bg-\[\#1b1c24\],
-  html:not(.dark) .bg-\[\#171c26\],
-  html:not(.dark) .bg-\[\#12131a\],
-  html:not(.dark) .bg-slate-900 {
-    background-color: var(--card-bg-muted) !important;
-  }
-  html:not(.dark) .border-\[\#20222b\],
-  html:not(.dark) .divide-\[\#20222b\]\/70 > * {
-    border-color: var(--card-border) !important;
-  }
-  html:not(.dark) .border-\[\#232530\] {
-    border-color: var(--card-border) !important;
-  }
-  html:not(.dark) .text-zinc-300 {
-    color: var(--foreground) !important;
-  }
-  html:not(.dark) .text-zinc-400 {
-    color: var(--foreground-muted) !important;
-  }
-  html:not(.dark) .text-slate-100 {
-    color: var(--foreground) !important;
-  }
-  html:not(.dark) .text-\[\#9a9cae\] {
-    color: var(--foreground-muted) !important;
-  }
-  html:not(.dark) .text-\[\#787a8d\] {
-    color: var(--foreground-muted) !important;
-  }
-
-  /* Ensure primary and danger buttons maintain high-contrast crisp white typography across all themes */
-  .bg-primary,
-  .bg-danger,
-  button.bg-primary,
-  button.bg-danger,
-  a.bg-primary,
-  span.bg-primary {
-    color: #ffffff !important;
-  }
-
-  /* ── Base Element Styles ─────────────────────────────────────── */
-  html {
-    scrollbar-gutter: stable;
-  }
-
-  body {
-    background-color: var(--background);
-    color: var(--foreground);
-    font-family: var(--font-sans);
-    min-height: 100vh;
-    overflow-x: hidden;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    transition: background-color 0.2s var(--ease-smooth), color 0.2s var(--ease-smooth);
-  }
-
-  /* ── Webkit Scrollbar (Chrome, Safari, Edge) ─────────────────── */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 9999px;
-  }
-  .dark ::-webkit-scrollbar-thumb {
-    background: #334155;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-  }
-  .dark ::-webkit-scrollbar-thumb:hover {
-    background: #475569;
-  }
-
-  /* ── Focus visible ring (keyboard a11y) ─────────────────────── */
-  :focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
-  }
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #1d1b20;
+  background: #fffbfe;
+  --space-8: 8px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-46: 46px;
+  --space-48: 48px;
+  --surface: #fffbfe;
+  --surface-container: #f3edf7;
+  --surface-strong: #eaddff;
+  --outline: #79747e;
+  --primary: #6750a4;
+  --on-primary: #fff;
+  --on-surface: #1d1b20;
+  --muted: #625b71;
+  --error: #ba1a1a;
 }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Semantic Utility Classes
-   bg-app/bg-card/bg-primary/text-fg-muted/border-card/bg-danger/etc. and
-   every hover:/focus:/disabled:/opacity variant of them (hover:bg-primary-hover,
-   border-danger/40, ring-info) are generated by Tailwind from the --color-*
-   tokens registered in @theme above. text-muted/text-subtle are kept as
-   thin aliases below since --foreground-muted/-subtle predate the
-   --color-fg-muted/-subtle naming used elsewhere.
-   ═══════════════════════════════════════════════════════════════════════ */
-
-.text-muted  { color: var(--foreground-muted); }
-.text-subtle { color: var(--foreground-subtle); }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   AgentGuard Card Components
-   ═══════════════════════════════════════════════════════════════════════ */
-
-.pro-card {
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-card);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02);
-  transition: all 0.2s var(--ease-bounce);
+html.dark {
+  color-scheme: dark;
+  --surface: #141218;
+  --surface-container: #211f26;
+  --surface-strong: #4f378b;
+  --outline: #938f99;
+  --primary: #d0bcff;
+  --on-primary: #381e72;
+  --on-surface: #e6e1e9;
+  --muted: #cac4d0;
+  --error: #ffb4ab;
 }
-
-.dark .pro-card {
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.25);
+* {
+  box-sizing: border-box;
 }
-
-.pro-card:hover {
-  border-color: rgba(124, 58, 237, 0.25);
-  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.04);
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--surface);
+  color: var(--on-surface);
 }
-
-.dark .pro-card:hover {
-  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.35);
+button,
+input,
+select {
+  font: inherit;
 }
-
-.pro-card-header {
-  border-bottom: 1px solid var(--card-border);
+button {
+  cursor: pointer;
 }
-
-/* ── Form Input ─────────────────────────────────────────────────── */
-
-.pro-input {
-  background-color: var(--card-bg-muted);
-  border: 1px solid var(--card-border);
-  color: var(--foreground);
-  border-radius: var(--radius-md);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.pro-input:focus {
-  outline: none;
-  background-color: var(--card-bg);
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-
-
-/* ═══════════════════════════════════════════════════════════════════════
-   Entrance Animations & Number Input Enhancements
-   ═══════════════════════════════════════════════════════════════════════ */
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Suppress default number spin buttons for sleek input styling */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
+h1,
+h2,
+p {
   margin: 0;
 }
-input[type="number"] {
-  -moz-appearance: textfield;
+h1 {
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  letter-spacing: -0.04em;
 }
-
-/* Compact navigation may overflow on small phones; preserve scrolling without
-   adding a second visual bar inside the application header. */
-.scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+h2 {
+  font-size: 1rem;
 }
-
-.scrollbar-none::-webkit-scrollbar {
+p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+.sidenav {
+  width: 240px;
+  flex: 0 0 240px;
+  padding: 24px 16px;
+  border-right: 1px solid color-mix(in srgb, var(--outline), transparent 75%);
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  background: var(--surface);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand strong {
+  display: block;
+  font-size: 0.95rem;
+}
+.brand small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 800;
+}
+nav {
+  display: grid;
+  gap: 4px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 12px 14px;
+  border-radius: 16px;
+  text-align: left;
+}
+.nav-item:hover,
+.nav-item.active {
+  background: var(--surface-strong);
+  color: var(--on-surface);
+}
+.sidenav-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+}
+.profile-chip,
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-46);
+}
+.mobile-bar {
   display: none;
 }
-
-/* ═══════════════════════════════════════════════════════════════════════
-   View Transition Elevated Circular Wavefront for Theme Switching
-   ═══════════════════════════════════════════════════════════════════════ */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-  transform-origin: center center;
+.stack {
+  display: grid;
+  gap: var(--space-24);
+  max-width: 1180px;
+  margin: auto;
 }
-
-::view-transition-old(root) {
-  z-index: 1;
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-24);
 }
-
-::view-transition-new(root) {
-  z-index: 99999;
-  filter: drop-shadow(0 0 30px rgba(124, 58, 237, 0.35));
+.eyebrow {
+  display: block;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-8);
 }
-
-.dark::view-transition-new(root) {
-  filter: drop-shadow(0 0 38px rgba(131, 110, 249, 0.45));
+.page-heading p {
+  margin-top: var(--space-8);
 }
-
-/* Respect the user's motion preference across shell, loading, status, and
-   theme-transition animations. This is especially important for a dense
-   operational console where live status indicators are frequent. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+.surface {
+  background: var(--surface-container);
+  border: 1px solid color-mix(in srgb, var(--outline), transparent 78%);
+  border-radius: 24px;
+  padding: var(--space-24);
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-16);
+}
+.metric {
+  background: var(--surface-container);
+  border-radius: 20px;
+  padding: var(--space-16);
+  display: grid;
+  gap: var(--space-8);
+}
+.metric span,
+.metric small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.metric strong {
+  font-size: 1.5rem;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-16);
+  margin-bottom: var(--space-24);
+}
+.section-heading p {
+  margin-top: 4px;
+  font-size: 0.85rem;
+}
+.icon-badge {
+  color: var(--primary);
+  font-size: 1.4rem;
+}
+.empty-state {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+.empty-state strong {
+  color: var(--on-surface);
+  display: block;
+}
+.empty-state p {
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--outline);
+}
+.chart {
+  min-height: 220px;
+  position: relative;
+}
+.chart > div:first-child {
+  height: 180px;
+}
+.control {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 700;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+.control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.control:not(:disabled):active {
+  transform: scale(0.98);
+}
+.control-filled {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.control-tonal {
+  background: var(--surface-strong);
+  color: var(--on-surface);
+}
+.control-text {
+  color: var(--primary);
+  background: transparent;
+  padding-inline: 0;
+}
+.inline-form,
+.form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+input,
+select {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--outline), transparent 35%);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: var(--surface);
+  color: var(--on-surface);
+}
+.inline-form input {
+  flex: 1;
+  min-width: 220px;
+}
+.form-grid input,
+.form-grid select {
+  flex: 1 1 180px;
+}
+.form-message {
+  margin-top: 16px;
+  color: var(--primary);
+  font-size: 0.85rem;
+}
+.table-viewport {
+  overflow: auto;
+  max-height: 420px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 14px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline), transparent 80%);
+  text-align: left;
+  font-size: 0.82rem;
+}
+th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.record {
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+.plan-list {
+  display: grid;
+  gap: 8px;
+}
+.plan-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 16px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 14px;
+  align-items: center;
+}
+.plan-row span,
+.plan-row small {
+  color: var(--muted);
+}
+.landing {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--primary), transparent 82%),
+      transparent 45%
+    ),
+    var(--surface);
+}
+.landing-card {
+  max-width: 560px;
+  display: grid;
+  gap: 18px;
+}
+.landing-card h1 {
+  font-size: clamp(2.4rem, 6vw, 4.8rem);
+}
+.landing-card p {
+  font-size: 1.05rem;
+}
+@media (max-width: 780px) {
+  .app-shell {
+    display: block;
   }
-
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
+  .sidenav {
+    width: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--outline), transparent 75%);
+    padding: 16px;
+    gap: 16px;
+  }
+  .sidenav nav {
+    display: flex;
+    overflow-x: auto;
+  }
+  .nav-item {
+    white-space: nowrap;
+  }
+  .sidenav-bottom {
     display: none;
   }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
-   AgentGuard Enterprise Print Architecture
-   Ensures crystal-clear, executive-ready PDF & physical printouts:
-   - Strips application sidebars, navigation icons, footers, & action buttons
-   - Resets fixed/absolute full-screen viewport layout to natural document flow
-   - Forces high-contrast light theme tokens (pure white canvas, rich dark text)
-   - Eliminates page split cutoffs on cards, stat widgets, and table rows
-   - Enforces exact print-color-adjust for badges and status indicators
-   ═══════════════════════════════════════════════════════════════════════ */
-@media print {
-  @page {
-    size: A4 portrait;
-    margin: 16mm 18mm;
+  .content {
+    padding: 24px 16px 48px;
   }
-
-  /* Force light theme tokens regardless of user's active dark mode */
-  :root,
-  .dark,
-  html,
-  body {
-    --background: #ffffff !important;
-    --background-subtle: #ffffff !important;
-    --card-bg: #ffffff !important;
-    --card-bg-elevated: #ffffff !important;
-    --card-bg-muted: #f8fafc !important;
-    --card-border: #e2e8f0 !important;
-    --foreground: #0f172a !important;
-    --foreground-muted: #334155 !important;
-    --foreground-subtle: #64748b !important;
-    background: #ffffff !important;
-    background-color: #ffffff !important;
-    color: #0f172a !important;
-    height: auto !important;
-    min-height: 100% !important;
-    overflow: visible !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+  .metric-grid {
+    grid-template-columns: 1fr;
   }
-
-  /* Reset fixed full-screen layout containers */
-  #root,
-  #root > div,
-  .fixed,
-  .absolute {
-    position: static !important;
-    inset: auto !important;
-    overflow: visible !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    transform: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
+  .page-heading {
+    display: grid;
   }
-
-  /* Completely suppress navigation chrome, ambient glows & interactive widgets */
-  aside,
-  footer,
-  nav,
-  header:not(.print-letterhead),
-  button:not(.print-keep),
-  [role="alert"],
-  [role="dialog"],
-  .pointer-events-none,
-  .print-hidden,
-  .print\:hidden {
-    display: none !important;
-  }
-
-  /* Clean page breaking */
-  .card,
-  .break-inside-avoid,
-  .print-avoid-break,
-  table tr,
-  article,
-  section,
-  .grid > div {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  thead {
-    display: table-header-group !important;
-  }
-
-  tbody tr {
-    page-break-inside: avoid !important;
-  }
-
-  /* Explicit deterministic page budgeting */
-  .print-page-break-before,
-  .print\:break-before-page {
-    break-before: page !important;
-    page-break-before: always !important;
-  }
-
-  .print-page-break-after,
-  .print\:break-after-page {
-    break-after: page !important;
-    page-break-after: always !important;
-  }
-
-  /* Remove shadows and backdrops that look blurry when rasterized */
-  * {
-    box-shadow: none !important;
-    text-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  /* Clean, sharp borders for cards and tables */
-  .border,
-  [class*="border-"] {
-    border-color: #cbd5e1 !important;
-  }
-
-  /* Ensure text links or badges don't look broken */
-  a {
-    text-decoration: none !important;
-    color: inherit !important;
+  .plan-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

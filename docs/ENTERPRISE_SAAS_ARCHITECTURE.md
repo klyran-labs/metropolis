@@ -5,7 +5,7 @@
 AgentGuard is an institutional agentic risk, spend control, and execution guardrail platform engineered for the autonomous agent era on **Monad Parallel EVM (Chain ID 10143)**. 
 
 This document defines the production **B2B SaaS Architecture** for AgentGuard, unifying:
-1. **Single-Organization Tenant Isolation** with Privy Cloud Identity.
+1. **Single-Organization Tenant Isolation** with Privy identity verification and PostgreSQL authorization state.
 2. **Machine-to-Machine Service Accounts** for headless cloud bots.
 3. **Comprehensive FinOps Pricing Engine** supporting Dual-Denomination (Tokens vs. Money) and enterprise contract structures (Flat Discounts, Volume Ladders, and CUD/PTU Capacity Quotas).
 4. **Developer Integration Ecosystem** comprising a 1-Line Drop-in SDK Proxy, the `agentguard` CLI, and an official Model Context Protocol (MCP) Server.
@@ -23,8 +23,8 @@ flowchart TD
         User["User logs in with corporate email (alex@acme.ai)"]
     end
     subgraph Privy["Privy Authentication & JWT Engine"]
-        JWT["Privy JWT issued with custom_metadata"]
-        JWT --> Claims["Claims: orgId: 'org_acme', role: 'agent_developer'"]
+        JWT["Privy JWT issued with verified subject"]
+        JWT --> Claims["Subject plus optional organization routing hint"]
     end
     subgraph UI["AgentGuard B2B SaaS Console (apps/web)"]
         Badge["Header Badge: 🏢 Acme AI Systems • Enterprise"]
@@ -39,7 +39,7 @@ flowchart TD
 ```
 
 ### Technical Specifications
-* **Privy Custom Metadata Schema**:
+* **Privy Metadata Routing Schema (non-authoritative)**:
   ```json
   {
     "sub": "did:privy:cmton65ao004l0cl11tgmwiah",
@@ -47,16 +47,15 @@ flowchart TD
     "custom_metadata": {
       "orgId": "org_acme_corp_8f2a",
       "orgName": "Acme AI Systems",
-      "role": "agent_developer",
-      "tier": "enterprise",
-      "status": "ACTIVE"
+      "tier": "enterprise"
     }
   }
   ```
+  The gateway never authorizes a request from `role`, `orgName`, `tier`, or `status` in Privy metadata. PostgreSQL resolves the active organization membership, role, MFA state, enterprise address, and operator status.
 * **Tenant-Scoped Authorization Proxy (`services/gateway`)**:
   - The master Privy App Secret remains strictly server-side within the Gateway.
-  - Tenant Admins manage users via scoped endpoints: `POST /api/v1/orgs/:org_id/users`.
-  - The Gateway strictly verifies that `caller.orgId == target_orgId` and caller possesses `super_admin` or `tenant_admin` authority before mutating Privy Cloud metadata. Any cross-tenant operation is rejected with HTTP 403 Forbidden.
+  - Tenant administrators update PostgreSQL through the authenticated gateway role endpoint; the database commit is authoritative.
+  - Privy custom metadata is not mutated by the gateway. Any cross-tenant operation is rejected with HTTP 403 Forbidden.
 
 ---
 
@@ -73,7 +72,7 @@ Autonomous agents operate in headless cloud environments (Docker, Kubernetes, AW
 # Generated for autonomous bot deployments
 AGENTGUARD_GATEWAY_URL="https://gateway.agentguard.io"
 AGENTGUARD_API_KEY="ag_live_sec_9f82a4e98f2c0017"
-AGENTGUARD_AGENT_ADDRESS="0x10143a4e98f2c000000000000000000000000017"
+AGENTGUARD_AGENT_ADDRESS="<tenant-owned-agent-address>"
 ```
 
 ---
@@ -151,7 +150,7 @@ agentguard fleet status --org acme_ai
 agentguard agents register --name "analyst-bot" --tokens 5000000 --window 7d
 
 # Instant O(1) emergency freeze
-agentguard agents freeze 0x10143a4e98f2c000000000000000000000000017
+agentguard agents freeze <tenant-owned-agent-address>
 ```
 
 ### C. Model Context Protocol (MCP) Server (`@agentguard/mcp-server`)

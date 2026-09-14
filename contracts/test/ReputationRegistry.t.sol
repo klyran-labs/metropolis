@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { ReputationRegistry } from "../src/core/ReputationRegistry.sol";
-import { IReputationRegistry } from "../src/interfaces/IReputationRegistry.sol";
+import {Test} from "forge-std/Test.sol";
+import {ReputationRegistry} from "../src/core/ReputationRegistry.sol";
+import {IReputationRegistry} from "../src/interfaces/IReputationRegistry.sol";
 
 /// @title ReputationRegistryTest
 /// @notice Real Foundry tests against compiled ReputationRegistry bytecode.

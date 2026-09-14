@@ -129,11 +129,14 @@ AgentGuard implements strict tenant scoping to uphold the Principle of Least Pri
 
 ### A. Tenant Isolation Model
 - **`My Agents` (Default Isolated View)**: Shows exclusively the agents registered, owned, or assigned to the authenticated operator. New users starting without agents see a clean, zero-mock onboarding state with no data leakage from other tenants.
-- **`Network Fleet` (Administrative Global View)**: Visible only to global administrative and compliance roles (`super_admin`, `org_admin`, `security_auditor`) for fleet-wide telemetry, network risk analysis, and macro policy monitoring.
+- **`Network Fleet` (Administrative Global View)**: Visible only to `super_admin`, `sec_ops`, and `auditor` for fleet-wide telemetry, network risk analysis, and macro policy monitoring.
 - **Role-Based Access Control (RBAC)**:
   - `agent_developer`: Default authenticated role. Empowered with self-serve agent provisioning, policy authoring for owned agents, and dedicated kill-switch toggle authority.
-  - `org_admin` / `super_admin`: Full global fleet management, global kill-switch, and tenant governance.
-  - `security_auditor` / `finance_operator` / `viewer`: Read-only telemetry and audit trail access with appropriate execution boundaries.
+  - `super_admin`: Full global fleet management, IAM governance, and emergency freeze.
+  - `sec_ops`: Threat mitigation, risk telemetry, adversarial testing, and kill-switch activation.
+  - `treasury`: Budget pools, spend ceilings, and merchant allowlists.
+  - `fleet_devops`: Fleet orchestration, telemetry, and runtime monitoring.
+  - `auditor`: Read-only compliance inspection, ledger verification, and report export.
 
 ---
 

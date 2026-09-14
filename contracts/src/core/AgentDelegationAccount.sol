@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IPolicyEngine } from "../interfaces/IPolicyEngine.sol";
-import { IReputationRegistry } from "../interfaces/IReputationRegistry.sol";
-import { TransientReentrancyGuard } from "../libraries/TransientReentrancyGuard.sol";
+import {IPolicyEngine} from "../interfaces/IPolicyEngine.sol";
+import {IReputationRegistry} from "../interfaces/IReputationRegistry.sol";
+import {TransientReentrancyGuard} from "../libraries/TransientReentrancyGuard.sol";
 
 interface IERC20Minimal {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -20,11 +20,7 @@ contract AgentDelegationAccount is TransientReentrancyGuard {
     IReputationRegistry public immutable reputationRegistry;
 
     event DelegatedPaymentExecuted(
-        address indexed agent,
-        address indexed merchant,
-        uint256 amount,
-        uint256 nonce,
-        address token
+        address indexed agent, address indexed merchant, uint256 amount, uint256 nonce, address token
     );
 
     event DelegatedPaymentBlocked(
@@ -79,26 +75,22 @@ contract AgentDelegationAccount is TransientReentrancyGuard {
 
         if (p.token == address(0)) {
             if (address(this).balance < p.amount) revert InsufficientNativeBalance();
-            (bool sent, ) = p.merchant.call{value: p.amount}("");
+            (bool sent,) = p.merchant.call{value: p.amount}("");
             if (!sent) revert NativeTransferFailed();
         } else {
-            (bool success, bytes memory data) = p.token.call(
-                abi.encodeWithSelector(IERC20Minimal.transfer.selector, p.merchant, p.amount)
-            );
+            (bool success, bytes memory data) =
+                p.token.call(abi.encodeWithSelector(IERC20Minimal.transfer.selector, p.merchant, p.amount));
             if (!success || (data.length != 0 && !abi.decode(data, (bool)))) {
                 revert ERC20TransferFailed();
             }
         }
 
         reputationRegistry.recordOutcome(
-            address(this),
-            p.merchant,
-            IReputationRegistry.ReputationOutcome.SETTLED,
-            p.amount
+            address(this), p.merchant, IReputationRegistry.ReputationOutcome.SETTLED, p.amount
         );
 
         if (p.extraCallData.length > 0) {
-            (bool callSuccess, ) = p.merchant.call(p.extraCallData);
+            (bool callSuccess,) = p.merchant.call(p.extraCallData);
             callSuccess;
         }
 
@@ -109,7 +101,11 @@ contract AgentDelegationAccount is TransientReentrancyGuard {
     /**
      * @notice Batched gated execution for high-throughput atomic Monad transactions.
      */
-    function executeBatchGated(DelegatedPayment[] calldata payments) external nonReentrant returns (uint256 executedCount) {
+    function executeBatchGated(DelegatedPayment[] calldata payments)
+        external
+        nonReentrant
+        returns (uint256 executedCount)
+    {
         for (uint256 i = 0; i < payments.length; i++) {
             DelegatedPayment calldata p = payments[i];
             IPolicyEngine.SpendRequest memory req = IPolicyEngine.SpendRequest({
@@ -130,26 +126,22 @@ contract AgentDelegationAccount is TransientReentrancyGuard {
 
             if (p.token == address(0)) {
                 if (address(this).balance < p.amount) revert InsufficientNativeBalance();
-                (bool sent, ) = p.merchant.call{value: p.amount}("");
+                (bool sent,) = p.merchant.call{value: p.amount}("");
                 if (!sent) revert NativeTransferFailed();
             } else {
-                (bool success, bytes memory data) = p.token.call(
-                    abi.encodeWithSelector(IERC20Minimal.transfer.selector, p.merchant, p.amount)
-                );
+                (bool success, bytes memory data) =
+                    p.token.call(abi.encodeWithSelector(IERC20Minimal.transfer.selector, p.merchant, p.amount));
                 if (!success || (data.length != 0 && !abi.decode(data, (bool)))) {
                     revert ERC20TransferFailed();
                 }
             }
 
             reputationRegistry.recordOutcome(
-                address(this),
-                p.merchant,
-                IReputationRegistry.ReputationOutcome.SETTLED,
-                p.amount
+                address(this), p.merchant, IReputationRegistry.ReputationOutcome.SETTLED, p.amount
             );
 
             if (p.extraCallData.length > 0) {
-                (bool callSuccess, ) = p.merchant.call(p.extraCallData);
+                (bool callSuccess,) = p.merchant.call(p.extraCallData);
                 callSuccess;
             }
 

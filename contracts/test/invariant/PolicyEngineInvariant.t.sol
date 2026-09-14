@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { PolicyEngine } from "../../src/core/PolicyEngine.sol";
-import { IPolicyEngine } from "../../src/interfaces/IPolicyEngine.sol";
+import {Test} from "forge-std/Test.sol";
+import {PolicyEngine} from "../../src/core/PolicyEngine.sol";
+import {IPolicyEngine} from "../../src/interfaces/IPolicyEngine.sol";
 
 /// @notice Drives randomized, stateful evaluateAndSpend calls across a fixed pool
 /// of agents for Foundry's invariant fuzzer. Deliberately submits some requests
@@ -25,16 +25,18 @@ contract PolicyEngineHandler is Test {
         _agents = agents_;
         for (uint256 i = 0; i < agents_.length; i++) {
             vm.prank(agents_[i]);
-            engine.setPolicy(agents_[i], IPolicyEngine.SpendPolicy({
-                maxPerTx: MAX_PER_TX,
-                maxPerWindow: MAX_PER_WINDOW,
-                windowSeconds: WINDOW_SECONDS,
-                maxVelocity: MAX_VELOCITY,
-                killSwitch: false,
-                whitelistEnabled: false
-            }));
+            engine.setPolicy(
+                agents_[i],
+                IPolicyEngine.SpendPolicy({
+                    maxPerTx: MAX_PER_TX,
+                    maxPerWindow: MAX_PER_WINDOW,
+                    windowSeconds: WINDOW_SECONDS,
+                    maxVelocity: MAX_VELOCITY,
+                    killSwitch: false,
+                    whitelistEnabled: false
+                })
+            );
         }
-        engine.setAuthorizedCaller(address(this), true);
     }
 
     function agentCount() external view returns (uint256) {
@@ -105,7 +107,7 @@ contract PolicyEngineInvariantTest is Test {
         uint256 count = handler.agentCount();
         for (uint256 i = 0; i < count; i++) {
             address agent = handler.agentAt(i);
-            (uint128 spentInWindow, , , ) = engine.getAgentState(agent);
+            (uint128 spentInWindow,,,) = engine.getAgentState(agent);
             assertLe(spentInWindow, handler.MAX_PER_WINDOW());
         }
     }

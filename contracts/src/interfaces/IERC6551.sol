@@ -23,13 +23,10 @@ interface IERC6551Registry {
         uint256 tokenId
     ) external returns (address);
 
-    function account(
-        address implementation,
-        bytes32 salt,
-        uint256 chainId,
-        address tokenContract,
-        uint256 tokenId
-    ) external view returns (address);
+    function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId)
+        external
+        view
+        returns (address);
 }
 
 /**
@@ -39,15 +36,9 @@ interface IERC6551Registry {
 interface IERC6551Account {
     receive() external payable;
 
-    function token()
-        external
-        view
-        returns (uint256 chainId, address tokenContract, uint256 tokenId);
+    function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
 
     function state() external view returns (uint256);
 
-    function isValidSigner(address signer, bytes calldata context)
-        external
-        view
-        returns (bytes4 magicValue);
+    function isValidSigner(address signer, bytes calldata context) external view returns (bytes4 magicValue);
 }

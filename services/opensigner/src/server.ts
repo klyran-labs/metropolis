@@ -4,7 +4,8 @@ import type { OpenSignerEngine } from './signer.js';
 
 export function createOpenSignerServer(
   vault: EncryptedVault,
-  engine: OpenSignerEngine
+  engine: OpenSignerEngine,
+  apiToken = ''
 ): http.Server {
   return http.createServer(async (req, res) => {
     // Enable CORS for all web clients
@@ -20,6 +21,15 @@ export function createOpenSignerServer(
 
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
+
+    if (apiToken && pathname.startsWith('/api/v1/')) {
+      const authorization = req.headers.authorization;
+      if (authorization !== `Bearer ${apiToken}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Authentication required' }));
+        return;
+      }
+    }
 
     // Helper for sending JSON
     const sendJson = (status: number, data: any) => {

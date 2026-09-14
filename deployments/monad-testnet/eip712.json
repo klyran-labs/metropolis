@@ -1,6 +1,6 @@
 {
+  "status": "unprovisioned",
   "name": "AgentGuard_PolicyEngine",
   "version": "1",
-  "chainId": 10143,
-  "verifyingContract": "0x4444444444444444444444444444444444444444"
+  "chainId": 10143
 }

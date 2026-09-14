@@ -139,10 +139,10 @@ flowchart LR
 
 | Sponsor | Bounty | What We Built | How Judges Can Verify |
 | :--- | :--- | :--- | :--- |
-| **Privy** | **Privy! (5,000 USD)** | B2B SaaS multi-tenancy, organization custom metadata (`orgId`, `orgName`), scoped tenant administration, and 6-tier RBAC. Detailed in [ADR-0009](ADR/0009-b2b-saas-multitenancy-and-privy-org-identity.md) and [ENTERPRISE_SAAS_ARCHITECTURE.md](ENTERPRISE_SAAS_ARCHITECTURE.md). | Run `scripts/set-privy-role.mjs` and inspect `apps/web/src/context/RbacContext.tsx`. Login with Privy and observe tenant-isolated workspace. |
-| **Alibaba Cloud** | **Qwen 3.8 Max (5,000 USD credits)** | Dual-role integration: (1) Autonomous agent inference gated by Monad x402 micropayments, and (2) UI Risk Copilot for natural language policy generation and onchain denial diagnostics. Detailed in [ADR-0008](ADR/0008-qwen-agent-inference-and-x402-settlement.md). | Inspect `services/gateway/src/handlers.rs`, test UI Copilot in `apps/web`, and run `node scripts/agentguard-live-demo.mjs` (Scenario 2). |
+| **Privy** | **Privy! (5,000 USD)** | B2B SaaS multi-tenancy, Privy identity verification, optional organization routing metadata, scoped tenant administration, and 6-tier RBAC. PostgreSQL is authoritative for tenant membership and roles. Detailed in [ADR-0009](ADR/0009-b2b-saas-multitenancy-and-privy-org-identity.md) and [ENTERPRISE_SAAS_ARCHITECTURE.md](ENTERPRISE_SAAS_ARCHITECTURE.md). | Inspect the gateway authorization path and PostgreSQL migrations. Login with Privy and observe tenant-isolated workspace in Part B. |
+| **Alibaba Cloud** | **Qwen 3.8 Max (5,000 USD credits)** | Reserved integration surface for autonomous inference and policy assistance. Detailed in [ADR-0008](ADR/0008-qwen-agent-inference-and-x402-settlement.md). | Inspect the gateway inference surface and the tenant policy workspace; live credentials are required for provider validation. |
 | **Envio** | **Best Use of Envio (1,000 USD)** | HyperSync client indexing onchain policy events, velocity counters, and reason codes in sub-10ms. | Inspect `apps/web/src/hooks/usePolicyEvents.ts` showing Envio HyperSync client initialization and queries. |
-| **Alchemy** | **Best Projects using Alchemy (1,000 USD credits)** | Alchemy Monad RPC integration with failover routing in gateway and web client. | Inspect `apps/web/src/config/env.ts` and `services/gateway/src/main.rs`. |
+| **Alchemy** | **Best Projects using Alchemy (1,000 USD credits)** | RPC integration surface with profile-specific endpoint configuration. | Inspect `apps/web/src/configuration.ts` and `services/gateway/src/config.rs`. |
 | **Monad Foundation** | **Best Community Team Project (5,000 USD)** | 100% open-source Monad-native agentic infrastructure, Model Context Protocol (MCP) server ([ADR-0011](ADR/0011-agentic-developer-ecosystem-cli-and-mcp-server.md)), and comprehensive FinOps pricing engine ([ADR-0010](ADR/0010-finops-dual-denomination-and-enterprise-rate-cards.md)). | Inspect public repository, tests, and active Discord community involvement. |
 
 ---
@@ -163,7 +163,7 @@ Use these pre-drafted updates to post consistent progress on the hackathon dashb
 > Excited to share our latest progress on AgentGuard:  
 > * Deployed canonical PolicyEngine and ReputationRegistry to **Monad Testnet (Chain ID 10143)**!
 > * Shipped `services/opensigner`: a self-hosted AES-256-GCM sealed key vault allowing cloud agents to sign EIP-712 spend requests without leaking keys to disk or memory.
-> * Integrated Privy custom metadata role sync to give operators 6-tier RBAC control over fleet limits.
+> * Integrated Privy identity verification with PostgreSQL-authoritative 6-tier RBAC and tenant membership. Privy metadata is limited to optional routing.
 
 ### Update 3 (Week of Sep 29):
 > **Milestone: Envio HyperSync Event Indexing + Qwen 3.8 Max AI Risk Copilot**  

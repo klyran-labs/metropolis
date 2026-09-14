@@ -1,7 +1,7 @@
 # ADR 0006: Self-Hosted OpenSigner Sovereign Enclave & EIP-712 Signer
 
 ## Status
-Accepted
+Accepted — backend capability; control-plane provisioning remains a follow-up integration.
 
 ## Context
 In autonomous AI agent environments, agents must continuously sign EIP-712 transactions and HTTP 402 micro-payments in automated machine loops. However, traditional key management introduces severe security trade-offs:
@@ -27,13 +27,13 @@ We introduce **Self-Hosted OpenSigner** (`services/opensigner`) as a sovereign, 
    - Verifies on the server that the requested wallet actually owns the target agent address before generating the signature.
    - Returns `{ signature, signer, domain, request }` for immediate transport in `PAYMENT-SIGNATURE` headers.
 
-4. **Web Control Plane Integration**:
-   - In [`AgentOnboardingModal.tsx`](../../apps/web/src/components/dashboard/AgentOnboardingModal.tsx), developers have an instant 1-click **"OpenSigner Enclave"** option alongside Web Crypto and Bring-Your-Own-Address.
-   - Probes container health on port `3001` and binds the sealed address directly into Monad's `PolicyEngine`.
+4. **Control Plane Boundary**:
+   - The current control plane uses the connected tenant wallet for administrative transaction submission and does not expose sealed key material.
+   - OpenSigner remains an optional backend signing capability until its provisioning and health workflow is added to the control plane.
 
-5. **Docker Multi-Environment Orchestration**:
+5. **Docker Profile Orchestration**:
    - Containerized in `docker/Dockerfile.opensigner` (Node 22 Alpine, non-root user).
-   - Orchestrated in `docker-compose.yml`, `docker-compose.testnet.yml`, and `docker-compose.prod.yml` on port `3001`.
+   - Orchestrated in `docker/docker-compose.yml`, `docker/docker-compose.testnet.yml`, and `docker/docker-compose.mainnet.yml` on the internal signing service endpoint.
 
 ## Consequences
 - **Positive**: Complete sovereign key protection. Even if an autonomous bot's process is exploited via prompt injection, the attacker cannot steal the private key.

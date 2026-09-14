@@ -1,77 +1,51 @@
-# Runbook: x402 / AP2 Payment Gateway Operations
+# Gateway Operations Runbook
 
-## Overview
-This runbook covers health checks, operations, build/test workflows, and troubleshooting for the AgentGuard High-Throughput x402 / AP2 Payment Gateway (`services/gateway`), built in **Rust** using **Tokio**, **Axum**, and **Alloy-RS**.
+This runbook covers the Rust gateway, PostgreSQL 18 authorization store, and Monad event ingestion boundary.
 
----
+## Startup requirements
 
-## 1. Gateway Health & Readiness Checks
-The gateway exposes lightweight liveness and readiness probes on port 8080:
+The gateway must receive real deployment-specific values for every contract address, the Monad RPC endpoint, PostgreSQL 18, Privy Server credentials, Privy JWKS configuration, x402 pricing metadata, and the event start block. It exits during startup if any required value is missing, malformed, or set to the zero address.
+
+The gateway runs `services/gateway/migrations` before binding its HTTP listener. Readiness is `503` until both PostgreSQL and Monad RPC health checks succeed.
+All request correlation IDs and durable operation identifiers are UUID v7. PostgreSQL UUID constraints reject UUID versions other than v7.
+
+## Health checks
 
 ```bash
-# Liveness probe
-curl -f http://localhost:8080/health
-# Returns: {"status":"healthy","chain_id":10143,"timestamp":...}
-
-# Readiness probe
-curl -f http://localhost:8080/ready
-# Returns: {"status":"ready","chain_id":10143}
+curl -fsS http://localhost:8080/health
+curl -fsS http://localhost:8080/ready
 ```
 
----
+`/health` is liveness only. `/ready` is the operational check and must be used by orchestration. The response does not expose contract addresses, credentials, or raw dependency errors.
 
-## 2. API Endpoints
+## Identity and authorization
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/health` | `GET` | Liveness health check |
-| `/ready` | `GET` | Readiness probe (RPC connectivity) |
-| `/v1/inference` | `GET`, `POST` | x402 Payment-gated inference endpoint |
-| `/api/v1/users/:did/role` | `GET` | Query operator RBAC role from Privy |
-| `/api/v1/users/:did/role` | `POST` | Update operator RBAC role (Super Admin only) |
+Human requests use a verified Privy JWT. Verification requires the configured issuer, audience, RSA JWKS key, expiry, and not-before checks. Privy metadata is only an optional organization routing hint; PostgreSQL is authoritative for active membership, role, enterprise address, and MFA. Machine requests use a scoped `ag_live_sec_...` credential; only its SHA-256 hash is stored.
 
----
+Every protected request must resolve to an active PostgreSQL operator or API-key record. The gateway applies the six-role RBAC matrix, tenant-owned PBAC policies, and tenant ABAC controls before the handler executes. A missing identity record, policy-store error, unknown tenant, or unavailable client IP fails closed.
 
-## 3. Environment Configuration
-Required environment variables for the gateway container (`docker/Dockerfile.gateway`):
-- `PORT`: HTTP listen port (default `8080`)
-- `MONAD_CHAIN_ID`: Target chain ID (`10143`)
-- `MONAD_RPC_URL`: JSON-RPC endpoint (`https://testnet-rpc.monad.xyz`)
-- `POLICY_ENGINE_ADDRESS`: Deployed `PolicyEngine` contract address
-- `AGENT_WALLET_GUARD_ADDRESS`: Deployed `AgentWalletGuard` contract address
-- `USDC_TOKEN_ADDRESS`: Settlement token address
-- `GATEWAY_MERCHANT_ADDRESS`: Target merchant payee address
-- `PRIVY_APP_ID`: Privy App ID (`cmton65ao004l0cl11tgmwiah`)
-- `PRIVY_APP_SECRET`: Privy Server API Secret (for admin role provisioning)
-- `INITIAL_SUPER_ADMIN_DIDS`: Comma-separated list of bootstrap Super Admin DIDs
+Role changes are committed to PostgreSQL. Privy metadata is not mutated by role administration and is never an authorization dependency.
 
----
+## Telemetry evidence
 
-## 4. Local Build & Test Commands
+The event worker polls the configured Monad RPC for events emitted by the deployed `PolicyEngine` and `AgentWalletGuard`. It stores chain ID, block number/hash, transaction hash, log index, event name, payload, tenant scope, and finality status in PostgreSQL.
+
+Events are deduplicated by `(chain_id, transaction_hash, log_index)`. The worker stores a checkpoint and rewinds a bounded range when the checkpoint block hash changes. Only finalized events are published to `/api/v1/telemetry/stream`, and the SSE stream filters by the authenticated organization.
+
+If RPC ingestion or PostgreSQL is unavailable, the service remains alive but readiness fails and no fabricated telemetry is emitted.
+
+## x402 policy path
+
+`/v1/inference` returns a configured HTTP 402 challenge when no x402 authorization is present. A retry must include a valid EIP-712 signature using the deployed `AgentWalletGuard` address and canonical `SpendRequest` fields, including a full-width `uint256` nonce.
+
+The gateway verifies the signature, validates the merchant, and calls the deployed `PolicyEngine.evaluate` method. Rejections return the canonical Solidity reason code. A successful response reports only read-only policy approval; it does not claim settlement or provider inference without a real receipt.
+
+## Verification
 
 ```bash
-# Run unit & cryptographic verification tests
+cargo fmt --manifest-path services/gateway/Cargo.toml -- --check
+cargo check --manifest-path services/gateway/Cargo.toml
 cargo test --manifest-path services/gateway/Cargo.toml
-
-# Build optimized release binary (~14MB Alpine footprint)
-cargo build --release --manifest-path services/gateway/Cargo.toml
-
-# Run binary directly
-./services/gateway/target/release/agentguard-gateway
 ```
 
----
-
-## 5. Troubleshooting & Diagnostics
-
-- **HTTP 402 Loop (Continuous Challenge)**:
-  Ensure the autonomous agent client captures the `PAYMENT-REQUIRED` response headers (`WWW-Authenticate: x402`, challenge payload), signs the structured EIP-712 `SpendRequest`, and attaches the `PAYMENT-SIGNATURE: x402 ...` header on retry.
-- **HTTP 403 Forbidden with ReasonCode**:
-  Inspect the `x-agentguard-reason-code` header or response JSON body:
-  - `ERR_KILL_SWITCH (1)`: Agent kill switch is active. Check operator console to reactivate.
-  - `ERR_MAX_PER_TX (2)`: Transaction amount exceeds per-tx limit. Split payment into smaller chunks.
-  - `ERR_MAX_PER_WINDOW (3)`: Rolling window spend ceiling reached. Await window expiration.
-  - `ERR_VELOCITY_EXCEEDED (4)`: Transaction velocity exceeded. Throttle request rate.
-  - `ERR_MERCHANT_NOT_ALLOWED (5)`: Payee address not whitelisted in PolicyEngine.
-  - `ERR_SIGNATURE_INVALID (9)`: EIP-712 signature verification failed. Verify agent private key.
-
+CircuitVault operations are not enabled. Do not add CircuitVault addresses or event assumptions until its source, ABI, deployment address, and bytecode verification artifact are available.

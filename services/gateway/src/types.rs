@@ -1,7 +1,7 @@
 use alloy::sol;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-// Compile-time Solidity bindings using Alloy
 sol! {
     #[derive(Debug, Serialize, Deserialize)]
     struct SpendRequest {
@@ -11,20 +11,25 @@ sol! {
         bytes32 category;
         uint256 timestamp;
         uint256 deadline;
-        uint64 nonce;
+        uint256 nonce;
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
-    struct PolicyDecision {
-        bool allowed;
-        uint256 allowedAmount;
-        uint8 reasonCode;
-        uint256 evaluatedAtTimestamp;
+    struct SpendPolicy {
+        uint128 maxPerTx;
+        uint128 maxPerWindow;
+        uint32 windowSeconds;
+        uint32 maxVelocity;
+        bool killSwitch;
+        bool whitelistEnabled;
     }
 
     #[sol(rpc)]
     interface IPolicyEngine {
+        function setPolicy(address agent, SpendPolicy calldata policy) external;
         function evaluate(SpendRequest calldata req) external view returns (bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp);
+        function evaluateAndSpend(SpendRequest calldata req) external returns (bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp);
+        function getAgentPolicy(address agent) external view returns (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled);
+        function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce);
     }
 
     #[sol(rpc)]
@@ -38,96 +43,89 @@ sol! {
     }
 }
 
-/// Authoritative Reason Codes conforming strictly to Solidity Invariant #4
+/// Canonical onchain reason codes from contracts/src/interfaces/IPolicyEngine.sol.
+/// This enum must remain numerically identical to the Solidity interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ReasonCode {
+pub enum OnchainReasonCode {
     None = 0,
     KillSwitch = 1,
-    ExceedsMaxPerTx = 2,
-    ExceedsMaxPerWindow = 3,
+    MaxPerTx = 2,
+    MaxPerWindow = 3,
     VelocityExceeded = 4,
-    MerchantNotWhitelisted = 5,
+    MerchantNotAllowed = 5,
     BudgetDepleted = 6,
-    Uncalibrated = 7,
-    Expired = 8,
+    Expired = 7,
+    NonceReused = 8,
     SignatureInvalid = 9,
-    Custom = 10,
 }
 
-impl ReasonCode {
-    pub fn from_u8(code: u8) -> Self {
-        match code {
-            0 => ReasonCode::None,
-            1 => ReasonCode::KillSwitch,
-            2 => ReasonCode::ExceedsMaxPerTx,
-            3 => ReasonCode::ExceedsMaxPerWindow,
-            4 => ReasonCode::VelocityExceeded,
-            5 => ReasonCode::MerchantNotWhitelisted,
-            6 => ReasonCode::BudgetDepleted,
-            7 => ReasonCode::Uncalibrated,
-            8 => ReasonCode::Expired,
-            9 => ReasonCode::SignatureInvalid,
-            _ => ReasonCode::Custom,
+impl OnchainReasonCode {
+    pub fn from_u8(code: u8) -> Option<Self> {
+        Some(match code {
+            0 => Self::None,
+            1 => Self::KillSwitch,
+            2 => Self::MaxPerTx,
+            3 => Self::MaxPerWindow,
+            4 => Self::VelocityExceeded,
+            5 => Self::MerchantNotAllowed,
+            6 => Self::BudgetDepleted,
+            7 => Self::Expired,
+            8 => Self::NonceReused,
+            9 => Self::SignatureInvalid,
+            _ => return None,
+        })
+    }
+
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "ERR_NONE",
+            Self::KillSwitch => "ERR_KILL_SWITCH",
+            Self::MaxPerTx => "ERR_MAX_PER_TX",
+            Self::MaxPerWindow => "ERR_MAX_PER_WINDOW",
+            Self::VelocityExceeded => "ERR_VELOCITY_EXCEEDED",
+            Self::MerchantNotAllowed => "ERR_MERCHANT_NOT_ALLOWED",
+            Self::BudgetDepleted => "ERR_BUDGET_DEPLETED",
+            Self::Expired => "ERR_EXPIRED",
+            Self::NonceReused => "ERR_NONCE_REUSED",
+            Self::SignatureInvalid => "ERR_SIGNATURE_INVALID",
         }
     }
 
-    pub fn as_u8(&self) -> u8 {
-        *self as u8
-    }
-
-    pub fn as_str(&self) -> &'static str {
+    pub const fn message(self) -> &'static str {
         match self {
-            ReasonCode::None => "ERR_NONE",
-            ReasonCode::KillSwitch => "ERR_KILL_SWITCH",
-            ReasonCode::ExceedsMaxPerTx => "ERR_EXCEEDS_MAX_PER_TX",
-            ReasonCode::ExceedsMaxPerWindow => "ERR_EXCEEDS_MAX_PER_WINDOW",
-            ReasonCode::VelocityExceeded => "ERR_VELOCITY_EXCEEDED",
-            ReasonCode::MerchantNotWhitelisted => "ERR_MERCHANT_NOT_WHITELISTED",
-            ReasonCode::BudgetDepleted => "ERR_BUDGET_DEPLETED",
-            ReasonCode::Uncalibrated => "ERR_UNCALIBRATED",
-            ReasonCode::Expired => "ERR_EXPIRED",
-            ReasonCode::SignatureInvalid => "ERR_SIGNATURE_INVALID",
-            ReasonCode::Custom => "ERR_CUSTOM",
+            Self::None => "The spend request conforms to the onchain policy.",
+            Self::KillSwitch => "The agent kill switch is active on Monad.",
+            Self::MaxPerTx => "The transaction amount exceeds the configured ceiling.",
+            Self::MaxPerWindow => "The rolling spend window is exhausted.",
+            Self::VelocityExceeded => "The transaction velocity limit was exceeded.",
+            Self::MerchantNotAllowed => "The merchant is not on the agent whitelist.",
+            Self::BudgetDepleted => "The organization budget pool is exhausted.",
+            Self::Expired => "The spend request deadline has passed.",
+            Self::NonceReused => "The spend request nonce has already been consumed.",
+            Self::SignatureInvalid => "The EIP-712 signature is invalid.",
         }
     }
 
-    pub fn message(&self) -> &'static str {
+    pub const fn remediation(self) -> &'static str {
         match self {
-            ReasonCode::None => "Transaction conforms to all onchain policies.",
-            ReasonCode::KillSwitch => "Agent emergency kill switch is active on Monad.",
-            ReasonCode::ExceedsMaxPerTx => "Transaction amount exceeds configured per-transaction ceiling.",
-            ReasonCode::ExceedsMaxPerWindow => "Aggregated spend exceeds sliding window maximum cap.",
-            ReasonCode::VelocityExceeded => "Transaction velocity exceeded maximum allowed count within window.",
-            ReasonCode::MerchantNotWhitelisted => "Target merchant address is not in agent whitelist.",
-            ReasonCode::BudgetDepleted => "Hierarchical shared organization budget pool exhausted.",
-            ReasonCode::Uncalibrated => "Agent spend policy has not been provisioned onchain.",
-            ReasonCode::Expired => "Spend request signature deadline has passed.",
-            ReasonCode::SignatureInvalid => "Cryptographic EIP-712 signature verification failed on Monad.",
-            ReasonCode::Custom => "Custom policy verification denial.",
-        }
-    }
-
-    pub fn remediation(&self) -> &'static str {
-        match self {
-            ReasonCode::None => "None required.",
-            ReasonCode::KillSwitch => "Contact SecOps to disarm the kill switch after threat remediation.",
-            ReasonCode::ExceedsMaxPerTx => "Reduce single transaction amount or request policy limit increase.",
-            ReasonCode::ExceedsMaxPerWindow => "Wait for sliding window duration to reset or request window increase.",
-            ReasonCode::VelocityExceeded => "Throttle transaction dispatch frequency to stay within rate limit.",
-            ReasonCode::MerchantNotWhitelisted => "Submit merchant address to SecOps for inclusion in whitelist.",
-            ReasonCode::BudgetDepleted => "Request Treasury Manager to top up or reallocate shared budget pool.",
-            ReasonCode::Uncalibrated => "Initialize spend policy via PolicyStudio before issuing transactions.",
-            ReasonCode::Expired => "Re-sign spend request with a refreshed timestamp and valid deadline.",
-            ReasonCode::SignatureInvalid => "Verify agent private key and EIP-712 domain separator parameters.",
-            ReasonCode::Custom => "Review custom contract assertion conditions.",
+            Self::None => "None required.",
+            Self::KillSwitch => "Contact SecOps after threat remediation.",
+            Self::MaxPerTx => "Reduce the amount or request a policy change.",
+            Self::MaxPerWindow => "Wait for the policy window to reset or request an increase.",
+            Self::VelocityExceeded => "Throttle dispatch frequency.",
+            Self::MerchantNotAllowed => "Request merchant authorization from an administrator.",
+            Self::BudgetDepleted => "Request Treasury to replenish or reallocate the budget.",
+            Self::Expired => "Sign a new request with a future deadline.",
+            Self::NonceReused => "Create a new request with an unused nonce.",
+            Self::SignatureInvalid => "Verify the agent key and EIP-712 domain.",
         }
     }
 }
-
-// ----------------------------------------------------------------------------
-// x402 HTTP 402 / 403 Protocol Wire Types
-// ----------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct X402Challenge {
@@ -184,29 +182,121 @@ pub struct X402PolicyRejectionBody {
     pub evaluated_at: String,
 }
 
-// ----------------------------------------------------------------------------
-// Privy Role Administration Wire Types
-// ----------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateRoleRequest {
     pub role: String,
-    pub permissions: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoleResponse {
     pub success: bool,
-    pub did: String,
+    pub subject: String,
+    pub org_id: String,
     pub role: String,
-    pub custom_metadata: serde_json::Value,
-    #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
 
-// ----------------------------------------------------------------------------
-// ERC-7677 Paymaster RPC Wire Types
-// ----------------------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanPriceInput {
+    #[serde(rename = "chainId")]
+    pub chain_id: u64,
+    #[serde(rename = "tokenAddress")]
+    pub token_address: String,
+    #[serde(rename = "amountBaseUnits")]
+    pub amount_base_units: String,
+    pub interval: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePlanRequest {
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub prices: Vec<PlanPriceInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanPriceResponse {
+    pub id: Uuid,
+    #[serde(rename = "chainId")]
+    pub chain_id: u64,
+    #[serde(rename = "tokenAddress")]
+    pub token_address: String,
+    #[serde(rename = "amountBaseUnits")]
+    pub amount_base_units: String,
+    pub interval: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanResponse {
+    pub id: Uuid,
+    pub code: String,
+    pub name: String,
+    pub description: String,
+    pub active: bool,
+    pub prices: Vec<PlanPriceResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckoutRequest {
+    #[serde(rename = "planPriceId")]
+    pub plan_price_id: Uuid,
+    pub agent: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentSubmissionRequest {
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyUpdateRequest {
+    #[serde(rename = "maxPerTx")]
+    pub max_per_tx: String,
+    #[serde(rename = "maxPerWindow")]
+    pub max_per_window: String,
+    #[serde(rename = "windowSeconds")]
+    pub window_seconds: u32,
+    #[serde(rename = "maxVelocity")]
+    pub max_velocity: u32,
+    #[serde(rename = "killSwitch")]
+    pub kill_switch: bool,
+    #[serde(rename = "whitelistEnabled")]
+    pub whitelist_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterAgentRequest {
+    pub address: String,
+    #[serde(rename = "adminAddress")]
+    pub admin_address: Option<String>,
+    pub environment: String,
+    #[serde(rename = "riskTier")]
+    pub risk_tier: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTenantRequest {
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "enterpriseAddress")]
+    pub enterprise_address: String,
+    #[serde(rename = "ownerSubject")]
+    pub owner_subject: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformOperatorRequest {
+    pub subject: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSigningWalletRequest {
+    pub label: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymasterRpcRequest {
@@ -215,4 +305,3 @@ pub struct PaymasterRpcRequest {
     pub method: String,
     pub params: Option<serde_json::Value>,
 }
-

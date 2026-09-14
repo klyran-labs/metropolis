@@ -1,19 +1,31 @@
-use axum::{routing::get, Router};
-use reqwest::Client;
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-use tower_http::cors::{Any, CorsLayer};
-use tower_http::trace::TraceLayer;
-use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use agentguard_gateway::config::Config;
-use agentguard_gateway::handlers::{
-    get_user_role_handler, health_handler, inference_handler, paymaster_rpc_handler,
-    ready_handler, update_user_role_handler, AppState,
+use agentguard_gateway::{
+    auth::AuthService,
+    chain::ChainClient,
+    config::Config,
+    handlers::{
+        AppState, authentication_middleware, authorization_middleware, checkout_handler,
+        create_plan_handler, create_signing_wallet_handler, create_tenant_handler,
+        get_agent_policy_handler, get_subscription_handler, get_user_role_handler, health_handler,
+        inference_handler, list_agents_handler, list_plans_handler, list_platform_ledger_handler,
+        list_platform_operators_handler, list_platform_subscriptions_handler,
+        list_signing_wallets_handler, list_tenant_operators_handler, list_tenants_handler,
+        prepare_agent_policy_handler, ready_handler, register_agent_handler,
+        submit_payment_handler, telemetry_stream, update_user_role_handler,
+        upsert_platform_operator_handler,
+    },
+    repository::PgRepository,
+    telemetry::EventHub,
 };
+use axum::{Router, http::HeaderValue, middleware, routing::get};
+use reqwest::Client;
+use sqlx::postgres::PgPoolOptions;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+use tower_http::{
+    cors::{AllowOrigin, Any, CorsLayer},
+    trace::TraceLayer,
+};
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,60 +37,136 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Initializing AgentGuard High-Throughput Rust Gateway...");
-
-    let config = Config::from_env().map_err(|e| {
-        tracing::error!("Configuration error: {}", e);
-        e
+    let config = Config::from_env().map_err(|error| {
+        error!(%error, "Gateway configuration rejected");
+        error
     })?;
+    let http_client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+    let pool = PgPoolOptions::new()
+        .max_connections(32)
+        .min_connections(2)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&config.database_url)
+        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
 
-    info!("Loaded configuration: Chain ID = {}, RPC = {}", config.chain_id, config.rpc_url);
-    info!("PolicyEngine Contract: {:#x}", config.policy_engine_address);
-    info!("AgentWalletGuard Contract: {:#x}", config.agent_wallet_guard_address);
-    info!("Super Admin Allowlist DIDs count: {}", config.initial_super_admin_dids.len());
-
-    let http_client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-
+    let repository = PgRepository::new(pool);
+    let chain = ChainClient::new(config.clone(), http_client.clone())?;
+    chain.verify_contracts().await?;
+    let events = EventHub::new();
+    let auth = AuthService::new(config.clone(), http_client.clone(), repository.clone());
     let state = Arc::new(AppState {
         config: config.clone(),
         http_client,
-        local_roles: RwLock::new(HashMap::new()),
+        repository: repository.clone(),
+        auth,
+        chain: chain.clone(),
+        events: events.clone(),
     });
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .expose_headers([
-            axum::http::HeaderName::from_static("www-authenticate"),
-            axum::http::HeaderName::from_static("x-402-payment-required"),
-            axum::http::HeaderName::from_static("x-agentguard-reason-code"),
-        ]);
-
-    let app = Router::new()
-        // Health & Status
+    let public = Router::new()
         .route("/health", get(health_handler))
-        .route("/ready", get(ready_handler))
         .route("/api/v1/health", get(health_handler))
-        // x402 Protocol Routes
-        .route("/v1/inference", get(inference_handler).post(inference_handler))
-        .route("/api/v1/inference", get(inference_handler).post(inference_handler))
-        // ERC-7677 Paymaster RPC Routes
-        .route("/v1/paymaster", axum::routing::post(paymaster_rpc_handler))
-        .route("/api/v1/paymaster", axum::routing::post(paymaster_rpc_handler))
-        // Privy Role Administration Routes
-        .route("/api/v1/users/:did/role", get(get_user_role_handler).post(update_user_role_handler))
+        .route("/ready", get(ready_handler))
+        .route(
+            "/v1/inference",
+            get(inference_handler).post(inference_handler),
+        )
+        .route(
+            "/api/v1/inference",
+            get(inference_handler).post(inference_handler),
+        );
+
+    let protected = Router::new()
+        .route("/api/v1/telemetry/stream", get(telemetry_stream))
+        .route(
+            "/api/v1/agents",
+            get(list_agents_handler).post(register_agent_handler),
+        )
+        .route(
+            "/api/v1/agents/:agent/policy",
+            get(get_agent_policy_handler).post(prepare_agent_policy_handler),
+        )
+        .route(
+            "/api/v1/platform/plans",
+            get(list_plans_handler).post(create_plan_handler),
+        )
+        .route("/api/v1/plans", get(list_plans_handler))
+        .route(
+            "/api/v1/platform/tenants",
+            get(list_tenants_handler).post(create_tenant_handler),
+        )
+        .route(
+            "/api/v1/platform/subscriptions",
+            get(list_platform_subscriptions_handler),
+        )
+        .route(
+            "/api/v1/platform/billing/ledger",
+            get(list_platform_ledger_handler),
+        )
+        .route(
+            "/api/v1/platform/operators",
+            get(list_platform_operators_handler).post(upsert_platform_operator_handler),
+        )
+        .route("/api/v1/subscription", get(get_subscription_handler))
+        .route(
+            "/api/v1/subscription/checkout",
+            axum::routing::post(checkout_handler),
+        )
+        .route(
+            "/api/v1/billing/payments/:payment_id/submit",
+            axum::routing::post(submit_payment_handler),
+        )
+        .route(
+            "/api/v1/users/:subject/role",
+            get(get_user_role_handler).post(update_user_role_handler),
+        )
+        .route(
+            "/api/v1/tenant/operators",
+            get(list_tenant_operators_handler),
+        )
+        .route(
+            "/api/v1/signing/vault",
+            get(list_signing_wallets_handler).post(create_signing_wallet_handler),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            authorization_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            authentication_middleware,
+        ));
+
+    let cors_origins = config
+        .cors_allowed_origins
+        .iter()
+        .map(|origin| origin.parse::<HeaderValue>())
+        .collect::<Result<Vec<_>, _>>()?;
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(cors_origins))
+        .allow_methods(axum::http::Method::GET)
+        .allow_methods(axum::http::Method::POST)
+        .allow_headers(Any);
+
+    let app = public
+        .merge(protected)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    info!("AgentGuard Rust Gateway listening on http://{}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-
+    tokio::spawn(chain.run_event_listener(repository, events));
+    let address = SocketAddr::from(([0, 0, 0, 0], config.port));
+    info!(
+        chain_id = config.chain_id,
+        port = config.port,
+        "AgentGuard gateway started"
+    );
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

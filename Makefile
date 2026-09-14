@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway demo build-packages build-web build-gateway docker-up docker-down docker-logs clean help
+.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down clean help
 
 all: lint build test
 
@@ -18,7 +18,7 @@ verify-production-integrity:
 	@if grep -rn --exclude="*.test.*" --exclude="*.spec.*" -E 'Math\.random|0x70997970C51812dc3A010C7d01b50e0d17dc79C8' apps/web/src; then \
 		echo "Prohibited mock or fallback data found in apps/web/src"; exit 1; \
 	fi
-	@test -s apps/web/src/config/env.ts
+	@test -s apps/web/src/configuration.ts
 	@echo "Production integrity checks passed!"
 
 verify-ui-contract:
@@ -29,7 +29,7 @@ verify-theme-contract:
 	@echo "=== Verifying config-driven design system & theme contract ==="
 	@node scripts/verify-theme-contract.mjs
 
-build: build-packages build-web build-gateway
+build: build-packages build-web build-gateway build-opensigner
 	@echo "=== Build Completed Successfully ==="
 
 build-packages:
@@ -66,16 +66,16 @@ build-gateway:
 	@echo "=== Building AgentGuard High-Throughput Rust Gateway ==="
 	@cargo build --release --manifest-path services/gateway/Cargo.toml
 
+build-opensigner:
+	@echo "=== Building sealed signing service ==="
+	@npm run build --workspace=@agentguard/opensigner
+
 test-gateway:
 	@echo "=== Running AgentGuard High-Throughput Rust Gateway Tests ==="
 	@cargo test --manifest-path services/gateway/Cargo.toml
 
-demo:
-	@echo "=== Running AgentGuard Live Simulation & Verification Demo ==="
-	@node scripts/agentguard-live-demo.mjs
-
 run-web:
-	@echo "=== Starting AgentGuard Web Console (Port 3110) ==="
+	@echo "=== Starting local control plane ==="
 	@cd apps/web && npm run dev
 
 docker-up:
@@ -97,13 +97,13 @@ docker-testnet-down:
 	@echo "=== Stopping AgentGuard Monad Testnet Stack ==="
 	@docker compose -f docker/docker-compose.testnet.yml down
 
-docker-prod-up:
-	@echo "=== Starting AgentGuard Production Stack ==="
-	@docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up --build -d
+docker-mainnet-up:
+	@echo "=== Starting mainnet profile ==="
+	@docker compose -f docker/docker-compose.mainnet.yml --env-file docker/.env.mainnet.example up --build -d
 
-docker-prod-down:
-	@echo "=== Stopping AgentGuard Production Stack ==="
-	@docker compose -f docker/docker-compose.prod.yml down
+docker-mainnet-down:
+	@echo "=== Stopping mainnet profile ==="
+	@docker compose -f docker/docker-compose.mainnet.yml down
 
 clean:
 	@rm -rf apps/web/dist packages/shared-types/dist packages/x402-middleware/dist

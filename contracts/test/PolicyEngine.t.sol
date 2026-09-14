@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { PolicyEngine } from "../src/core/PolicyEngine.sol";
-import { IPolicyEngine } from "../src/interfaces/IPolicyEngine.sol";
+import {Test} from "forge-std/Test.sol";
+import {PolicyEngine} from "../src/core/PolicyEngine.sol";
+import {IPolicyEngine} from "../src/interfaces/IPolicyEngine.sol";
 
 /// @title PolicyEngineTest
 /// @notice Real Foundry unit/fuzz tests against compiled PolicyEngine bytecode.
@@ -29,14 +29,17 @@ contract PolicyEngineTest is Test {
         engine.setAuthorizedCaller(guard, true);
 
         vm.prank(agent);
-        engine.setPolicy(agent, IPolicyEngine.SpendPolicy({
-            maxPerTx: MAX_PER_TX,
-            maxPerWindow: MAX_PER_WINDOW,
-            windowSeconds: WINDOW_SECONDS,
-            maxVelocity: MAX_VELOCITY,
-            killSwitch: false,
-            whitelistEnabled: false
-        }));
+        engine.setPolicy(
+            agent,
+            IPolicyEngine.SpendPolicy({
+                maxPerTx: MAX_PER_TX,
+                maxPerWindow: MAX_PER_WINDOW,
+                windowSeconds: WINDOW_SECONDS,
+                maxVelocity: MAX_VELOCITY,
+                killSwitch: false,
+                whitelistEnabled: false
+            })
+        );
     }
 
     function _req(uint256 amount, uint256 nonce) internal view returns (IPolicyEngine.SpendRequest memory) {
@@ -107,7 +110,9 @@ contract PolicyEngineTest is Test {
 
         vm.warp(block.timestamp + WINDOW_SECONDS + 1);
 
-        IPolicyEngine.PolicyDecision memory allowed = engine.evaluate(_req(1 ether, 4));
+        IPolicyEngine.SpendRequest memory renewedRequest = _req(1 ether, 4);
+        renewedRequest.deadline = type(uint256).max;
+        IPolicyEngine.PolicyDecision memory allowed = engine.evaluate(renewedRequest);
         assertTrue(allowed.allowed);
     }
 
@@ -152,7 +157,7 @@ contract PolicyEngineTest is Test {
         assertFalse(second.allowed);
         assertEq(uint8(second.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_NONCE_REUSED));
 
-        (uint128 spentInWindow, , uint32 txCount, ) = engine.getAgentState(agent);
+        (uint128 spentInWindow,, uint32 txCount,) = engine.getAgentState(agent);
         assertEq(spentInWindow, 0.1 ether); // only the first spend was ever recorded
         assertEq(txCount, 1);
     }
@@ -169,14 +174,17 @@ contract PolicyEngineTest is Test {
 
     function test_MerchantWhitelistEnforcedWhenEnabled() public {
         vm.prank(agent);
-        engine.setPolicy(agent, IPolicyEngine.SpendPolicy({
-            maxPerTx: MAX_PER_TX,
-            maxPerWindow: MAX_PER_WINDOW,
-            windowSeconds: WINDOW_SECONDS,
-            maxVelocity: MAX_VELOCITY,
-            killSwitch: false,
-            whitelistEnabled: true
-        }));
+        engine.setPolicy(
+            agent,
+            IPolicyEngine.SpendPolicy({
+                maxPerTx: MAX_PER_TX,
+                maxPerWindow: MAX_PER_WINDOW,
+                windowSeconds: WINDOW_SECONDS,
+                maxVelocity: MAX_VELOCITY,
+                killSwitch: false,
+                whitelistEnabled: true
+            })
+        );
 
         IPolicyEngine.PolicyDecision memory blocked = engine.evaluate(_req(0.1 ether, 1));
         assertFalse(blocked.allowed);

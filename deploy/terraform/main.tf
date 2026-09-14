@@ -10,8 +10,12 @@ terraform {
 
 variable "environment" {
   type        = string
-  description = "Target deployment environment: local, testnet, staging, or production"
+  description = "Target runtime profile: local, testnet, or mainnet"
   default     = "testnet"
+  validation {
+    condition     = contains(["local", "testnet", "mainnet"], var.environment)
+    error_message = "environment must be local, testnet, or mainnet"
+  }
 }
 
 variable "monad_chain_id" {

@@ -8,16 +8,16 @@ pragma solidity ^0.8.26;
  */
 interface IPolicyEngine {
     enum ReasonCode {
-        ERR_NONE,                  // 0
-        ERR_KILL_SWITCH,           // 1
-        ERR_MAX_PER_TX,            // 2
-        ERR_MAX_PER_WINDOW,        // 3
-        ERR_VELOCITY_EXCEEDED,     // 4
-        ERR_MERCHANT_NOT_ALLOWED,  // 5
-        ERR_BUDGET_DEPLETED,       // 6
-        ERR_EXPIRED,               // 7
-        ERR_NONCE_REUSED,          // 8
-        ERR_SIGNATURE_INVALID      // 9
+        ERR_NONE, // 0
+        ERR_KILL_SWITCH, // 1
+        ERR_MAX_PER_TX, // 2
+        ERR_MAX_PER_WINDOW, // 3
+        ERR_VELOCITY_EXCEEDED, // 4
+        ERR_MERCHANT_NOT_ALLOWED, // 5
+        ERR_BUDGET_DEPLETED, // 6
+        ERR_EXPIRED, // 7
+        ERR_NONCE_REUSED, // 8
+        ERR_SIGNATURE_INVALID // 9
     }
 
     struct SpendPolicy {
@@ -68,7 +68,9 @@ interface IPolicyEngine {
     event KillSwitchUpdated(address indexed agent, bool active);
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
     event MerchantWhitelistUpdated(address indexed agent, address indexed merchant, bool allowed);
-    event SpendEvaluated(address indexed agent, address indexed merchant, uint256 amount, bool allowed, ReasonCode reasonCode);
+    event SpendEvaluated(
+        address indexed agent, address indexed merchant, uint256 amount, bool allowed, ReasonCode reasonCode
+    );
     event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow);
     event BudgetPoolCreated(bytes32 indexed poolId, bytes32 indexed orgId, uint128 totalBudget, uint32 windowSeconds);
     event AgentAssignedToPool(address indexed agent, bytes32 indexed poolId);
@@ -84,7 +86,10 @@ interface IPolicyEngine {
     function evaluate(SpendRequest calldata req) external view returns (PolicyDecision memory);
     function evaluateAndSpend(SpendRequest calldata req) external returns (PolicyDecision memory);
     function getAgentPolicy(address agent) external view returns (SpendPolicy memory);
-    function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce);
+    function getAgentState(address agent)
+        external
+        view
+        returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce);
     function getBudgetPool(bytes32 poolId) external view returns (BudgetPool memory);
     function getAgentPoolId(address agent) external view returns (bytes32);
 }

@@ -1,0 +1,8 @@
+{
+  "environment": "mainnet",
+  "status": "unprovisioned",
+  "version": "1.0.0",
+  "chainId": 143,
+  "rpcEndpoints": [],
+  "contracts": {}
+}

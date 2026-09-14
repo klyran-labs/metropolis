@@ -13,7 +13,7 @@ The production environment consists of three primary services:
    `services/gateway` (see `services/gateway/README.md`):
    - High-throughput Rust microservice (built on Tokio, Axum, and Alloy-RS) issuing x402 challenges,
      verifying EIP-712 spend request signatures in sub-50 microseconds, pre-flight-simulating against `PolicyEngine.evaluate`,
-     administering operator roles via Privy Server API, and relaying settlement to `AgentWalletGuard.executeGatedPayment`.
+     administering operator roles in PostgreSQL and relaying settlement to `AgentWalletGuard.executeGatedPayment`.
    - Resource requirements: 2 vCPU, 2GB RAM per replica, horizontally scalable behind a load balancer (~14MB minimal Alpine runtime).
    - Target latency: **< 1ms p99 for offchain signature verification** (compiled Rust cryptography, sub-50µs pure compute) —
      while the pre-flight `evaluate` policy simulation involves a Monad RPC round-trip, budgeted separately

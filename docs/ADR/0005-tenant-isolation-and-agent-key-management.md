@@ -16,7 +16,7 @@ Furthermore, there was architectural ambiguity regarding how autonomous agent wa
 ### 1. Principle of Least Privilege (PoLP) Fleet Isolation
 We establish a dual-scope tenant visibility model:
 - **`my_agents` (Default)**: Authenticated operators see exclusively the agents registered or vaulted by their account. Operators with zero agents see an honest, clean empty state with clear onboarding call-to-actions, preventing cross-tenant data leakage.
-- **`network` (Administrative & Audit)**: Privileged view reserved for `super_admin`, `org_admin`, and `security_auditor` roles to inspect network-wide telemetry, global velocity saturation, and macro policy compliance.
+- **`network` (Administrative & Audit)**: Privileged view reserved for `super_admin`, `sec_ops`, and `auditor` roles to inspect network-wide telemetry, global velocity saturation, and macro policy compliance.
 - **`agent_developer` Role**: Added as the default authenticated persona in `RbacContext`, empowering developers to register agents, configure spending policies on Monad, and toggle kill switches for their fleet.
 
 ### 2. Separation of Human Operator vs. Autonomous Agent Signer
