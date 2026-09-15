@@ -141,6 +141,44 @@ export function createOpenSignerServer(
         return;
       }
 
+      // Plain ERC-20 transfer, submitted and gas-paid by this wallet (used for Load)
+      if (req.method === 'POST' && pathname === '/api/v1/execute-transfer') {
+        const body = await parseBody();
+        const { walletIdOrAddress, tokenAddress, to, amount, chainId } = body;
+        if (!walletIdOrAddress || !tokenAddress || !to || !amount) {
+          sendJson(400, {
+            success: false,
+            error: 'Missing required parameters: walletIdOrAddress, tokenAddress, to, amount',
+          });
+          return;
+        }
+        const result = await engine.executeTransfer(walletIdOrAddress, { tokenAddress, to, amount, chainId });
+        sendJson(200, { success: true, ...result });
+        return;
+      }
+
+      // Sign + submit approve() then executeGatedPayment() on AgentWalletGuard (used for Unload)
+      if (req.method === 'POST' && pathname === '/api/v1/execute-gated-payment') {
+        const body = await parseBody();
+        const { walletIdOrAddress, request, verifyingContract, tokenAddress, chainId, whitelistMerchant } = body;
+        if (!walletIdOrAddress || !request || !verifyingContract || !tokenAddress) {
+          sendJson(400, {
+            success: false,
+            error: 'Missing required parameters: walletIdOrAddress, request, verifyingContract, tokenAddress',
+          });
+          return;
+        }
+        const result = await engine.executeGatedPayment(walletIdOrAddress, {
+          request,
+          verifyingContract,
+          tokenAddress,
+          chainId,
+          whitelistMerchant,
+        });
+        sendJson(200, { success: true, ...result });
+        return;
+      }
+
       // Generic EIP-712 Typed Data Signer
       if (req.method === 'POST' && pathname === '/api/v1/sign-typed-data') {
         const body = await parseBody();

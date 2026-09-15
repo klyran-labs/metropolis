@@ -1,8 +1,8 @@
 import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
-import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { configuration, networkLabel } from "./configuration";
-import { request, setAccessTokenProvider } from "./api";
+import { RequestError, request, setAccessTokenProvider } from "./api";
 
 const chain = {
   id: configuration.chainId,
@@ -48,29 +48,77 @@ export function IdentityBridge() {
   return <>{wallets.length > 0 ? null : null}</>;
 }
 
-export function useIdentity() {
+function useIdentityQuery() {
   const privy = usePrivy();
+  const queryClient = useQueryClient();
   const subject = privy.user?.id;
   const role = useQuery({
     queryKey: ["role", subject],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{ role: string; org_id: string }>(
         `/users/${encodeURIComponent(subject ?? "")}/role`,
+        { signal },
       ),
     enabled: Boolean(privy.authenticated && subject),
     retry: false,
   });
   const platform = useQuery({
     queryKey: ["platform-access"],
-    queryFn: () => request<unknown>("/platform/plans"),
+    queryFn: ({ signal }) => request<unknown>("/platform/plans", { signal }),
     enabled: Boolean(privy.authenticated),
     retry: false,
   });
+  const needsOnboarding =
+    Boolean(privy.authenticated) &&
+    role.isError &&
+    role.error instanceof RequestError &&
+    role.error.status === 403 &&
+    role.error.reasonCode === "ERR_TENANT_SCOPE";
+  // A disabled query (subject not yet resolved by Privy) reports isLoading=false,
+  // which is indistinguishable from "we know you have no tenant" unless callers
+  // also check membershipResolved — otherwise routing guards can act on a false
+  // negative before the role fetch has even started.
+  const membershipResolved = role.isSuccess || role.isError;
+  const membershipLoading = Boolean(privy.authenticated) && !membershipResolved;
   return {
     ...privy,
     subject,
     role: role.data?.role ?? "",
     tenantId: role.data?.org_id ?? "",
     platformAccess: platform.isSuccess,
+    platformAccessLoading: platform.isLoading,
+    membershipLoading,
+    membershipError: role.error,
+    membershipUnavailable: Boolean(privy.authenticated) && role.isError && !needsOnboarding,
+    needsOnboarding,
+    refreshIdentity: () => {
+      void queryClient.invalidateQueries({ queryKey: ["role", subject] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-access"] });
+    },
   };
+}
+
+export type Identity = ReturnType<typeof useIdentityQuery>;
+
+const IdentityContext = createContext<Identity | null>(null);
+
+// Every screen/layout needs identity, and layouts nest their own child
+// screens (AppLayout -> Overview, OnboardingScreen -> TenantOnboarding,
+// etc.). Each calling useIdentity()'s underlying useQuery independently
+// mounted a second observer on the same query key while it was mid-retry,
+// which sent the role query into a permanent pending/refetch cycle -
+// hundreds of requests/second and a screen that never resolved. Computing
+// identity exactly once here and reading it via context everywhere else
+// guarantees a single observer per query key regardless of nesting depth.
+export function IdentityStateProvider({ children }: { children: ReactNode }) {
+  const value = useIdentityQuery();
+  return <IdentityContext.Provider value={value}>{children}</IdentityContext.Provider>;
+}
+
+export function useIdentity(): Identity {
+  const context = useContext(IdentityContext);
+  if (!context) {
+    throw new Error("useIdentity must be used within IdentityStateProvider");
+  }
+  return context;
 }

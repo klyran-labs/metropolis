@@ -1,18 +1,21 @@
 use crate::{
-    abac::{self, AbacContext, AgentEnvironment, RiskTier},
-    auth::{AuthService, RequestContext, client_ip},
+    abac::{self, AbacContext, AbacPolicy, AgentEnvironment, RiskTier},
+    auth::{AuthService, OnboardingIdentity, RequestContext, client_ip},
     chain::ChainClient,
     config::Config,
     error::{AccessReasonCode, ApiError},
-    pbac::{self, PbacInput},
+    pbac::{self, PbacInput, PbacPolicy, PolicyEffect},
     rbac::{self, Capability, PlatformCapability, Role},
     repository::PgRepository,
     telemetry::EventHub,
     types::{
-        CheckoutRequest, CreatePlanRequest, CreateSigningWalletRequest, CreateTenantRequest,
-        OnchainReasonCode, PaymentSubmissionRequest, PlanResponse, PlatformOperatorRequest,
-        PolicyUpdateRequest, RegisterAgentRequest, RoleResponse, UpdateRoleRequest, X402Challenge,
-        X402ChallengeDetails, X402PolicyRejectionBody,
+        AbacPolicyRequest, CheckoutRequest, CreateApiKeyRequest, CreateOnboardingTenantRequest,
+        CreatePlanRequest, CreateSigningWalletRequest, CreateTenantRequest,
+        GrantWalletAccessRequest, OnchainReasonCode, PaymentSubmissionRequest, PbacPolicyRequest,
+        PlanResponse, PlatformOperatorRequest, PolicyUpdateRequest, PrepareWalletTransferRequest,
+        RegisterAgentRequest, RegisterOrganizationWalletRequest, RoleResponse, RotateApiKeyRequest,
+        SubmitWalletTransferRequest, UpdateRoleRequest, UpdateWalletThresholdRequest,
+        X402Challenge, X402ChallengeDetails, X402PolicyRejectionBody,
     },
 };
 use alloy::primitives::{Address, U256, keccak256};
@@ -27,6 +30,7 @@ use axum::{
     },
 };
 use chrono::{Duration, Utc};
+use rand::{RngCore, rngs::OsRng};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -56,6 +60,24 @@ pub async fn authentication_middleware(
         Err(error) => return error.into_response(),
     };
     request.extensions_mut().insert(context);
+    next.run(request).await
+}
+
+pub async fn onboarding_authentication_middleware(
+    State(state): State<SharedState>,
+    mut request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let ip = client_ip(&request, state.config.trust_proxy_headers);
+    let identity = match state
+        .auth
+        .authenticate_onboarding(request.headers(), ip)
+        .await
+    {
+        Ok(identity) => identity,
+        Err(error) => return error.into_response(),
+    };
+    request.extensions_mut().insert(identity);
     next.run(request).await
 }
 
@@ -216,13 +238,54 @@ fn required_capability(method: &http::Method, path: &str) -> (Capability, &'stat
             Capability::DispatchSettlement.action(),
         );
     }
+    if path.starts_with("/api/v1/organization/wallets") {
+        // Viewing the treasury wallet directory (label/address/kind, no balances-only
+        // action) is needed by any fleet role to link an agent to an org wallet;
+        // registering, granting access, or changing a threshold stays Treasury-only.
+        if method == http::Method::GET {
+            return (Capability::ReadFleet, Capability::ReadFleet.action());
+        }
+        return (
+            Capability::ManageTreasury,
+            Capability::ManageTreasury.action(),
+        );
+    }
+    if path.starts_with("/api/v1/wallet-transfers")
+        || (path.starts_with("/api/v1/agents/")
+            && (path.ends_with("/load") || path.ends_with("/unload")))
+    {
+        return (
+            Capability::DispatchSettlement,
+            Capability::DispatchSettlement.action(),
+        );
+    }
     if path.starts_with("/api/v1/users/") {
+        // GET is how every operator (any role) reads their own identity/role
+        // record to bootstrap their session — get_user_role_handler already
+        // enforces that a caller may only read their own record or, for
+        // other operators, must be SuperAdmin. Role *changes* (non-GET)
+        // still require the administrative ManageIam capability.
+        if method == http::Method::GET {
+            return (Capability::ReadSelf, Capability::ReadSelf.action());
+        }
         return (Capability::ManageIam, Capability::ManageIam.action());
     }
     if path == "/api/v1/telemetry/stream" {
         return (
             Capability::SubscribeTelemetry,
             Capability::SubscribeTelemetry.action(),
+        );
+    }
+    if path.starts_with("/api/v1/api-keys") {
+        return (
+            Capability::ManageCredentials,
+            Capability::ManageCredentials.action(),
+        );
+    }
+    if path.starts_with("/api/v1/policies/") {
+        return (
+            Capability::ManageAuthorizationPolicy,
+            Capability::ManageAuthorizationPolicy.action(),
         );
     }
     if method == http::Method::GET {
@@ -447,6 +510,174 @@ pub async fn list_platform_ledger_handler(
         .map_err(|_| service_unavailable("The platform billing ledger returned invalid data."))
 }
 
+pub async fn get_platform_revenue_summary_handler(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, ApiError> {
+    let totals = sqlx::query(
+        r#"SELECT entry_type, COALESCE(SUM(amount_base_units), 0)::text AS total
+           FROM billing_ledger_entries
+           GROUP BY entry_type"#,
+    )
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Revenue totals are temporarily unavailable."))?;
+    let mut total_revenue = "0".to_string();
+    let mut total_refunds = "0".to_string();
+    for row in totals {
+        let entry_type: String = row
+            .try_get("entry_type")
+            .map_err(|_| service_unavailable("Revenue totals returned an invalid record."))?;
+        let total: String = row
+            .try_get("total")
+            .map_err(|_| service_unavailable("Revenue totals returned an invalid amount."))?;
+        match entry_type.as_str() {
+            "subscription_charge" => total_revenue = total,
+            "refund" => total_refunds = total,
+            _ => {}
+        }
+    }
+
+    let daily_rows = sqlx::query(
+        r#"SELECT DATE_TRUNC('day', created_at) AS day,
+                  entry_type,
+                  COALESCE(SUM(amount_base_units), 0)::text AS total
+           FROM billing_ledger_entries
+           WHERE created_at >= NOW() - INTERVAL '90 days'
+           GROUP BY day, entry_type
+           ORDER BY day ASC"#,
+    )
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The revenue series is temporarily unavailable."))?;
+    let daily_series = daily_rows
+        .into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "day": row.try_get::<chrono::DateTime<Utc>, _>("day")?,
+                "entryType": row.try_get::<String, _>("entry_type")?,
+                "amountBaseUnits": row.try_get::<String, _>("total")?,
+            }))
+        })
+        .collect::<Result<Vec<Value>, sqlx::Error>>()
+        .map_err(|_| service_unavailable("The revenue series returned an invalid record."))?;
+
+    let by_plan_rows = sqlx::query(
+        r#"SELECT p.code, p.name, COALESCE(SUM(l.amount_base_units), 0)::text AS total
+           FROM billing_ledger_entries l
+           JOIN billing_payments bp ON bp.id = l.billing_payment_id
+           JOIN subscriptions s ON s.id = bp.subscription_id
+           JOIN plan_prices pp ON pp.id = s.plan_price_id
+           JOIN plans p ON p.id = pp.plan_id
+           WHERE l.entry_type = 'subscription_charge'
+           GROUP BY p.code, p.name
+           ORDER BY total DESC"#,
+    )
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Revenue by plan is temporarily unavailable."))?;
+    let by_plan = by_plan_rows
+        .into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "code": row.try_get::<String, _>("code")?,
+                "name": row.try_get::<String, _>("name")?,
+                "amountBaseUnits": row.try_get::<String, _>("total")?,
+            }))
+        })
+        .collect::<Result<Vec<Value>, sqlx::Error>>()
+        .map_err(|_| service_unavailable("Revenue by plan returned an invalid record."))?;
+
+    let status_rows = sqlx::query(
+        "SELECT status, COUNT(*) AS count FROM subscriptions GROUP BY status ORDER BY status",
+    )
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Subscription status counts are temporarily unavailable."))?;
+    let subscriptions_by_status = status_rows
+        .into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "status": row.try_get::<String, _>("status")?,
+                "count": row.try_get::<i64, _>("count")?,
+            }))
+        })
+        .collect::<Result<Vec<Value>, sqlx::Error>>()
+        .map_err(|_| {
+            service_unavailable("Subscription status counts returned an invalid record.")
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "totalRevenueBaseUnits": total_revenue,
+        "totalRefundsBaseUnits": total_refunds,
+        "dailySeries": daily_series,
+        "revenueByPlan": by_plan,
+        "subscriptionsByStatus": subscriptions_by_status,
+    })))
+}
+
+pub async fn get_platform_reconciliation_handler(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, ApiError> {
+    let rows = sqlx::query(
+        r#"SELECT bp.id, o.display_name, bp.status, bp.transaction_hash, bp.reason_code,
+                  bp.failure_reason, bp.amount_base_units::text AS amount_base_units,
+                  bp.created_at, bp.updated_at, l.id AS ledger_id
+           FROM billing_payments bp
+           JOIN subscriptions s ON s.id = bp.subscription_id
+           JOIN organizations o ON o.org_id = s.org_id
+           LEFT JOIN billing_ledger_entries l ON l.billing_payment_id = bp.id
+           ORDER BY bp.created_at DESC
+           LIMIT 500"#,
+    )
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The reconciliation report is temporarily unavailable."))?;
+
+    let mut confirmed_reconciled = 0i64;
+    let mut confirmed_unreconciled = 0i64;
+    let mut pending = 0i64;
+    let mut failed = 0i64;
+    let mut entries = Vec::with_capacity(rows.len());
+    for row in rows {
+        let status: String = row.try_get("status").map_err(|_| {
+            service_unavailable("The reconciliation report returned an invalid status.")
+        })?;
+        let ledger_id: Option<Uuid> = row.try_get("ledger_id").map_err(|_| {
+            service_unavailable("The reconciliation report returned an invalid ledger reference.")
+        })?;
+        let reconciled = ledger_id.is_some();
+        match status.as_str() {
+            "confirmed" if reconciled => confirmed_reconciled += 1,
+            "confirmed" => confirmed_unreconciled += 1,
+            "created" | "submitted" => pending += 1,
+            "failed" => failed += 1,
+            _ => {}
+        }
+        entries.push(serde_json::json!({
+            "id": row.try_get::<Uuid, _>("id").map_err(|_| service_unavailable("The reconciliation report returned an invalid payment identifier."))?,
+            "tenantName": row.try_get::<String, _>("display_name").map_err(|_| service_unavailable("The reconciliation report returned an invalid tenant."))?,
+            "status": status,
+            "transactionHash": row.try_get::<Option<String>, _>("transaction_hash").map_err(|_| service_unavailable("The reconciliation report returned an invalid transaction hash."))?,
+            "reasonCode": row.try_get::<Option<i16>, _>("reason_code").map_err(|_| service_unavailable("The reconciliation report returned an invalid reason code."))?,
+            "failureReason": row.try_get::<Option<String>, _>("failure_reason").map_err(|_| service_unavailable("The reconciliation report returned an invalid failure reason."))?,
+            "amountBaseUnits": row.try_get::<String, _>("amount_base_units").map_err(|_| service_unavailable("The reconciliation report returned an invalid amount."))?,
+            "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at").map_err(|_| service_unavailable("The reconciliation report returned an invalid timestamp."))?,
+            "updatedAt": row.try_get::<chrono::DateTime<Utc>, _>("updated_at").map_err(|_| service_unavailable("The reconciliation report returned an invalid timestamp."))?,
+            "reconciled": reconciled,
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "summary": {
+            "confirmedReconciled": confirmed_reconciled,
+            "confirmedUnreconciled": confirmed_unreconciled,
+            "pending": pending,
+            "failed": failed,
+        },
+        "entries": entries,
+    })))
+}
+
 pub async fn list_platform_operators_handler(
     State(state): State<SharedState>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
@@ -555,12 +786,107 @@ pub async fn create_tenant_handler(
     ))
 }
 
+pub async fn create_onboarding_tenant_handler(
+    State(state): State<SharedState>,
+    Extension(identity): Extension<OnboardingIdentity>,
+    Json(payload): Json<CreateOnboardingTenantRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if payload.display_name.trim().is_empty() || payload.display_name.len() > 160 {
+        return Err(invalid_request(
+            "Choose an organization name between 1 and 160 characters.",
+        ));
+    }
+    let enterprise_address = Address::from_str(&payload.enterprise_address)
+        .map_err(|_| invalid_request("The enterprise wallet address is invalid."))?;
+    if enterprise_address == Address::ZERO {
+        return Err(invalid_request(
+            "The enterprise wallet address must not be zero.",
+        ));
+    }
+    let signature = payload
+        .signature
+        .strip_prefix("0x")
+        .unwrap_or(&payload.signature);
+    let signature = hex::decode(signature)
+        .map_err(|_| invalid_request("The enterprise wallet proof is invalid."))?;
+    let message = tenant_ownership_message(&identity.subject, payload.display_name.trim());
+    let signer = crate::crypto::recover_personal_signer(&message, &signature)
+        .map_err(|_| invalid_request("The enterprise wallet proof could not be verified."))?;
+    if signer != enterprise_address {
+        return Err(invalid_request(
+            "The enterprise wallet proof does not match the connected wallet.",
+        ));
+    }
+    let tenant = provision_tenant(
+        &state,
+        payload.display_name.trim(),
+        enterprise_address,
+        &identity.subject,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(tenant)))
+}
+
+pub fn tenant_ownership_message(subject: &str, display_name: &str) -> String {
+    format!(
+        "AgentGuard organization ownership proof\nSubject: {subject}\nOrganization: {display_name}"
+    )
+}
+
+async fn provision_tenant(
+    state: &SharedState,
+    display_name: &str,
+    enterprise_address: Address,
+    owner_subject: &str,
+) -> Result<Value, ApiError> {
+    let tenant_id = Uuid::now_v7().to_string();
+    let mut transaction = state
+        .repository
+        .pool
+        .begin()
+        .await
+        .map_err(|_| service_unavailable("Organization creation could not be started."))?;
+    sqlx::query(
+        "INSERT INTO organizations (org_id, display_name, enterprise_address) VALUES ($1, $2, $3)",
+    )
+    .bind(&tenant_id)
+    .bind(display_name)
+    .bind(format!("{enterprise_address:#x}"))
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| {
+        invalid_request("The organization name or enterprise address is already in use.")
+    })?;
+    sqlx::query("INSERT INTO operators (org_id, subject, role) VALUES ($1, $2, 'agent_developer')")
+        .bind(&tenant_id)
+        .bind(owner_subject)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| invalid_request("This identity already belongs to an organization."))?;
+    sqlx::query("INSERT INTO tenant_policies (org_id) VALUES ($1)")
+        .bind(&tenant_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| service_unavailable("The organization controls could not be initialized."))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| service_unavailable("Organization creation could not be committed."))?;
+    Ok(serde_json::json!({
+        "id": tenant_id,
+        "displayName": display_name,
+        "enterpriseAddress": format!("{enterprise_address:#x}"),
+        "ownerSubject": owner_subject,
+        "status": "active"
+    }))
+}
+
 pub async fn list_agents_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     let rows = sqlx::query(
-        "SELECT agent_address, admin_address, environment, risk_tier, status, created_at FROM agents WHERE org_id = $1 ORDER BY created_at ASC",
+        "SELECT agent_address, admin_address, environment, risk_tier, status, created_at, wallet_source FROM agents WHERE org_id = $1 ORDER BY created_at ASC",
     )
     .bind(&context.tenant.org_id)
     .fetch_all(&state.repository.pool)
@@ -575,6 +901,7 @@ pub async fn list_agents_handler(
                 "riskTier": row.try_get::<String, _>("risk_tier")?,
                 "status": row.try_get::<String, _>("status")?,
                 "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
+                "walletSource": row.try_get::<String, _>("wallet_source")?,
             }))
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
@@ -704,12 +1031,16 @@ pub async fn list_signing_wallets_handler(
     Ok(Json(serde_json::json!({ "wallets": wallets })))
 }
 
-pub async fn create_signing_wallet_handler(
-    State(state): State<SharedState>,
-    Extension(context): Extension<RequestContext>,
-    Json(payload): Json<CreateSigningWalletRequest>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let label = payload.label.trim();
+/// Calls OpenSigner to generate a real keypair and records it in `signing_wallets`. Shared by
+/// agent registration (`kind = "agent"`) and organization treasury wallet provisioning
+/// (`kind = "treasury"`) — both are the tenant's OpenSigner vault, disambiguated by `kind`.
+async fn provision_sovereign_wallet(
+    state: &SharedState,
+    org_id: &str,
+    label: &str,
+    kind: &str,
+) -> Result<(Uuid, String, Address), ApiError> {
+    let label = label.trim();
     if label.is_empty() || label.len() > 160 {
         return Err(invalid_request("A signing address requires a valid label."));
     }
@@ -751,22 +1082,36 @@ pub async fn create_signing_wallet_handler(
         .ok_or_else(|| {
             service_unavailable("The signing vault response omitted a valid address.")
         })?;
-    sqlx::query(
-        "INSERT INTO signing_wallets (org_id, wallet_id, wallet_address, label) VALUES ($1, $2, $3, $4)",
+    let row = sqlx::query(
+        "INSERT INTO signing_wallets (org_id, wallet_id, wallet_address, label, kind) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
-    .bind(&context.tenant.org_id)
+    .bind(org_id)
     .bind(wallet_id)
     .bind(format!("{address:#x}"))
     .bind(label)
-    .execute(&state.repository.pool)
+    .bind(kind)
+    .fetch_one(&state.repository.pool)
     .await
     .map_err(|_| invalid_request("The signing address is already registered."))?;
+    let row_id: Uuid = row
+        .try_get("id")
+        .map_err(|_| service_unavailable("The signing wallet record is invalid."))?;
+    Ok((row_id, wallet_id.to_string(), address))
+}
+
+pub async fn create_signing_wallet_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<CreateSigningWalletRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let (_, wallet_id, address) =
+        provision_sovereign_wallet(&state, &context.tenant.org_id, &payload.label, "agent").await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
             "walletId": wallet_id,
             "address": format!("{address:#x}"),
-            "label": label
+            "label": payload.label.trim()
         })),
     ))
 }
@@ -776,8 +1121,6 @@ pub async fn register_agent_handler(
     Extension(context): Extension<RequestContext>,
     Json(payload): Json<RegisterAgentRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let agent = Address::from_str(&payload.address)
-        .map_err(|_| invalid_request("The agent address is invalid."))?;
     let enterprise_address = context.tenant.enterprise_address;
     let admin = payload
         .admin_address
@@ -794,28 +1137,55 @@ pub async fn register_agent_handler(
             "Register the agent under the tenant control address.",
         ));
     }
-    if agent == Address::ZERO
-        || !matches!(
-            payload.environment.as_str(),
-            "production" | "staging" | "sandbox"
-        )
-        || !matches!(
-            payload.risk_tier.as_str(),
-            "tier1_critical" | "tier2_standard" | "tier3_test"
-        )
-    {
+    if !matches!(
+        payload.environment.as_str(),
+        "production" | "staging" | "sandbox"
+    ) || !matches!(
+        payload.risk_tier.as_str(),
+        "tier1_critical" | "tier2_standard" | "tier3_test"
+    ) {
         return Err(invalid_request(
             "The agent environment or risk tier is not supported.",
         ));
     }
+    let wallet_source = payload.wallet_source.as_deref().unwrap_or("external");
+    let (agent, wallet_row_id) = match wallet_source {
+        "sovereign" => {
+            let label = payload
+                .label
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    invalid_request("A label is required to generate an agent wallet.")
+                })?;
+            let (row_id, _, address) =
+                provision_sovereign_wallet(&state, &context.tenant.org_id, label, "agent").await?;
+            (address, Some(row_id))
+        }
+        "external" => {
+            let address = payload
+                .address
+                .as_deref()
+                .ok_or_else(|| invalid_request("An agent wallet address is required."))?;
+            let agent = Address::from_str(address)
+                .map_err(|_| invalid_request("The agent address is invalid."))?;
+            if agent == Address::ZERO {
+                return Err(invalid_request("The agent address must not be zero."));
+            }
+            (agent, None)
+        }
+        _ => return Err(invalid_request("The wallet source is not supported.")),
+    };
     sqlx::query(
-        "INSERT INTO agents (org_id, agent_address, admin_address, environment, risk_tier) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO agents (org_id, agent_address, admin_address, environment, risk_tier, wallet_id, wallet_source) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(&context.tenant.org_id)
     .bind(format!("{agent:#x}"))
     .bind(format!("{admin:#x}"))
     .bind(&payload.environment)
     .bind(&payload.risk_tier)
+    .bind(wallet_row_id)
+    .bind(wallet_source)
     .execute(&state.repository.pool)
     .await
     .map_err(|_| invalid_request("The agent is already registered or the fleet record is invalid."))?;
@@ -826,9 +1196,1126 @@ pub async fn register_agent_handler(
             "adminAddress": format!("{admin:#x}"),
             "environment": payload.environment,
             "riskTier": payload.risk_tier,
+            "walletSource": wallet_source,
             "status": "active"
         })),
     ))
+}
+
+pub fn treasury_ownership_message(org_id: &str, label: &str) -> String {
+    format!("AgentGuard treasury wallet ownership proof\nOrganization: {org_id}\nLabel: {label}")
+}
+
+pub async fn register_organization_wallet_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<RegisterOrganizationWalletRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let label = payload.label.trim();
+    if label.is_empty() || label.len() > 160 {
+        return Err(invalid_request("A treasury wallet requires a valid label."));
+    }
+    let (address, wallet_row_id) = match payload.kind.as_str() {
+        "sovereign" => {
+            let (row_id, _, address) =
+                provision_sovereign_wallet(&state, &context.tenant.org_id, label, "treasury")
+                    .await?;
+            (address, Some(row_id))
+        }
+        "external" => {
+            let address_str = payload
+                .address
+                .as_deref()
+                .ok_or_else(|| invalid_request("A treasury wallet address is required."))?;
+            let address = Address::from_str(address_str)
+                .map_err(|_| invalid_request("The treasury wallet address is invalid."))?;
+            if address == Address::ZERO {
+                return Err(invalid_request(
+                    "The treasury wallet address must not be zero.",
+                ));
+            }
+            let signature_hex = payload
+                .signature
+                .as_deref()
+                .ok_or_else(|| invalid_request("An ownership-proof signature is required."))?;
+            let signature = hex::decode(signature_hex.strip_prefix("0x").unwrap_or(signature_hex))
+                .map_err(|_| invalid_request("The ownership-proof signature is invalid."))?;
+            let message = treasury_ownership_message(&context.tenant.org_id, label);
+            let digest = crate::crypto::personal_sign_digest(&message);
+            let ecdsa_match = crate::crypto::recover_personal_signer(&message, &signature)
+                .map(|signer| signer == address)
+                .unwrap_or(false);
+            let verified = ecdsa_match
+                || state
+                    .chain
+                    .verify_erc1271_signature(address, digest, &signature)
+                    .await;
+            if !verified {
+                return Err(invalid_request(
+                    "The ownership-proof signature does not match the wallet address.",
+                ));
+            }
+            (address, None)
+        }
+        _ => {
+            return Err(invalid_request(
+                "The treasury wallet kind is not supported.",
+            ));
+        }
+    };
+    let row = sqlx::query(
+        "INSERT INTO organization_wallets (org_id, address, label, kind, wallet_id, created_by_subject) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(&context.tenant.org_id)
+    .bind(format!("{address:#x}"))
+    .bind(label)
+    .bind(&payload.kind)
+    .bind(wallet_row_id)
+    .bind(&context.subject)
+    .fetch_one(&state.repository.pool)
+    .await
+    .map_err(|_| invalid_request("This wallet is already registered for the organization."))?;
+    let organization_wallet_id: Uuid = row
+        .try_get("id")
+        .map_err(|_| service_unavailable("The treasury wallet record is invalid."))?;
+    sqlx::query(
+        "INSERT INTO organization_wallet_access (wallet_id, subject, granted_by_subject) VALUES ($1, $2, $2)",
+    )
+    .bind(organization_wallet_id)
+    .bind(&context.subject)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Initial wallet access could not be granted."))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": organization_wallet_id,
+            "address": format!("{address:#x}"),
+            "label": label,
+            "kind": payload.kind,
+            "approvalThreshold": 1,
+            "status": "active"
+        })),
+    ))
+}
+
+pub async fn list_organization_wallets_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<Value>, ApiError> {
+    let rows = sqlx::query(
+        r#"SELECT ow.id, ow.address, ow.label, ow.kind, ow.approval_threshold, ow.status, ow.created_by_subject, ow.created_at,
+                  (SELECT COUNT(*) FROM organization_wallet_access owa WHERE owa.wallet_id = ow.id) AS access_count,
+                  EXISTS(SELECT 1 FROM organization_wallet_access owa WHERE owa.wallet_id = ow.id AND owa.subject = $2) AS has_access
+           FROM organization_wallets ow WHERE ow.org_id = $1 ORDER BY ow.created_at DESC"#,
+    )
+    .bind(&context.tenant.org_id)
+    .bind(&context.subject)
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The treasury wallet directory is unavailable."))?;
+    let mut wallets = Vec::with_capacity(rows.len());
+    for row in rows {
+        let address_str: String = row
+            .try_get("address")
+            .map_err(|_| service_unavailable("A treasury wallet record is invalid."))?;
+        let address = Address::from_str(&address_str)
+            .map_err(|_| service_unavailable("A treasury wallet address is invalid."))?;
+        let balance = state
+            .chain
+            .token_balance(state.config.usdc_token_address, address)
+            .await
+            .ok();
+        wallets.push(serde_json::json!({
+            "id": row.try_get::<Uuid, _>("id").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "address": address_str,
+            "label": row.try_get::<String, _>("label").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "kind": row.try_get::<String, _>("kind").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "approvalThreshold": row.try_get::<i16, _>("approval_threshold").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "status": row.try_get::<String, _>("status").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "createdBySubject": row.try_get::<String, _>("created_by_subject").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "accessCount": row.try_get::<i64, _>("access_count").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "hasAccess": row.try_get::<bool, _>("has_access").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
+            "balanceBaseUnits": balance.map(|value| value.to_string()),
+        }));
+    }
+    Ok(Json(serde_json::json!({ "wallets": wallets })))
+}
+
+async fn ensure_wallet_in_tenant(
+    state: &SharedState,
+    org_id: &str,
+    wallet_id: Uuid,
+) -> Result<(), ApiError> {
+    let exists = sqlx::query("SELECT 1 FROM organization_wallets WHERE id = $1 AND org_id = $2")
+        .bind(wallet_id)
+        .bind(org_id)
+        .fetch_optional(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The treasury wallet record is unavailable."))?;
+    if exists.is_none() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The treasury wallet was not found in your organization.",
+            "Use a wallet registered for this organization.",
+        ));
+    }
+    Ok(())
+}
+
+async fn require_wallet_access(
+    state: &SharedState,
+    context: &RequestContext,
+    wallet_id: Uuid,
+) -> Result<(), ApiError> {
+    if context.role == Role::SuperAdmin {
+        return Ok(());
+    }
+    let granted = sqlx::query(
+        "SELECT 1 FROM organization_wallet_access WHERE wallet_id = $1 AND subject = $2",
+    )
+    .bind(wallet_id)
+    .bind(&context.subject)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Wallet access could not be verified."))?;
+    if granted.is_none() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            AccessReasonCode::RoleForbidden,
+            "You do not have access to this treasury wallet.",
+            "Request access from an operator who already holds it.",
+        ));
+    }
+    Ok(())
+}
+
+pub async fn list_wallet_access_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(wallet_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_wallet_in_tenant(&state, &context.tenant.org_id, wallet_id).await?;
+    require_wallet_access(&state, &context, wallet_id).await?;
+    let rows = sqlx::query(
+        "SELECT subject, granted_by_subject, granted_at FROM organization_wallet_access WHERE wallet_id = $1 ORDER BY granted_at ASC",
+    )
+    .bind(wallet_id)
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Wallet access could not be listed."))?;
+    let grants = rows
+        .into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "subject": row.try_get::<String, _>("subject")?,
+                "grantedBySubject": row.try_get::<String, _>("granted_by_subject")?,
+                "grantedAt": row.try_get::<chrono::DateTime<Utc>, _>("granted_at")?,
+            }))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(|_| service_unavailable("Wallet access records are invalid."))?;
+    Ok(Json(serde_json::json!({ "access": grants })))
+}
+
+pub async fn grant_wallet_access_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(wallet_id): Path<Uuid>,
+    Json(payload): Json<GrantWalletAccessRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    ensure_wallet_in_tenant(&state, &context.tenant.org_id, wallet_id).await?;
+    require_wallet_access(&state, &context, wallet_id).await?;
+    let subject = payload.subject.trim();
+    if subject.is_empty() || subject.len() > 320 {
+        return Err(invalid_request("A valid identity subject is required."));
+    }
+    sqlx::query(
+        "INSERT INTO organization_wallet_access (wallet_id, subject, granted_by_subject) VALUES ($1, $2, $3) ON CONFLICT (wallet_id, subject) DO NOTHING",
+    )
+    .bind(wallet_id)
+    .bind(subject)
+    .bind(&context.subject)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Wallet access could not be granted."))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "walletId": wallet_id, "subject": subject })),
+    ))
+}
+
+pub async fn revoke_wallet_access_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path((wallet_id, subject)): Path<(Uuid, String)>,
+) -> Result<StatusCode, ApiError> {
+    ensure_wallet_in_tenant(&state, &context.tenant.org_id, wallet_id).await?;
+    require_wallet_access(&state, &context, wallet_id).await?;
+    sqlx::query("DELETE FROM organization_wallet_access WHERE wallet_id = $1 AND subject = $2")
+        .bind(wallet_id)
+        .bind(&subject)
+        .execute(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("Wallet access could not be revoked."))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn update_wallet_threshold_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(wallet_id): Path<Uuid>,
+    Json(payload): Json<UpdateWalletThresholdRequest>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_wallet_in_tenant(&state, &context.tenant.org_id, wallet_id).await?;
+    require_wallet_access(&state, &context, wallet_id).await?;
+    if !(1..=10).contains(&payload.approval_threshold) {
+        return Err(invalid_request(
+            "The approval threshold must be between 1 and 10.",
+        ));
+    }
+    sqlx::query("UPDATE organization_wallets SET approval_threshold = $2 WHERE id = $1")
+        .bind(wallet_id)
+        .bind(payload.approval_threshold)
+        .execute(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The approval threshold could not be updated."))?;
+    Ok(Json(serde_json::json!({
+        "walletId": wallet_id,
+        "approvalThreshold": payload.approval_threshold
+    })))
+}
+
+struct OrganizationWalletRow {
+    id: Uuid,
+    approval_threshold: i16,
+}
+
+async fn fetch_organization_wallet(
+    state: &SharedState,
+    org_id: &str,
+    wallet_row_id: Uuid,
+) -> Result<OrganizationWalletRow, ApiError> {
+    let row = sqlx::query(
+        "SELECT id, approval_threshold, status FROM organization_wallets WHERE id = $1 AND org_id = $2",
+    )
+    .bind(wallet_row_id)
+    .bind(org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The treasury wallet record is unavailable."))?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The treasury wallet was not found in your organization.",
+            "Use a wallet registered for this organization.",
+        )
+    })?;
+    let status: String = row
+        .try_get("status")
+        .map_err(|_| service_unavailable("The treasury wallet record is invalid."))?;
+    if status != "active" {
+        return Err(invalid_request("The treasury wallet is not active."));
+    }
+    Ok(OrganizationWalletRow {
+        id: row
+            .try_get("id")
+            .map_err(|_| service_unavailable("The treasury wallet record is invalid."))?,
+        approval_threshold: row
+            .try_get("approval_threshold")
+            .map_err(|_| service_unavailable("The treasury wallet record is invalid."))?,
+    })
+}
+
+async fn mark_wallet_transfer_failed(state: &SharedState, transfer_id: Uuid, reason: &str) {
+    let _ = sqlx::query(
+        "UPDATE wallet_transfers SET status = 'failed', failure_reason = $2 WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .bind(reason)
+    .execute(&state.repository.pool)
+    .await;
+}
+
+/// Executes a pending Load: a plain ERC-20 transfer from an organization treasury wallet into
+/// an agent wallet. For a sovereign treasury, OpenSigner signs and submits it directly (its own
+/// MON pays gas) and this function verifies the resulting receipt before recording confirmation.
+/// For an external treasury, the gateway holds no key — it returns an intent for the connected
+/// wallet to sign and submit itself, mirroring the existing checkout/submit_payment pattern.
+async fn execute_load(
+    state: &SharedState,
+    org_id: &str,
+    transfer_id: Uuid,
+) -> Result<Value, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT wt.agent_address, wt.token_address, wt.amount_base_units::text AS amount_base_units,
+                  ow.address AS ow_address, ow.kind AS ow_kind, sw.wallet_id AS opensigner_wallet_id
+           FROM wallet_transfers wt
+           JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
+           LEFT JOIN signing_wallets sw ON sw.id = ow.wallet_id
+           WHERE wt.id = $1 AND wt.org_id = $2 AND wt.direction = 'load'"#,
+    )
+    .bind(transfer_id)
+    .bind(org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The load record is unavailable."))?
+    .ok_or_else(|| service_unavailable("The load record was not found."))?;
+
+    let agent_address: String = row
+        .try_get("agent_address")
+        .map_err(|_| service_unavailable("The load record is invalid."))?;
+    let token_address: String = row
+        .try_get("token_address")
+        .map_err(|_| service_unavailable("The load record is invalid."))?;
+    let amount_str: String = row
+        .try_get("amount_base_units")
+        .map_err(|_| service_unavailable("The load record is invalid."))?;
+    let ow_kind: String = row
+        .try_get("ow_kind")
+        .map_err(|_| service_unavailable("The load record is invalid."))?;
+    let ow_address: String = row
+        .try_get("ow_address")
+        .map_err(|_| service_unavailable("The load record is invalid."))?;
+
+    if ow_kind != "sovereign" {
+        return Ok(serde_json::json!({
+            "transferId": transfer_id,
+            "status": "awaiting_signature",
+            "intent": { "to": agent_address, "tokenAddress": token_address, "amountBaseUnits": amount_str, "from": ow_address }
+        }));
+    }
+
+    let amount = amount_str
+        .parse::<U256>()
+        .map_err(|_| service_unavailable("The load amount is invalid."))?;
+    let token = Address::from_str(&token_address)
+        .map_err(|_| service_unavailable("The load token is invalid."))?;
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| service_unavailable("The load agent is invalid."))?;
+    let treasury = Address::from_str(&ow_address)
+        .map_err(|_| service_unavailable("The load treasury address is invalid."))?;
+    let Ok(opensigner_wallet_id) = row.try_get::<String, _>("opensigner_wallet_id") else {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The treasury has no linked sovereign signing wallet.",
+        )
+        .await;
+        return Err(invalid_request(
+            "The treasury has no linked sovereign signing wallet.",
+        ));
+    };
+
+    let submission = state
+        .http_client
+        .post(format!(
+            "{}/api/v1/execute-transfer",
+            state.config.opensigner_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&state.config.opensigner_api_token)
+        .json(&serde_json::json!({
+            "walletIdOrAddress": opensigner_wallet_id,
+            "tokenAddress": token_address,
+            "to": agent_address,
+            "amount": amount_str,
+            "chainId": state.config.chain_id,
+        }))
+        .send()
+        .await;
+    let response = match submission {
+        Ok(response) => response,
+        Err(_) => {
+            mark_wallet_transfer_failed(
+                state,
+                transfer_id,
+                "The treasury signing vault is unavailable.",
+            )
+            .await;
+            return Err(service_unavailable(
+                "The treasury signing vault is unavailable.",
+            ));
+        }
+    };
+    let status_code = response.status();
+    let body = response.json::<Value>().await.unwrap_or(Value::Null);
+    let transaction_hash = if status_code.is_success() {
+        body.get("transactionHash")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        None
+    };
+    let Some(transaction_hash) = transaction_hash else {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The treasury signing vault rejected the transfer.",
+        )
+        .await;
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The treasury signing vault rejected the transfer.",
+            "Retry after the signing vault is healthy.",
+        ));
+    };
+
+    let receipt = state
+        .chain
+        .transaction_receipt(&transaction_hash)
+        .await
+        .ok()
+        .flatten();
+    let confirmed = receipt
+        .as_ref()
+        .is_some_and(|receipt| receipt.matches_erc20_transfer(token, treasury, agent, amount));
+    if !confirmed {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The load transaction could not be verified onchain.",
+        )
+        .await;
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The load transaction could not be verified onchain.",
+            "Retry the load once the treasury signing vault is healthy.",
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE wallet_transfers SET status = 'confirmed', transaction_hash = $2, confirmed_at = NOW() WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .bind(&transaction_hash)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The load confirmation could not be recorded."))?;
+
+    Ok(
+        serde_json::json!({ "transferId": transfer_id, "status": "confirmed", "transactionHash": transaction_hash }),
+    )
+}
+
+/// True only when the agent's policy has merchant whitelisting turned on AND the merchant isn't
+/// whitelisted yet. Best-effort: an RPC failure here is treated as "no whitelisting needed" —
+/// PolicyEngine.evaluateAndSpend is still the real authority and will reject the spend onchain
+/// if that assumption was wrong, at the cost of a failed transaction rather than a fund-safety issue.
+async fn merchant_needs_whitelisting(
+    state: &SharedState,
+    agent: Address,
+    merchant: Address,
+) -> bool {
+    match state.chain.agent_policy(agent).await {
+        Ok(policy) if policy.whitelist_enabled => !state
+            .chain
+            .is_merchant_whitelisted(agent, merchant)
+            .await
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// Executes a pending Unload: an agent's own sovereign wallet signs and submits a
+/// policy-gated sweep to a treasury wallet, exactly like any other agent spend. Auto-whitelists
+/// the treasury as a merchant first if the agent's policy requires it and it isn't already.
+async fn execute_unload(
+    state: &SharedState,
+    org_id: &str,
+    transfer_id: Uuid,
+) -> Result<Value, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT wt.agent_address, wt.token_address, wt.amount_base_units::text AS amount_base_units,
+                  ow.address AS ow_address, sw.wallet_id AS opensigner_wallet_id
+           FROM wallet_transfers wt
+           JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
+           JOIN agents a ON a.org_id = wt.org_id AND a.agent_address = wt.agent_address
+           LEFT JOIN signing_wallets sw ON sw.id = a.wallet_id
+           WHERE wt.id = $1 AND wt.org_id = $2 AND wt.direction = 'unload'"#,
+    )
+    .bind(transfer_id)
+    .bind(org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The unload record is unavailable."))?
+    .ok_or_else(|| service_unavailable("The unload record was not found."))?;
+
+    let agent_address: String = row
+        .try_get("agent_address")
+        .map_err(|_| service_unavailable("The unload record is invalid."))?;
+    let token_address: String = row
+        .try_get("token_address")
+        .map_err(|_| service_unavailable("The unload record is invalid."))?;
+    let amount_str: String = row
+        .try_get("amount_base_units")
+        .map_err(|_| service_unavailable("The unload record is invalid."))?;
+    let ow_address: String = row
+        .try_get("ow_address")
+        .map_err(|_| service_unavailable("The unload record is invalid."))?;
+    let Ok(opensigner_wallet_id) = row.try_get::<String, _>("opensigner_wallet_id") else {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The agent has no sovereign signing wallet linked.",
+        )
+        .await;
+        return Err(invalid_request(
+            "The agent has no sovereign signing wallet linked.",
+        ));
+    };
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| service_unavailable("The unload agent is invalid."))?;
+    let merchant = Address::from_str(&ow_address)
+        .map_err(|_| service_unavailable("The unload treasury address is invalid."))?;
+    let token = Address::from_str(&token_address)
+        .map_err(|_| service_unavailable("The unload token is invalid."))?;
+    let amount = amount_str
+        .parse::<U256>()
+        .map_err(|_| service_unavailable("The unload amount is invalid."))?;
+
+    let now = Utc::now();
+    let deadline = now + Duration::minutes(15);
+    let nonce = U256::from(Uuid::now_v7().as_u128());
+    let request = serde_json::json!({
+        "agent": format!("{agent:#x}"),
+        "merchant": format!("{merchant:#x}"),
+        "amount": amount_str,
+        "category": format!("0x{:x}", keccak256("agentguard.treasury_sweep".as_bytes())),
+        "timestamp": (now.timestamp() as u64).to_string(),
+        "deadline": (deadline.timestamp() as u64).to_string(),
+        "nonce": nonce.to_string(),
+    });
+
+    let needs_whitelist = merchant_needs_whitelisting(state, agent, merchant).await;
+    let mut payload = serde_json::json!({
+        "walletIdOrAddress": opensigner_wallet_id,
+        "request": request,
+        "verifyingContract": format!("{:#x}", state.config.agent_wallet_guard_address),
+        "tokenAddress": token_address,
+        "chainId": state.config.chain_id,
+    });
+    if needs_whitelist {
+        payload["whitelistMerchant"] = serde_json::json!({
+            "policyEngineAddress": format!("{:#x}", state.config.policy_engine_address)
+        });
+    }
+
+    let submission = state
+        .http_client
+        .post(format!(
+            "{}/api/v1/execute-gated-payment",
+            state.config.opensigner_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&state.config.opensigner_api_token)
+        .json(&payload)
+        .send()
+        .await;
+    let response = match submission {
+        Ok(response) => response,
+        Err(_) => {
+            mark_wallet_transfer_failed(
+                state,
+                transfer_id,
+                "The agent signing vault is unavailable.",
+            )
+            .await;
+            return Err(service_unavailable(
+                "The agent signing vault is unavailable.",
+            ));
+        }
+    };
+    let status_code = response.status();
+    let body = response.json::<Value>().await.unwrap_or(Value::Null);
+    let transaction_hash = if status_code.is_success() {
+        body.get("transactionHash")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        None
+    };
+    let Some(transaction_hash) = transaction_hash else {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The agent signing vault rejected the sweep.",
+        )
+        .await;
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The agent signing vault rejected the sweep.",
+            "Retry after the signing vault and policy are healthy.",
+        ));
+    };
+
+    let receipt = state
+        .chain
+        .transaction_receipt(&transaction_hash)
+        .await
+        .ok()
+        .flatten();
+    let confirmed = receipt.as_ref().is_some_and(|receipt| {
+        receipt.matches_payment_execution(
+            state.config.agent_wallet_guard_address,
+            agent,
+            merchant,
+            amount,
+            nonce,
+            token,
+        )
+    });
+    if !confirmed {
+        mark_wallet_transfer_failed(
+            state,
+            transfer_id,
+            "The unload transaction could not be verified onchain.",
+        )
+        .await;
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The unload transaction could not be verified onchain.",
+            "Retry the unload once the network is healthy.",
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE wallet_transfers SET status = 'confirmed', transaction_hash = $2, confirmed_at = NOW() WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .bind(&transaction_hash)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The unload confirmation could not be recorded."))?;
+
+    Ok(
+        serde_json::json!({ "transferId": transfer_id, "status": "confirmed", "transactionHash": transaction_hash }),
+    )
+}
+
+pub async fn prepare_load_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(agent_address): Path<String>,
+    Json(payload): Json<PrepareWalletTransferRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| invalid_request("The agent address is invalid."))?;
+    let agent_exists = sqlx::query("SELECT 1 FROM agents WHERE org_id = $1 AND agent_address = $2")
+        .bind(&context.tenant.org_id)
+        .bind(format!("{agent:#x}"))
+        .fetch_optional(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The agent record is unavailable."))?;
+    if agent_exists.is_none() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The agent was not found in your organization.",
+            "Register the agent before loading its wallet.",
+        ));
+    }
+    let amount = payload
+        .amount_base_units
+        .parse::<U256>()
+        .map_err(|_| invalid_request("The load amount is invalid."))?;
+    if amount.is_zero() {
+        return Err(invalid_request(
+            "The load amount must be greater than zero.",
+        ));
+    }
+    let wallet = fetch_organization_wallet(
+        &state,
+        &context.tenant.org_id,
+        payload.organization_wallet_id,
+    )
+    .await?;
+    require_wallet_access(&state, &context, wallet.id).await?;
+
+    let transfer_id = Uuid::now_v7();
+    let needs_approval = wallet.approval_threshold > 1;
+    let initial_status = if needs_approval {
+        "pending_approval"
+    } else {
+        "pending"
+    };
+    sqlx::query(
+        "INSERT INTO wallet_transfers (id, org_id, direction, organization_wallet_id, agent_address, token_address, amount_base_units, status, initiated_by_subject) VALUES ($1,$2,'load',$3,$4,$5,$6::numeric,$7,$8)",
+    )
+    .bind(transfer_id)
+    .bind(&context.tenant.org_id)
+    .bind(wallet.id)
+    .bind(format!("{agent:#x}"))
+    .bind(format!("{:#x}", state.config.usdc_token_address))
+    .bind(payload.amount_base_units.clone())
+    .bind(initial_status)
+    .bind(&context.subject)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The load could not be recorded."))?;
+
+    if needs_approval {
+        let ticket_row = sqlx::query(
+            "INSERT INTO approval_tickets (org_id, resource, required_signatures, signatures, expires_at) VALUES ($1, $2, $3, $4::jsonb, NOW() + INTERVAL '24 hours') RETURNING id",
+        )
+        .bind(&context.tenant.org_id)
+        .bind(format!("wallet-transfer:{transfer_id}"))
+        .bind(wallet.approval_threshold)
+        .bind(serde_json::json!([context.subject]))
+        .fetch_one(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The approval ticket could not be created."))?;
+        let ticket_id: Uuid = ticket_row
+            .try_get("id")
+            .map_err(|_| service_unavailable("The approval ticket record is invalid."))?;
+        sqlx::query("UPDATE wallet_transfers SET approval_ticket_id = $2 WHERE id = $1")
+            .bind(transfer_id)
+            .bind(ticket_id)
+            .execute(&state.repository.pool)
+            .await
+            .map_err(|_| service_unavailable("The approval ticket could not be linked."))?;
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "transferId": transfer_id,
+                "status": "pending_approval",
+                "ticketId": ticket_id,
+                "requiredSignatures": wallet.approval_threshold,
+                "signatures": 1
+            })),
+        ));
+    }
+
+    let result = execute_load(&state, &context.tenant.org_id, transfer_id).await?;
+    Ok((StatusCode::CREATED, Json(result)))
+}
+
+pub async fn submit_wallet_transfer_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(transfer_id): Path<Uuid>,
+    Json(payload): Json<SubmitWalletTransferRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if !payload.transaction_hash.starts_with("0x")
+        || payload.transaction_hash.len() != 66
+        || hex::decode(&payload.transaction_hash[2..]).is_err()
+    {
+        return Err(invalid_request("The transfer transaction hash is invalid."));
+    }
+    let row = sqlx::query(
+        r#"SELECT wt.direction, wt.agent_address, wt.token_address, wt.amount_base_units::text AS amount_base_units, wt.status,
+                  ow.address AS ow_address
+           FROM wallet_transfers wt JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
+           WHERE wt.id = $1 AND wt.org_id = $2"#,
+    )
+    .bind(transfer_id)
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The transfer record is unavailable."))?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The transfer was not found in your organization.",
+            "Use a transfer created for this organization.",
+        )
+    })?;
+    let direction: String = row
+        .try_get("direction")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    if direction != "load" {
+        return Err(invalid_request(
+            "Only externally-sourced loads require manual submission.",
+        ));
+    }
+    let status: String = row
+        .try_get("status")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    if status == "confirmed" {
+        return Ok(Json(
+            serde_json::json!({ "transferId": transfer_id, "status": "confirmed" }),
+        ));
+    }
+    let agent_address: String = row
+        .try_get("agent_address")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let token_address: String = row
+        .try_get("token_address")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let amount_str: String = row
+        .try_get("amount_base_units")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let ow_address: String = row
+        .try_get("ow_address")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let token = Address::from_str(&token_address)
+        .map_err(|_| service_unavailable("The transfer token is invalid."))?;
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| service_unavailable("The transfer agent is invalid."))?;
+    let treasury = Address::from_str(&ow_address)
+        .map_err(|_| service_unavailable("The transfer treasury address is invalid."))?;
+    let amount = amount_str
+        .parse::<U256>()
+        .map_err(|_| service_unavailable("The transfer amount is invalid."))?;
+
+    let receipt = state
+        .chain
+        .transaction_receipt(&payload.transaction_hash)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                AccessReasonCode::DependencyUnavailable,
+                "Settlement confirmation is temporarily unavailable.",
+                "Retry after the Monad network is reachable.",
+            )
+        })?;
+    let Some(receipt) = receipt else {
+        return Ok(Json(
+            serde_json::json!({ "transferId": transfer_id, "status": "pending" }),
+        ));
+    };
+    if !receipt.matches_erc20_transfer(token, treasury, agent, amount) {
+        mark_wallet_transfer_failed(
+            &state,
+            transfer_id,
+            "The load transaction did not match the expected transfer.",
+        )
+        .await;
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The load transaction was not accepted.",
+            "Submit a successful token transfer to the agent wallet.",
+        ));
+    }
+    sqlx::query(
+        "UPDATE wallet_transfers SET status = 'confirmed', transaction_hash = $2, confirmed_at = NOW() WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .bind(&payload.transaction_hash)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The load confirmation could not be recorded."))?;
+    Ok(Json(serde_json::json!({
+        "transferId": transfer_id,
+        "status": "confirmed",
+        "transactionHash": payload.transaction_hash
+    })))
+}
+
+pub async fn sign_approval_ticket_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(transfer_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let row = sqlx::query(
+        "SELECT organization_wallet_id, status, approval_ticket_id FROM wallet_transfers WHERE id = $1 AND org_id = $2",
+    )
+    .bind(transfer_id)
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The transfer record is unavailable."))?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The transfer was not found in your organization.",
+            "Use a transfer created for this organization.",
+        )
+    })?;
+    let status: String = row
+        .try_get("status")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    if status != "pending_approval" {
+        return Err(invalid_request("This transfer is not awaiting approval."));
+    }
+    let organization_wallet_id: Uuid = row
+        .try_get("organization_wallet_id")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let ticket_id: Option<Uuid> = row
+        .try_get("approval_ticket_id")
+        .map_err(|_| service_unavailable("The transfer record is invalid."))?;
+    let Some(ticket_id) = ticket_id else {
+        return Err(service_unavailable(
+            "The transfer has no linked approval ticket.",
+        ));
+    };
+    require_wallet_access(&state, &context, organization_wallet_id).await?;
+
+    let ticket_row = sqlx::query(
+        "SELECT required_signatures, signatures, status FROM approval_tickets WHERE id = $1 AND org_id = $2",
+    )
+    .bind(ticket_id)
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The approval ticket is unavailable."))?
+    .ok_or_else(|| service_unavailable("The approval ticket was not found."))?;
+    let ticket_status: String = ticket_row
+        .try_get("status")
+        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?;
+    if ticket_status != "open" {
+        return Err(invalid_request("This approval ticket is no longer open."));
+    }
+    let required: i16 = ticket_row
+        .try_get("required_signatures")
+        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?;
+    let mut signatures: Vec<String> = ticket_row
+        .try_get::<Value, _>("signatures")
+        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if signatures.iter().any(|subject| subject == &context.subject) {
+        return Err(invalid_request("You have already signed this approval."));
+    }
+    signatures.push(context.subject.clone());
+    let reached = signatures.len() as i16 >= required;
+    let new_ticket_status = if reached { "approved" } else { "open" };
+    sqlx::query("UPDATE approval_tickets SET signatures = $2::jsonb, status = $3 WHERE id = $1")
+        .bind(ticket_id)
+        .bind(serde_json::to_value(&signatures).unwrap_or(Value::Array(vec![])))
+        .bind(new_ticket_status)
+        .execute(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The approval could not be recorded."))?;
+
+    if !reached {
+        return Ok(Json(serde_json::json!({
+            "transferId": transfer_id,
+            "status": "pending_approval",
+            "signatures": signatures.len(),
+            "requiredSignatures": required
+        })));
+    }
+
+    sqlx::query("UPDATE wallet_transfers SET status = 'pending' WHERE id = $1")
+        .bind(transfer_id)
+        .execute(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The transfer could not be advanced."))?;
+    let result = execute_load(&state, &context.tenant.org_id, transfer_id).await?;
+    Ok(Json(result))
+}
+
+pub async fn prepare_unload_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(agent_address): Path<String>,
+    Json(payload): Json<PrepareWalletTransferRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| invalid_request("The agent address is invalid."))?;
+    let agent_row =
+        sqlx::query("SELECT wallet_id FROM agents WHERE org_id = $1 AND agent_address = $2")
+            .bind(&context.tenant.org_id)
+            .bind(format!("{agent:#x}"))
+            .fetch_optional(&state.repository.pool)
+            .await
+            .map_err(|_| service_unavailable("The agent record is unavailable."))?
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    AccessReasonCode::TenantScope,
+                    "The agent was not found in your organization.",
+                    "Register the agent before unloading its wallet.",
+                )
+            })?;
+    let has_sovereign_wallet: Option<Uuid> = agent_row
+        .try_get("wallet_id")
+        .map_err(|_| service_unavailable("The agent record is invalid."))?;
+    if has_sovereign_wallet.is_none() {
+        return Err(invalid_request(
+            "Only agents with a sovereign signing wallet can be unloaded through this flow.",
+        ));
+    }
+    let amount = payload
+        .amount_base_units
+        .parse::<U256>()
+        .map_err(|_| invalid_request("The unload amount is invalid."))?;
+    if amount.is_zero() {
+        return Err(invalid_request(
+            "The unload amount must be greater than zero.",
+        ));
+    }
+    let wallet = fetch_organization_wallet(
+        &state,
+        &context.tenant.org_id,
+        payload.organization_wallet_id,
+    )
+    .await?;
+    require_wallet_access(&state, &context, wallet.id).await?;
+
+    let transfer_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO wallet_transfers (id, org_id, direction, organization_wallet_id, agent_address, token_address, amount_base_units, status, initiated_by_subject) VALUES ($1,$2,'unload',$3,$4,$5,$6::numeric,'pending',$7)",
+    )
+    .bind(transfer_id)
+    .bind(&context.tenant.org_id)
+    .bind(wallet.id)
+    .bind(format!("{agent:#x}"))
+    .bind(format!("{:#x}", state.config.usdc_token_address))
+    .bind(payload.amount_base_units.clone())
+    .bind(&context.subject)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The unload could not be recorded."))?;
+
+    let result = execute_unload(&state, &context.tenant.org_id, transfer_id).await?;
+    Ok((StatusCode::CREATED, Json(result)))
+}
+
+pub async fn list_wallet_transfers_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(agent_address): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let agent = Address::from_str(&agent_address)
+        .map_err(|_| invalid_request("The agent address is invalid."))?;
+    let rows = sqlx::query(
+        r#"SELECT wt.id, wt.direction, wt.amount_base_units::text AS amount_base_units, wt.status, wt.transaction_hash,
+                  wt.failure_reason, wt.initiated_by_subject, wt.created_at, wt.confirmed_at, ow.label AS wallet_label, ow.address AS wallet_address
+           FROM wallet_transfers wt JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
+           WHERE wt.org_id = $1 AND wt.agent_address = $2 ORDER BY wt.created_at DESC LIMIT 100"#,
+    )
+    .bind(&context.tenant.org_id)
+    .bind(format!("{agent:#x}"))
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The wallet transfer history is unavailable."))?;
+    let transfers = rows
+        .into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "id": row.try_get::<Uuid, _>("id")?,
+                "direction": row.try_get::<String, _>("direction")?,
+                "amountBaseUnits": row.try_get::<String, _>("amount_base_units")?,
+                "status": row.try_get::<String, _>("status")?,
+                "transactionHash": row.try_get::<Option<String>, _>("transaction_hash")?,
+                "failureReason": row.try_get::<Option<String>, _>("failure_reason")?,
+                "initiatedBySubject": row.try_get::<String, _>("initiated_by_subject")?,
+                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
+                "confirmedAt": row.try_get::<Option<chrono::DateTime<Utc>>, _>("confirmed_at")?,
+                "walletLabel": row.try_get::<String, _>("wallet_label")?,
+                "walletAddress": row.try_get::<String, _>("wallet_address")?,
+            }))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(|_| service_unavailable("The wallet transfer history returned invalid data."))?;
+    Ok(Json(serde_json::json!({ "transfers": transfers })))
 }
 
 pub async fn create_plan_handler(
@@ -1183,6 +2670,453 @@ fn parse_hex_quantity(value: &str) -> Option<u64> {
     u64::from_str_radix(value.strip_prefix("0x").unwrap_or(value), 16).ok()
 }
 
+/// Actions a machine credential may be issued with. Deliberately excludes
+/// `iam.manage`, `credentials.manage`, `authorization_policy.manage`, and
+/// `self.read` — a machine credential must never be able to self-escalate
+/// into tenant IAM, credential, or policy administration.
+const ASSIGNABLE_API_KEY_CAPABILITIES: [&str; 7] = [
+    "fleet.read",
+    "audit.read",
+    "telemetry.subscribe",
+    "policy.write",
+    "circuit_breaker.trip",
+    "treasury.manage",
+    "settlement.dispatch",
+];
+
+pub fn is_assignable_api_key_capability(action: &str) -> bool {
+    ASSIGNABLE_API_KEY_CAPABILITIES.contains(&action)
+}
+
+fn generate_api_key_secret() -> (String, Vec<u8>) {
+    let mut entropy = [0u8; 32];
+    OsRng.fill_bytes(&mut entropy);
+    let secret = format!("ag_live_sec_{}", hex::encode(entropy));
+    let hash = Sha256::digest(secret.as_bytes()).to_vec();
+    (secret, hash)
+}
+
+fn validate_credential_expiry(expires_at: chrono::DateTime<Utc>) -> Result<(), ApiError> {
+    let now = Utc::now();
+    if expires_at <= now || expires_at > now + Duration::days(365) {
+        return Err(invalid_request(
+            "The credential expiry must be in the future and no more than 365 days out.",
+        ));
+    }
+    Ok(())
+}
+
+pub async fn create_api_key_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<CreateApiKeyRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let subject = payload.subject.trim();
+    if subject.is_empty() || subject.len() > 320 {
+        return Err(invalid_request("A valid credential subject is required."));
+    }
+    if payload.capabilities.is_empty()
+        || !payload
+            .capabilities
+            .iter()
+            .all(|action| is_assignable_api_key_capability(action))
+    {
+        return Err(invalid_request(
+            "The requested capabilities are not assignable to a machine credential.",
+        ));
+    }
+    validate_credential_expiry(payload.expires_at)?;
+    let agent = Address::from_str(&payload.agent_address)
+        .map_err(|_| invalid_request("The agent address is invalid."))?;
+    let owner = state
+        .repository
+        .organization_for_agent(&format!("{agent:#x}"))
+        .await
+        .map_err(|_| service_unavailable("The tenant fleet is temporarily unavailable."))?;
+    if owner.as_deref() != Some(context.tenant.org_id.as_str()) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            AccessReasonCode::TenantScope,
+            "The agent is outside this tenant.",
+            "Issue a credential only for a tenant-owned agent.",
+        ));
+    }
+
+    let (secret, key_hash) = generate_api_key_secret();
+    let key_prefix = &secret[..16];
+    let capabilities = serde_json::to_value(&payload.capabilities)
+        .map_err(|_| invalid_request("The requested capabilities are invalid."))?;
+    let row = sqlx::query(
+        "INSERT INTO api_keys (org_id, subject, agent_address, key_prefix, key_hash, capabilities, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at",
+    )
+    .bind(&context.tenant.org_id)
+    .bind(subject)
+    .bind(format!("{agent:#x}"))
+    .bind(key_prefix)
+    .bind(key_hash)
+    .bind(&capabilities)
+    .bind(payload.expires_at)
+    .fetch_one(&state.repository.pool)
+    .await
+    .map_err(|_| invalid_request("The credential could not be issued; retry."))?;
+    let id: Uuid = row
+        .try_get("id")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+    let created_at: chrono::DateTime<Utc> = row
+        .try_get("created_at")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": id,
+            "keyPrefix": key_prefix,
+            "secret": secret,
+            "agentAddress": format!("{agent:#x}"),
+            "subject": subject,
+            "capabilities": payload.capabilities,
+            "expiresAt": payload.expires_at,
+            "revokedAt": Value::Null,
+            "createdAt": created_at,
+        })),
+    ))
+}
+
+pub async fn list_api_keys_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<Vec<Value>>, ApiError> {
+    let rows = sqlx::query(
+        "SELECT id, key_prefix, agent_address, subject, capabilities, expires_at, revoked_at, created_at FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(&context.tenant.org_id)
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The credential inventory is temporarily unavailable."))?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "id": row.try_get::<Uuid, _>("id")?,
+                "keyPrefix": row.try_get::<String, _>("key_prefix")?,
+                "agentAddress": row.try_get::<String, _>("agent_address")?,
+                "subject": row.try_get::<String, _>("subject")?,
+                "capabilities": row.try_get::<Value, _>("capabilities")?,
+                "expiresAt": row.try_get::<Option<chrono::DateTime<Utc>>, _>("expires_at")?,
+                "revokedAt": row.try_get::<Option<chrono::DateTime<Utc>>, _>("revoked_at")?,
+                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
+            }))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map(Json)
+        .map_err(|_| service_unavailable("The credential inventory returned an invalid record."))
+}
+
+pub async fn rotate_api_key_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<RotateApiKeyRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    validate_credential_expiry(payload.expires_at)?;
+    let row = sqlx::query(
+        "SELECT subject, agent_address, capabilities, revoked_at FROM api_keys WHERE id = $1 AND org_id = $2",
+    )
+    .bind(id)
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The credential record is unavailable."))?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The credential was not found in your organization.",
+            "Use a credential issued for this organization.",
+        )
+    })?;
+    let revoked_at: Option<chrono::DateTime<Utc>> = row
+        .try_get("revoked_at")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+    if revoked_at.is_some() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            AccessReasonCode::InvalidRequest,
+            "The credential is already revoked.",
+            "Issue a new credential instead of rotating a revoked one.",
+        ));
+    }
+    let subject: String = row
+        .try_get("subject")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+    let agent_address: String = row
+        .try_get("agent_address")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+    let capabilities: Value = row
+        .try_get("capabilities")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+
+    let (secret, key_hash) = generate_api_key_secret();
+    let key_prefix = &secret[..16];
+
+    let mut transaction = state
+        .repository
+        .pool
+        .begin()
+        .await
+        .map_err(|_| service_unavailable("Credential rotation could not be started."))?;
+    sqlx::query("UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| service_unavailable("The prior credential could not be revoked."))?;
+    let inserted = sqlx::query(
+        "INSERT INTO api_keys (org_id, subject, agent_address, key_prefix, key_hash, capabilities, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at",
+    )
+    .bind(&context.tenant.org_id)
+    .bind(&subject)
+    .bind(&agent_address)
+    .bind(key_prefix)
+    .bind(key_hash)
+    .bind(&capabilities)
+    .bind(payload.expires_at)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| invalid_request("The credential could not be rotated; retry."))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| service_unavailable("Credential rotation could not be committed."))?;
+
+    let new_id: Uuid = inserted
+        .try_get("id")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+    let created_at: chrono::DateTime<Utc> = inserted
+        .try_get("created_at")
+        .map_err(|_| service_unavailable("The credential record is invalid."))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "id": new_id,
+            "keyPrefix": key_prefix,
+            "secret": secret,
+            "agentAddress": agent_address,
+            "subject": subject,
+            "capabilities": capabilities,
+            "expiresAt": payload.expires_at,
+            "revokedAt": Value::Null,
+            "createdAt": created_at,
+        })),
+    ))
+}
+
+pub async fn revoke_api_key_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let exists = sqlx::query("SELECT 1 FROM api_keys WHERE id = $1 AND org_id = $2")
+        .bind(id)
+        .bind(&context.tenant.org_id)
+        .fetch_optional(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The credential record is unavailable."))?;
+    if exists.is_none() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::TenantScope,
+            "The credential was not found in your organization.",
+            "Use a credential issued for this organization.",
+        ));
+    }
+    sqlx::query("UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL")
+        .bind(id)
+        .execute(&state.repository.pool)
+        .await
+        .map_err(|_| service_unavailable("The credential could not be revoked."))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn list_pbac_policies_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<Vec<PbacPolicy>>, ApiError> {
+    let policies = state
+        .repository
+        .load_pbac_policies(&context.tenant.org_id)
+        .await
+        .map_err(|_| {
+            service_unavailable("The authorization policy set is temporarily unavailable.")
+        })?;
+    Ok(Json(policies))
+}
+
+pub async fn create_or_revise_pbac_policy_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<PbacPolicyRequest>,
+) -> Result<(StatusCode, Json<PbacPolicy>), ApiError> {
+    if payload.principals.len() > 64 || payload.actions.len() > 64 || payload.resources.len() > 64 {
+        return Err(invalid_request(
+            "A policy rule may declare at most 64 principals, actions, or resources.",
+        ));
+    }
+    let principals = serde_json::to_value(&payload.principals)
+        .map_err(|_| invalid_request("The policy principals are invalid."))?;
+    let actions = serde_json::to_value(&payload.actions)
+        .map_err(|_| invalid_request("The policy actions are invalid."))?;
+    let resources = serde_json::to_value(&payload.resources)
+        .map_err(|_| invalid_request("The policy resources are invalid."))?;
+    let conditions = serde_json::to_value(&payload.conditions)
+        .map_err(|_| invalid_request("The policy conditions are invalid."))?;
+    let effect = match payload.effect {
+        PolicyEffect::Allow => "allow",
+        PolicyEffect::Deny => "deny",
+    };
+
+    let mut transaction = state
+        .repository
+        .pool
+        .begin()
+        .await
+        .map_err(|_| service_unavailable("Policy authoring could not be started."))?;
+    let (id, version, status) = if let Some(id) = payload.id {
+        let current_version: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(version) FROM authorization_policies WHERE org_id = $1 AND id = $2",
+        )
+        .bind(&context.tenant.org_id)
+        .bind(id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| service_unavailable("The existing policy rule could not be read."))?;
+        let Some(current_version) = current_version else {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                AccessReasonCode::InvalidRequest,
+                "No policy rule with that id exists in your organization.",
+                "Omit the id to create a new rule, or supply an existing one.",
+            ));
+        };
+        sqlx::query(
+            "UPDATE authorization_policies SET active = FALSE WHERE org_id = $1 AND id = $2 AND active = TRUE",
+        )
+        .bind(&context.tenant.org_id)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| service_unavailable("The prior policy version could not be retired."))?;
+        (id, current_version + 1, StatusCode::OK)
+    } else {
+        (Uuid::now_v7(), 1i64, StatusCode::CREATED)
+    };
+    sqlx::query(
+        "INSERT INTO authorization_policies (id, org_id, version, effect, principals, actions, resources, conditions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(id)
+    .bind(&context.tenant.org_id)
+    .bind(version)
+    .bind(effect)
+    .bind(&principals)
+    .bind(&actions)
+    .bind(&resources)
+    .bind(&conditions)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| invalid_request("The policy rule could not be saved."))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| service_unavailable("Policy authoring could not be committed."))?;
+
+    Ok((
+        status,
+        Json(PbacPolicy {
+            id,
+            org_id: context.tenant.org_id.clone(),
+            version,
+            effect: payload.effect,
+            principals: payload.principals,
+            actions: payload.actions,
+            resources: payload.resources,
+            conditions: payload.conditions,
+        }),
+    ))
+}
+
+pub async fn deactivate_pbac_policy_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let result = sqlx::query(
+        "UPDATE authorization_policies SET active = FALSE WHERE org_id = $1 AND id = $2 AND active = TRUE",
+    )
+    .bind(&context.tenant.org_id)
+    .bind(id)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The policy rule could not be retired."))?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::InvalidRequest,
+            "No active policy rule with that id exists in your organization.",
+            "Refresh the policy list and retry.",
+        ));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn default_abac_policy() -> AbacPolicy {
+    AbacPolicy {
+        allowed_cidrs: Vec::new(),
+        require_mfa: false,
+        max_amount: None,
+        max_gas_price: None,
+        trading_start_hour_utc: 0,
+        trading_end_hour_utc: 24,
+        allowed_environments: Vec::new(),
+        blocked_risk_tiers: Vec::new(),
+    }
+}
+
+pub async fn get_abac_policy_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<AbacPolicy>, ApiError> {
+    let policy = state
+        .repository
+        .load_abac_policy(&context.tenant.org_id)
+        .await
+        .map_err(|_| service_unavailable("The organization controls are temporarily unavailable."))?
+        .unwrap_or_else(default_abac_policy);
+    Ok(Json(policy))
+}
+
+pub async fn put_abac_policy_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<AbacPolicyRequest>,
+) -> Result<Json<AbacPolicy>, ApiError> {
+    let policy = payload.policy;
+    if policy.trading_start_hour_utc > 24 || policy.trading_end_hour_utc > 24 {
+        return Err(invalid_request(
+            "Trading hours must be between 0 and 24 UTC.",
+        ));
+    }
+    let attributes = serde_json::to_value(&policy)
+        .map_err(|_| invalid_request("The organization controls are invalid."))?;
+    sqlx::query(
+        "INSERT INTO tenant_policies (org_id, attributes) VALUES ($1, $2) ON CONFLICT (org_id) DO UPDATE SET attributes = EXCLUDED.attributes, active = TRUE, updated_at = NOW()",
+    )
+    .bind(&context.tenant.org_id)
+    .bind(&attributes)
+    .execute(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("The organization controls could not be saved."))?;
+    Ok(Json(policy))
+}
+
 fn network_name(chain_id: u64) -> &'static str {
     match chain_id {
         143 => "monad-mainnet",
@@ -1373,6 +3307,38 @@ pub async fn telemetry_stream(
     Extension(context): Extension<RequestContext>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
     Sse::new(state.events.stream_for_tenant(context.tenant.org_id)).keep_alive(KeepAlive::default())
+}
+
+pub async fn list_telemetry_events_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<Vec<Value>>, ApiError> {
+    let rows = sqlx::query(
+        r#"SELECT event_name, agent_address, block_number, transaction_hash,
+                  payload, observed_at
+           FROM chain_events
+           WHERE org_id = $1 AND finalized = TRUE
+           ORDER BY block_number DESC, log_index DESC
+           LIMIT 60"#,
+    )
+    .bind(&context.tenant.org_id)
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Finalized telemetry is temporarily unavailable."))?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(serde_json::json!({
+                "eventName": row.try_get::<String, _>("event_name")?,
+                "agentAddress": row.try_get::<Option<String>, _>("agent_address")?,
+                "blockNumber": row.try_get::<i64, _>("block_number")? as u64,
+                "transactionHash": row.try_get::<String, _>("transaction_hash")?,
+                "payload": row.try_get::<Value, _>("payload")?,
+                "observedAt": row.try_get::<chrono::DateTime<Utc>, _>("observed_at")?
+            }))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map(Json)
+        .map_err(|_| service_unavailable("Finalized telemetry returned an invalid record."))
 }
 
 pub async fn get_user_role_handler(

@@ -1,6 +1,6 @@
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,6 +9,7 @@ const rootDirectory = join(scriptDirectory, '..');
 const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
 const chainId = 10143;
 const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
+const envFilePath = process.env.ENV_FILE || join(rootDirectory, '.env.local');
 
 if (!deployerPrivateKey) {
   throw new Error('DEPLOYER_PRIVATE_KEY is required for a local deployment');
@@ -59,6 +60,7 @@ async function main() {
     policyEngine.address,
     reputationRegistry.address,
   ]);
+  const settlementToken = await deployContract('LocalSettlementToken', [account.address]);
 
   const authorizePolicy = await walletClient.writeContract({
     address: policyEngine.address,
@@ -88,6 +90,7 @@ async function main() {
       policyEngine: { address: policyEngine.address },
       reputationRegistry: { address: reputationRegistry.address },
       agentWalletGuard: { address: agentWalletGuard.address },
+      settlementToken: { address: settlementToken.address },
     },
     deployBlock: Number(policyEngine.blockNumber),
   };
@@ -112,9 +115,36 @@ async function main() {
     ) + '\n',
   );
 
+  if (existsSync(envFilePath)) {
+    const values = {
+      POLICY_ENGINE_ADDRESS: policyEngine.address,
+      REPUTATION_REGISTRY_ADDRESS: reputationRegistry.address,
+      AGENT_WALLET_GUARD_ADDRESS: agentWalletGuard.address,
+      USDC_TOKEN_ADDRESS: settlementToken.address,
+      VITE_POLICY_ENGINE_ADDRESS: policyEngine.address,
+      VITE_REPUTATION_REGISTRY_ADDRESS: reputationRegistry.address,
+      VITE_AGENT_WALLET_GUARD_ADDRESS: agentWalletGuard.address,
+      VITE_USDC_TOKEN_ADDRESS: settlementToken.address,
+    };
+    let envContent = readFileSync(envFilePath, 'utf8');
+    for (const [key, value] of Object.entries(values)) {
+      const line = `${key}=${value}`;
+      const pattern = new RegExp(`^${key}=.*$`, 'm');
+      envContent = pattern.test(envContent)
+        ? envContent.replace(pattern, line)
+        : `${envContent.trimEnd()}\n${line}\n`;
+    }
+    const merchantPattern = /^GATEWAY_MERCHANT_ADDRESS=.*$/m;
+    if (merchantPattern.test(envContent) && /^GATEWAY_MERCHANT_ADDRESS=$/m.test(envContent)) {
+      envContent = envContent.replace(merchantPattern, `GATEWAY_MERCHANT_ADDRESS=${account.address}`);
+    }
+    writeFileSync(envFilePath, envContent);
+  }
+
   console.log(`PolicyEngine: ${policyEngine.address}`);
   console.log(`ReputationRegistry: ${reputationRegistry.address}`);
   console.log(`AgentWalletGuard: ${agentWalletGuard.address}`);
+  console.log(`LocalSettlementToken: ${settlementToken.address}`);
 }
 
 main().catch((error) => {

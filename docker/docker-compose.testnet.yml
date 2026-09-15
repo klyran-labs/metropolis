@@ -14,7 +14,7 @@ services:
       POSTGRES_USER: agentguard
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - agentguard-postgres-testnet-data:/var/lib/postgresql/data
+      - agentguard-postgres-testnet-v18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agentguard -d agentguard"]
       interval: 5s
@@ -125,7 +125,7 @@ services:
       - agentguard-testnet-network
 
 volumes:
-  agentguard-postgres-testnet-data:
+  agentguard-postgres-testnet-v18-data:
   opensigner-testnet-data:
 
 networks:

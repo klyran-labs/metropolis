@@ -21,3 +21,27 @@ fail_on_revert = false
 monad_testnet = "https://testnet-rpc.monad.xyz"
 local_anvil = "http://127.0.0.1:8545"
 local_solonet = "http://127.0.0.1:8080"
+
+[lint]
+ignore = ["test/**"]
+exclude_lints = [
+    "screaming-snake-case-immutable",
+    "screaming-snake-case-const",
+    "inline-assembly",
+    "low-level-calls",
+    "multi-contract-file",
+    "literal-instead-of-constant",
+    "function-init-state",
+    "asm-keccak256",
+    "costly-loop",
+    "calls-loop",
+    "require-revert-in-loop",
+    "arbitrary-send-eth",
+    "reentrancy-events",
+    "block-timestamp",
+    "unsafe-typecast",
+    "unused-return",
+    "missing-inheritance",
+    "cyclomatic-complexity",
+    "modifier-used-only-once",
+]

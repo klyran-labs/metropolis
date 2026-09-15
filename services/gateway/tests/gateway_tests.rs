@@ -6,6 +6,7 @@ use agentguard_gateway::{
         compute_domain_separator, compute_eip712_digest, compute_spend_request_hash,
         parse_x402_authorization_header, recover_signer,
     },
+    handlers::is_assignable_api_key_capability,
     pbac::{self, PbacConditions, PbacInput, PbacPolicy, PolicyEffect},
     rbac::{self, Capability, Role},
     repository::PgRepository,
@@ -115,6 +116,64 @@ fn rbac_matches_six_role_capability_matrix() {
         Role::Auditor,
         Capability::TripCircuitBreaker
     ));
+    // Every role must be able to read its own identity/role record to
+    // bootstrap a session, even one with no other capabilities granted.
+    for role in [
+        Role::SuperAdmin,
+        Role::SecOps,
+        Role::Treasury,
+        Role::FleetDevops,
+        Role::AgentDeveloper,
+        Role::Auditor,
+    ] {
+        assert!(rbac::role_allows(role, Capability::ReadSelf));
+    }
+}
+
+#[test]
+fn rbac_grants_manage_credentials_and_authorization_policy_to_super_admin_and_sec_ops_only() {
+    for role in [Role::SuperAdmin, Role::SecOps] {
+        assert!(rbac::role_allows(role, Capability::ManageCredentials));
+        assert!(rbac::role_allows(
+            role,
+            Capability::ManageAuthorizationPolicy
+        ));
+    }
+    for role in [
+        Role::Treasury,
+        Role::FleetDevops,
+        Role::AgentDeveloper,
+        Role::Auditor,
+    ] {
+        assert!(!rbac::role_allows(role, Capability::ManageCredentials));
+        assert!(!rbac::role_allows(
+            role,
+            Capability::ManageAuthorizationPolicy
+        ));
+    }
+}
+
+#[test]
+fn api_key_capability_allowlist_rejects_iam_and_credential_actions() {
+    for forbidden in [
+        "iam.manage",
+        "credentials.manage",
+        "authorization_policy.manage",
+        "self.read",
+    ] {
+        assert!(!is_assignable_api_key_capability(forbidden));
+    }
+    for allowed in [
+        "fleet.read",
+        "audit.read",
+        "telemetry.subscribe",
+        "policy.write",
+        "circuit_breaker.trip",
+        "treasury.manage",
+        "settlement.dispatch",
+    ] {
+        assert!(is_assignable_api_key_capability(allowed));
+    }
 }
 
 fn request_context(role: Role, mfa_authenticated: bool) -> RequestContext {

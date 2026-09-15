@@ -1,4 +1,9 @@
+use crate::{
+    abac::AbacPolicy,
+    pbac::{PbacConditions, PolicyEffect},
+};
 use alloy::sol;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -30,6 +35,17 @@ sol! {
         function evaluateAndSpend(SpendRequest calldata req) external returns (bool allowed, uint256 allowedAmount, uint8 reasonCode, uint256 evaluatedAtTimestamp);
         function getAgentPolicy(address agent) external view returns (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowSeconds, uint32 maxVelocity, bool killSwitch, bool whitelistEnabled);
         function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce);
+        function isMerchantWhitelisted(address agent, address merchant) external view returns (bool);
+    }
+
+    #[sol(rpc)]
+    interface IERC20Balance {
+        function balanceOf(address account) external view returns (uint256);
+    }
+
+    #[sol(rpc)]
+    interface IERC1271 {
+        function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4 magicValue);
     }
 
     #[sol(rpc)]
@@ -269,12 +285,55 @@ pub struct PolicyUpdateRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterAgentRequest {
-    pub address: String,
+    /// Required when `walletSource` is "external" (or omitted); ignored for "sovereign".
+    pub address: Option<String>,
     #[serde(rename = "adminAddress")]
     pub admin_address: Option<String>,
     pub environment: String,
     #[serde(rename = "riskTier")]
     pub risk_tier: String,
+    /// "external" (default, caller-supplied address) or "sovereign" (OpenSigner-generated).
+    #[serde(rename = "walletSource")]
+    pub wallet_source: Option<String>,
+    /// Label for the generated signing wallet; required when walletSource is "sovereign".
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterOrganizationWalletRequest {
+    /// "external" (caller proves ownership of an existing address) or "sovereign"
+    /// (OpenSigner-generated).
+    pub kind: String,
+    pub label: String,
+    /// Required for "external".
+    pub address: Option<String>,
+    /// Ownership-proof signature over the tenant's org_id, required for "external".
+    pub signature: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrantWalletAccessRequest {
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateWalletThresholdRequest {
+    #[serde(rename = "approvalThreshold")]
+    pub approval_threshold: i16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrepareWalletTransferRequest {
+    #[serde(rename = "organizationWalletId")]
+    pub organization_wallet_id: Uuid,
+    #[serde(rename = "amountBaseUnits")]
+    pub amount_base_units: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitWalletTransferRequest {
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,6 +344,15 @@ pub struct CreateTenantRequest {
     pub enterprise_address: String,
     #[serde(rename = "ownerSubject")]
     pub owner_subject: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateOnboardingTenantRequest {
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "enterpriseAddress")]
+    pub enterprise_address: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,4 +372,41 @@ pub struct PaymasterRpcRequest {
     pub id: serde_json::Value,
     pub method: String,
     pub params: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateApiKeyRequest {
+    #[serde(rename = "agentAddress")]
+    pub agent_address: String,
+    pub subject: String,
+    pub capabilities: Vec<String>,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateApiKeyRequest {
+    #[serde(rename = "expiresAt")]
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PbacPolicyRequest {
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub effect: PolicyEffect,
+    #[serde(default)]
+    pub principals: Vec<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub resources: Vec<String>,
+    #[serde(default)]
+    pub conditions: PbacConditions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AbacPolicyRequest {
+    #[serde(flatten)]
+    pub policy: AbacPolicy,
 }

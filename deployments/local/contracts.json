@@ -1,6 +1,21 @@
 {
-  "status": "unprovisioned",
+  "status": "provisioned",
   "environment": "local",
   "chainId": 10143,
-  "contracts": {}
+  "deployer": "0xA978BD5ea722e96caFe47384877F39f8E7EAD22f",
+  "contracts": {
+    "policyEngine": {
+      "address": "0x14d0c340556843a8aaf0578bc4fd6cd9377de7e5"
+    },
+    "reputationRegistry": {
+      "address": "0x7d631bbd6d0913d189122f02755623a5eb1d60ba"
+    },
+    "agentWalletGuard": {
+      "address": "0xbbc76a4e3933c00bffb5d5bcdfdb9664cdff8b04"
+    },
+    "settlementToken": {
+      "address": "0x859974e6aa10d5e7da77ddf87e39137c61ac222b"
+    }
+  },
+  "deployBlock": 23
 }

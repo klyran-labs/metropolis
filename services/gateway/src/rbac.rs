@@ -127,6 +127,9 @@ pub enum Capability {
     TripCircuitBreaker,
     ManageTreasury,
     DispatchSettlement,
+    ReadSelf,
+    ManageCredentials,
+    ManageAuthorizationPolicy,
 }
 
 impl Capability {
@@ -140,11 +143,22 @@ impl Capability {
             Self::TripCircuitBreaker => "circuit_breaker.trip",
             Self::ManageTreasury => "treasury.manage",
             Self::DispatchSettlement => "settlement.dispatch",
+            Self::ReadSelf => "self.read",
+            Self::ManageCredentials => "credentials.manage",
+            Self::ManageAuthorizationPolicy => "authorization_policy.manage",
         }
     }
 }
 
 pub fn role_allows(role: Role, capability: Capability) -> bool {
+    // Every authenticated tenant role may read its own identity/role record —
+    // this is how a just-authenticated operator bootstraps their own session,
+    // so it can't be gated behind a capability that's only ever granted to
+    // administrators (that would make it impossible for anyone but
+    // SuperAdmin to ever complete sign-in).
+    if capability == Capability::ReadSelf {
+        return true;
+    }
     match role {
         Role::SuperAdmin => true,
         Role::SecOps => matches!(
@@ -153,6 +167,8 @@ pub fn role_allows(role: Role, capability: Capability) -> bool {
                 | Capability::ReadAudit
                 | Capability::SubscribeTelemetry
                 | Capability::TripCircuitBreaker
+                | Capability::ManageCredentials
+                | Capability::ManageAuthorizationPolicy
         ),
         Role::Treasury => matches!(
             capability,

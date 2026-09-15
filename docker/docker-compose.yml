@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: agentguard
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - agentguard-postgres-data:/var/lib/postgresql/data
+      - agentguard-postgres-v18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agentguard -d agentguard"]
       interval: 5s
@@ -21,7 +21,7 @@ services:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: monad-devnet
     restart: unless-stopped
-    entrypoint: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "10143", "--block-time", "1"]
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "10143", "--block-time", "1", "--mnemonic", "${ANVIL_MNEMONIC:?ANVIL_MNEMONIC is required}"]
     ports:
       - "8545:8545"
     healthcheck:
@@ -40,10 +40,10 @@ services:
         VITE_APP_ENV: local
         VITE_CHAIN_ID: "10143"
         VITE_RPC_URL: ${VITE_RPC_URL:-http://localhost:8545}
-        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:?VITE_POLICY_ENGINE_ADDRESS is required}
-        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:?VITE_REPUTATION_REGISTRY_ADDRESS is required}
-        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:?VITE_AGENT_WALLET_GUARD_ADDRESS is required}
-        VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:?VITE_USDC_TOKEN_ADDRESS is required}
+        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:-}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:-}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:-}
+        VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:-}
         VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
         VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
     container_name: agentguard-web
@@ -85,11 +85,11 @@ services:
       - MONAD_CHAIN_ID=10143
       - MONAD_RPC_URL=http://monad-devnet:8545
       - DEPLOYMENT_MANIFEST_PATH=/app/deploy/environments/local/deployment-manifest.json
-      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:?POLICY_ENGINE_ADDRESS is required}
-      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:?REPUTATION_REGISTRY_ADDRESS is required}
-      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:?AGENT_WALLET_GUARD_ADDRESS is required}
-      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:?USDC_TOKEN_ADDRESS is required}
-      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:?GATEWAY_MERCHANT_ADDRESS is required}
+      - POLICY_ENGINE_ADDRESS=${POLICY_ENGINE_ADDRESS:-}
+      - REPUTATION_REGISTRY_ADDRESS=${REPUTATION_REGISTRY_ADDRESS:-}
+      - AGENT_WALLET_GUARD_ADDRESS=${AGENT_WALLET_GUARD_ADDRESS:-}
+      - USDC_TOKEN_ADDRESS=${USDC_TOKEN_ADDRESS:-}
+      - GATEWAY_MERCHANT_ADDRESS=${GATEWAY_MERCHANT_ADDRESS:-}
       - OPENSIGNER_URL=http://agentguard-opensigner:3001
       - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
       - DATABASE_URL=postgres://agentguard:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@agentguard-postgres:5432/agentguard
@@ -124,6 +124,8 @@ services:
       - OPENSIGNER_MASTER_KEY=${OPENSIGNER_MASTER_KEY:?OPENSIGNER_MASTER_KEY is required}
       - OPENSIGNER_API_TOKEN=${OPENSIGNER_API_TOKEN:?OPENSIGNER_API_TOKEN is required}
       - OPENSIGNER_VAULT_PATH=/data/opensigner.vault.json
+      - MONAD_RPC_URL=http://monad-devnet:8545
+      - MONAD_CHAIN_ID=10143
     volumes:
       - opensigner-data:/data
     healthcheck:
@@ -135,7 +137,7 @@ services:
       - agentguard-network
 
 volumes:
-  agentguard-postgres-data:
+  agentguard-postgres-v18-data:
   opensigner-data:
 
 networks:

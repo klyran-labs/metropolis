@@ -26,6 +26,7 @@ contract MockERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         require(allowance[from][msg.sender] >= amount, "allowance");
         require(balanceOf[from] >= amount, "balance");
+        // forge-lint: disable-next-line(missing-events-access-control)
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
@@ -52,6 +53,7 @@ contract NoReturnDataERC20 {
     function transferFrom(address from, address to, uint256 amount) external {
         require(allowance[from][msg.sender] >= amount, "allowance");
         require(balanceOf[from] >= amount, "balance");
+        // forge-lint: disable-next-line(missing-events-access-control)
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         balanceOf[to] += amount;

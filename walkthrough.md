@@ -12,6 +12,8 @@ The backend and control plane support exactly three profiles:
 
 Each profile has its own compose file, environment template, and deployment manifest. The gateway fails closed when the manifest is missing, unprovisioned, inconsistent with the profile, or missing deployed bytecode.
 
+The local profile is bootstrapped by `make docker-up`: an ignored Anvil mnemonic and deployer account are generated first, Docker Anvil starts with that account, the deployment flow publishes the core contracts and zero-supply local settlement token, and the resulting addresses are written to the ignored `.env.local` before application images are built.
+
 ## Backend authority
 
 PostgreSQL 18 is authoritative for tenant membership, tenant roles, platform roles, plan catalog, subscriptions, payment lifecycle, and billing ledger entries. A subject can have one active tenant membership. Privy verifies identity; its metadata is only an optional routing hint.
@@ -26,7 +28,26 @@ Subscription checkout creates an idempotent payment intent containing the exact 
 
 ## Control plane
 
-The frontend was replaced with a compact React 19/Vite application using Tailwind CSS, TanStack Query/Table/Virtual, Apache eCharts, and a shared Material 3-inspired token layer. Tenant views cover overview, fleet registration, onchain policy authoring, subscription settlement, and server-authoritative settings. Platform views cover plan publication, tenant directory, and confirmed billing ledger visibility.
+The frontend has been elevated into a **Tier-1 Modern SaaS Control Plane** built on React 19, Vite 8, TanStack Router, TanStack Table, and TanStack Virtual:
+
+- **Dual-Bar Navigation Shell**:
+  - **Slim 56px Left Icon Rail** (`SlimIconRail`): Ultra-dense vertical icon navigation with brand mark, active indicators, and tooltips.
+  - **Top Control Bar** (`TopBar`): Workspace context switcher breadcrumbs, primary CTA (`+ New Agent`), `Cmd+K` Omni-Search trigger, AI Copilot quick launcher, live ambient Monad Finality Beacon (`● Monad Testnet · 400ms`), and user avatar profile menu.
+  - **Horizontal Subheader Bar** (`SubheaderTabs`): Pill navigation across workspace sections (`Overview`, `Fleet`, `Treasury`, `Policy`, `Billing`, `Settings`) paired with Cancun transient storage epoch telemetry.
+- **Executive Highlights & Posture Grid**:
+  - **Operational Posture Hero**: Swift agent provisioning and spend governance overview.
+  - **Executive Highlights Card**: All-time protected spend headline metric, delta trend badge (`+2.7%`), multi-segment stacked allocation progress bar (Sovereign Enclaves, Connected Wallets, Treasury Pools, Parallel Relayers), and itemized channel breakdown.
+- **High-Density Fleet Table & Master-Detail Inspection**:
+  - Dense virtualized fleet table with inline search filter (`Search agents, tiers, vaults...`).
+  - **Master-Detail Slide-Over Drawer** (`AgentInspector`): 440px slide-over sheet inspecting Monad disjoint storage slots (`PackedPolicy` 32-byte word), real-time spend velocity meters, wallet fund loads/unloads, and reason code audit trails.
+- **Emergency O(1) Circuit Breaker & Undo Primitive**:
+  - Emergency halt control short-circuiting parallel EVM execution in $O(1)$ time.
+  - 5-second reversible countdown Undo Toast (`UndoToastContainer`).
+- **AI Risk Copilot** (`AICopilot`):
+  - Natural language policy compiler that synthesizes spend limits into live generative action widgets.
+  - Plain-English diagnostic assistant for standardized Monad reason codes (Codes 1 through 9).
+- **Omni-Command Palette** (`CommandPalette`):
+  - Global `Cmd+K` keyboard shortcut for instant fuzzy navigation, agent actions, and theme switching.
 
 The brand is configuration-driven through `VITE_BRAND_NAME`; domain-oriented source filenames do not repeat the brand.
 

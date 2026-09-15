@@ -1,5 +1,98 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Moon, Sun, SunMoon } from "lucide-react";
 import { clsx } from "clsx";
+import { applyTheme, getStoredTheme, resolveTheme, type ThemeMode } from "./theme";
+
+export function Mono({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { children: ReactNode; className?: string }) {
+  return (
+    <span className={clsx("mono", className)} {...props}>
+      {children}
+    </span>
+  );
+}
+
+/** Formats a raw onchain integer amount (no decimal point) as a human currency figure. */
+export function formatTokenAmount(
+  baseUnits: string | number | null | undefined,
+  decimals = 6,
+): string {
+  if (baseUnits === null || baseUnits === undefined || baseUnits === "") return "—";
+  let value: bigint;
+  try {
+    value = typeof baseUnits === "number" ? BigInt(Math.trunc(baseUnits)) : BigInt(baseUnits);
+  } catch {
+    return "—";
+  }
+  const negative = value < 0n;
+  const magnitude = negative ? -value : value;
+  const divisor = 10n ** BigInt(decimals);
+  const whole = magnitude / divisor;
+  const fraction = magnitude % divisor;
+  const fractionStr = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .slice(0, 2);
+  return `${negative ? "-" : ""}${whole.toLocaleString("en-US")}.${fractionStr}`;
+}
+
+const roleLabels: Record<string, string> = {
+  super_admin: "Owner",
+  sec_ops: "Security",
+  treasury: "Treasury",
+  fleet_devops: "Fleet operator",
+  agent_developer: "Developer",
+  auditor: "Auditor",
+};
+
+/** Converts an internal RBAC role string into a name a teammate would recognize. */
+export function roleLabel(role: string | null | undefined): string {
+  if (!role) return "Role pending";
+  return roleLabels[role] ?? role.replace(/_/g, " ");
+}
+
+/** Shortens a long identifier (address, DID) to fit tight UI, keeping both ends readable. */
+export function truncateMiddle(value: string, head = 8, tail = 6): string {
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}
+
+export function TokenAmount({
+  baseUnits,
+  symbol = "USDC",
+  className,
+}: {
+  baseUnits: string | number | null | undefined;
+  symbol?: string;
+  className?: string;
+}) {
+  return (
+    <span className={clsx("token-amount", className)}>
+      {formatTokenAmount(baseUnits)} <small>{symbol}</small>
+    </span>
+  );
+}
+
+export function TextField({
+  label,
+  icon,
+  className,
+  placeholder: _placeholder,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { label: string; icon?: ReactNode }) {
+  const id = useId();
+  return (
+    <div className={clsx("m3-field", icon && "m3-field-has-icon", className)}>
+      {icon && <span className="m3-field-icon">{icon}</span>}
+      <input id={id} placeholder=" " {...props} />
+      <label htmlFor={id}>{label}</label>
+    </div>
+  );
+}
 
 export function Button({
   className,
@@ -25,6 +118,68 @@ export function Surface({
   className?: string;
 }) {
   return <section className={clsx("surface", className)}>{children}</section>;
+}
+
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (open && !node.open) {
+      node.showModal();
+    } else if (!open && node.open) {
+      node.close();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const handleClose = () => onClose();
+    node.addEventListener("close", handleClose);
+    return () => node.removeEventListener("close", handleClose);
+  }, [onClose]);
+
+  return (
+    <dialog
+      ref={ref}
+      className="m3-dialog"
+      aria-labelledby="m3-dialog-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          ref.current?.close();
+        }
+      }}
+      onClick={(event) => {
+        if (event.target === ref.current) {
+          ref.current?.close();
+        }
+      }}
+    >
+      <div className="m3-dialog-header">
+        <h2 id="m3-dialog-title">{title}</h2>
+        {description && <p className="m3-dialog-description">{description}</p>}
+      </div>
+      <div className="m3-dialog-body">{children}</div>
+      <div className="m3-dialog-footer">{footer}</div>
+    </dialog>
+  );
 }
 
 export function EmptyState({
@@ -60,5 +215,69 @@ export function Metric({
       <strong>{value}</strong>
       <small>{detail}</small>
     </div>
+  );
+}
+
+export type BadgeTone = "success" | "warning" | "critical" | "neutral" | "info";
+
+export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
+  return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+function titleCase(key: string) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+export function RecordSummary({
+  record,
+  labels = {},
+}: {
+  record: Record<string, unknown> | null | undefined;
+  labels?: Record<string, string>;
+}) {
+  if (!record) return null;
+  const entries = Object.entries(record).filter(([, value]) => value !== null && value !== undefined);
+  return (
+    <dl className="record-summary">
+      {entries.map(([key, value]) => (
+        <div className="record-summary-row" key={key}>
+          <dt>{labels[key] ?? titleCase(key)}</dt>
+          <dd>{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function useTheme() {
+  const [mode, setModeState] = useState<ThemeMode>(() => getStoredTheme());
+  useEffect(() => {
+    applyTheme(mode);
+  }, [mode]);
+  const setMode = (next: ThemeMode) => setModeState(next);
+  return { mode, resolved: resolveTheme(mode), setMode };
+}
+
+const themeCycle: ThemeMode[] = ["system", "light", "dark"];
+const themeIcon: Record<ThemeMode, ReactNode> = {
+  system: <SunMoon size={16} />,
+  light: <Sun size={16} />,
+  dark: <Moon size={16} />,
+};
+
+export function ThemeToggle() {
+  const { mode, setMode } = useTheme();
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      title={`Theme: ${mode}`}
+      aria-label={`Switch theme, currently ${mode}`}
+      onClick={() => setMode(themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length])}
+    >
+      {themeIcon[mode]}
+    </button>
   );
 }

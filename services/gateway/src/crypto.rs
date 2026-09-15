@@ -87,6 +87,17 @@ pub fn recover_signer(digest: B256, sig_bytes: &[u8]) -> Result<Address, String>
         .map_err(|e| format!("Signature recovery failed: {}", e))
 }
 
+/// Computes the digest an `eth_sign` / `personal_sign` signature is produced over.
+pub fn personal_sign_digest(message: &str) -> B256 {
+    let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+    keccak256([prefix.as_bytes(), message.as_bytes()].concat())
+}
+
+/// Recovers an Ethereum account from an `eth_sign` / `personal_sign` message.
+pub fn recover_personal_signer(message: &str, sig_bytes: &[u8]) -> Result<Address, String> {
+    recover_signer(personal_sign_digest(message), sig_bytes)
+}
+
 /// Parses the Authorization header (supports "x402 <base64>" or raw JSON base64)
 pub fn parse_x402_authorization_header(
     auth_header: &str,

@@ -185,10 +185,15 @@ impl PgRepository {
                     id: row.try_get("id")?,
                     org_id: row.try_get("org_id")?,
                     version: row.try_get("version")?,
-                    effect: serde_json::from_str::<crate::pbac::PolicyEffect>(
-                        &row.try_get::<String, _>("effect")?,
-                    )
-                    .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+                    effect: match row.try_get::<String, _>("effect")?.as_str() {
+                        "allow" => crate::pbac::PolicyEffect::Allow,
+                        "deny" => crate::pbac::PolicyEffect::Deny,
+                        other => {
+                            return Err(sqlx::Error::Decode(
+                                format!("unknown policy effect '{other}'").into(),
+                            ));
+                        }
+                    },
                     principals: serde_json::from_value(principals)
                         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                     actions: serde_json::from_value(actions)

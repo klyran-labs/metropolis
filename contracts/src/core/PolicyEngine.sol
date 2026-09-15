@@ -53,14 +53,18 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     error Unauthorized();
     error ZeroAddress();
     error InvalidPolicyParameters();
-    error NonceAlreadyUsed(address agent, uint256 nonce);
-    error ExpiredRequest(uint256 deadline, uint256 blockTimestamp);
+
+    event AgentAdminUpdated(address indexed agent, address indexed newAdmin);
 
     modifier onlyAgentOrAdmin(address agent) {
+        _checkAgentOrAdmin(agent);
+        _;
+    }
+
+    function _checkAgentOrAdmin(address agent) internal view {
         if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) {
             revert Unauthorized();
         }
-        _;
     }
 
     constructor() {
@@ -71,6 +75,7 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         if (msg.sender != agent && msg.sender != owner) revert Unauthorized();
         if (admin == address(0)) revert ZeroAddress();
         agentAdmin[agent] = admin;
+        emit AgentAdminUpdated(agent, admin);
     }
 
     /// @notice Registers (or revokes) a contract permitted to call `evaluateAndSpend`
@@ -204,6 +209,10 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     }
 
     function evaluate(SpendRequest calldata req) public view override returns (PolicyDecision memory) {
+        return _evaluate(req);
+    }
+
+    function _evaluate(SpendRequest calldata req) internal view returns (PolicyDecision memory) {
         PackedPolicy memory policy = _policies[req.agent];
         PackedState memory state = _states[req.agent];
 
@@ -332,7 +341,7 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             revert Unauthorized();
         }
 
-        decision = evaluate(req);
+        decision = _evaluate(req);
 
         emit SpendEvaluated(req.agent, req.merchant, req.amount, decision.allowed, decision.reasonCode);
 

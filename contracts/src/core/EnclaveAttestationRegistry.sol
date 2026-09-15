@@ -27,12 +27,14 @@ contract EnclaveAttestationRegistry {
 
     error Unauthorized();
     error ZeroAddress();
-    error ExpiredAttestation();
-    error EnclaveRevokedError();
 
     modifier onlyVerifier() {
-        if (!authorizedVerifiers[msg.sender] && msg.sender != owner) revert Unauthorized();
+        _checkVerifier();
         _;
+    }
+
+    function _checkVerifier() internal view {
+        if (!authorizedVerifiers[msg.sender] && msg.sender != owner) revert Unauthorized();
     }
 
     constructor() {
@@ -43,6 +45,7 @@ contract EnclaveAttestationRegistry {
     function setVerifier(address verifier, bool authorized) external {
         if (msg.sender != owner) revert Unauthorized();
         if (verifier == address(0)) revert ZeroAddress();
+        // forge-lint: disable-next-line(missing-events-access-control)
         authorizedVerifiers[verifier] = authorized;
         emit VerifierUpdated(verifier, authorized);
     }
@@ -53,6 +56,7 @@ contract EnclaveAttestationRegistry {
     {
         if (agent == address(0)) revert ZeroAddress();
 
+        // forge-lint: disable-next-line(unsafe-typecast)
         uint64 nowSec = uint64(block.timestamp);
         uint64 expiresAt = nowSec + validDurationSeconds;
 

@@ -1,78 +1,159 @@
+import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  Activity,
+  BarChart3,
+  Building2,
   CreditCard,
+  Landmark,
   LayoutDashboard,
   ListTree,
+  LogOut,
+  Receipt,
+  Scale,
   Settings2,
   ShieldCheck,
   UsersRound,
+  Wallet,
+  Sparkles,
+  HelpCircle,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { configuration, networkLabel } from "./configuration";
-import { Button } from "./design-system";
+import { Badge, Mono, ThemeToggle, roleLabel, truncateMiddle } from "./design-system";
+import { useIdentity } from "./identity";
 
-export type View =
-  "overview" | "fleet" | "policy" | "billing" | "settings" | "platform";
-const tenantItems: Array<[View, string, ReactNode]> = [
-  ["overview", "Overview", <LayoutDashboard size={17} />],
-  ["fleet", "Fleet", <ListTree size={17} />],
-  ["policy", "Policy", <ShieldCheck size={17} />],
-  ["billing", "Subscription", <CreditCard size={17} />],
-  ["settings", "Settings", <Settings2 size={17} />],
+export type NavItemDef = {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  badge?: string;
+};
+
+export const tenantNavItems: NavItemDef[] = [
+  { to: "/app/overview", label: "Overview", icon: <LayoutDashboard size={19} /> },
+  { to: "/app/fleet", label: "Fleet", icon: <ListTree size={19} /> },
+  { to: "/app/treasury", label: "Treasury", icon: <Landmark size={19} /> },
+  { to: "/app/policy", label: "Policy", icon: <ShieldCheck size={19} /> },
+  { to: "/app/billing", label: "Billing", icon: <CreditCard size={19} /> },
+  { to: "/app/settings", label: "Settings", icon: <Settings2 size={19} /> },
 ];
 
-export function Navigation({
-  view,
-  onView,
-  platformAccess,
-  onLogout,
+export const adminNavItems: NavItemDef[] = [
+  { to: "/admin/overview", label: "Overview", icon: <LayoutDashboard size={19} /> },
+  { to: "/admin/tenants", label: "Tenants", icon: <Building2 size={19} /> },
+  { to: "/admin/plans", label: "Plans", icon: <Scale size={19} /> },
+  { to: "/admin/subscriptions", label: "Subscriptions", icon: <Receipt size={19} /> },
+  { to: "/admin/billing", label: "Billing ledger", icon: <Wallet size={19} /> },
+  { to: "/admin/reconciliation", label: "Reconciliation", icon: <BarChart3 size={19} /> },
+  { to: "/admin/revenue", label: "Revenue", icon: <CreditCard size={19} /> },
+  { to: "/admin/access", label: "Access", icon: <UsersRound size={19} /> },
+];
+
+export function SlimIconRail({
+  items,
+  area,
 }: {
-  view: View;
-  onView: (view: View) => void;
-  platformAccess: boolean;
-  onLogout: () => void;
+  items: NavItemDef[];
+  area: "app" | "admin";
 }) {
+  const identity = useIdentity();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
   return (
-    <aside className="sidenav">
-      <div className="brand">
-        <span className="brand-mark">A</span>
-        <div>
-          <strong>{configuration.brand}</strong>
-          <small>{networkLabel}</small>
-        </div>
+    <aside className="slim-icon-rail" aria-label="Main Navigation">
+      {/* Brand Mark */}
+      <div className="rail-top">
+        <Link to={area === "app" ? "/app/overview" : "/admin/overview"} className="rail-brand-mark" title={configuration.brand}>
+          <span className="brand-letter">C</span>
+        </Link>
       </div>
-      <nav aria-label="Primary navigation">
-        {tenantItems.map(([id, label, icon]) => (
-          <button
-            type="button"
-            key={id}
-            className={view === id ? "nav-item active" : "nav-item"}
-            onClick={() => onView(id)}
-          >
-            {icon}
-            <span>{label}</span>
-          </button>
-        ))}
-        {platformAccess && (
-          <button
-            type="button"
-            className={view === "platform" ? "nav-item active" : "nav-item"}
-            onClick={() => onView("platform")}
-          >
-            <UsersRound size={17} />
-            <span>Platform admin</span>
-          </button>
-        )}
+
+      {/* Primary Icon Stack */}
+      <nav className="rail-nav" aria-label="Navigation Items">
+        {items.map((item) => {
+          const isActive = pathname.startsWith(item.to);
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`rail-nav-btn ${isActive ? "active" : ""}`}
+              title={item.label}
+              aria-label={item.label}
+            >
+              <span className="rail-icon-wrapper">
+                {item.icon}
+              </span>
+              <span className="rail-tooltip">{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
-      <div className="sidenav-bottom">
-        <div className="profile-chip">
-          <Activity size={15} />
-          <span>Live authority</span>
+
+      {/* Rail Bottom Actions */}
+      <div className="rail-bottom">
+        <div className="rail-action-btn" title="Theme">
+          <ThemeToggle />
         </div>
-        <Button variant="text" onClick={onLogout}>
-          Sign out
-        </Button>
+        <button
+          type="button"
+          className="rail-nav-btn rail-logout-btn"
+          onClick={() => void identity.logout()}
+          title="Sign out"
+          aria-label="Sign out"
+        >
+          <LogOut size={17} />
+          <span className="rail-tooltip">Sign out</span>
+        </button>
       </div>
     </aside>
+  );
+}
+
+export function SubheaderTabs({
+  items,
+}: {
+  items: NavItemDef[];
+}) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  return (
+    <nav className="subheader-tabs-bar" aria-label="Sub-navigation">
+      <div className="subheader-tabs-list">
+        {items.map((item) => {
+          const isActive = pathname.startsWith(item.to);
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`subheader-tab-link ${isActive ? "active" : ""}`}
+            >
+              {item.label}
+              {item.badge && <span className="tab-badge">{item.badge}</span>}
+            </Link>
+          );
+        })}
+      </div>
+      <div className="subheader-epoch-info">
+        <span className="epoch-pill">
+          <span className="epoch-dot" />
+          Monad Parallel EVM · Cancun Transient Storage
+        </span>
+      </div>
+    </nav>
+  );
+}
+
+export function TenantNav() {
+  return (
+    <>
+      <SlimIconRail items={tenantNavItems} area="app" />
+    </>
+  );
+}
+
+export function AdminNav() {
+  return (
+    <>
+      <SlimIconRail items={adminNavItems} area="admin" />
+    </>
   );
 }

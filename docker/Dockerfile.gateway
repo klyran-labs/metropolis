@@ -33,6 +33,7 @@ ENV PORT=8080
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/agentguard-gateway /app/agentguard-gateway
+COPY --from=builder /app/deploy/environments /app/deploy/environments
 
 EXPOSE 8080
 

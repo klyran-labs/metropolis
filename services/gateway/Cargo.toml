@@ -24,6 +24,7 @@ sha2 = "0.10"
 subtle = "2.6"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 uuid = { version = "1.18", features = ["serde", "v7"] }
+rand = "0.8"
 ipnet = { version = "2.11", features = ["serde"] }
 futures-util = "0.3"
 tokio-stream = { version = "0.1", features = ["sync"] }

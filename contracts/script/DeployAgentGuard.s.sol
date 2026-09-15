@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import "../src/core/PolicyEngine.sol";
-import "../src/core/ReputationRegistry.sol";
-import "../src/core/AgentWalletGuard.sol";
+import {PolicyEngine} from "../src/core/PolicyEngine.sol";
+import {ReputationRegistry} from "../src/core/ReputationRegistry.sol";
+import {AgentWalletGuard} from "../src/core/AgentWalletGuard.sol";
 
 /**
  * @title DeployAgentGuard

@@ -4,14 +4,23 @@ use agentguard_gateway::{
     config::Config,
     handlers::{
         AppState, authentication_middleware, authorization_middleware, checkout_handler,
-        create_plan_handler, create_signing_wallet_handler, create_tenant_handler,
-        get_agent_policy_handler, get_subscription_handler, get_user_role_handler, health_handler,
-        inference_handler, list_agents_handler, list_plans_handler, list_platform_ledger_handler,
-        list_platform_operators_handler, list_platform_subscriptions_handler,
-        list_signing_wallets_handler, list_tenant_operators_handler, list_tenants_handler,
-        prepare_agent_policy_handler, ready_handler, register_agent_handler,
-        submit_payment_handler, telemetry_stream, update_user_role_handler,
-        upsert_platform_operator_handler,
+        create_api_key_handler, create_onboarding_tenant_handler,
+        create_or_revise_pbac_policy_handler, create_plan_handler, create_signing_wallet_handler,
+        create_tenant_handler, deactivate_pbac_policy_handler, get_abac_policy_handler,
+        get_agent_policy_handler, get_platform_reconciliation_handler,
+        get_platform_revenue_summary_handler, get_subscription_handler, get_user_role_handler,
+        grant_wallet_access_handler, health_handler, inference_handler, list_agents_handler,
+        list_api_keys_handler, list_organization_wallets_handler, list_pbac_policies_handler,
+        list_plans_handler, list_platform_ledger_handler, list_platform_operators_handler,
+        list_platform_subscriptions_handler, list_signing_wallets_handler,
+        list_telemetry_events_handler, list_tenant_operators_handler, list_tenants_handler,
+        list_wallet_access_handler, list_wallet_transfers_handler,
+        onboarding_authentication_middleware, prepare_agent_policy_handler, prepare_load_handler,
+        prepare_unload_handler, put_abac_policy_handler, ready_handler, register_agent_handler,
+        register_organization_wallet_handler, revoke_api_key_handler, revoke_wallet_access_handler,
+        rotate_api_key_handler, sign_approval_ticket_handler, submit_payment_handler,
+        submit_wallet_transfer_handler, telemetry_stream, update_user_role_handler,
+        update_wallet_threshold_handler, upsert_platform_operator_handler,
     },
     repository::PgRepository,
     telemetry::EventHub,
@@ -77,7 +86,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(inference_handler).post(inference_handler),
         );
 
+    let onboarding = Router::new()
+        .route(
+            "/api/v1/onboarding/tenant",
+            axum::routing::post(create_onboarding_tenant_handler),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            onboarding_authentication_middleware,
+        ));
+
     let protected = Router::new()
+        .route(
+            "/api/v1/telemetry/events",
+            get(list_telemetry_events_handler),
+        )
         .route("/api/v1/telemetry/stream", get(telemetry_stream))
         .route(
             "/api/v1/agents",
@@ -105,6 +128,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(list_platform_ledger_handler),
         )
         .route(
+            "/api/v1/platform/billing/revenue-summary",
+            get(get_platform_revenue_summary_handler),
+        )
+        .route(
+            "/api/v1/platform/billing/reconciliation",
+            get(get_platform_reconciliation_handler),
+        )
+        .route(
             "/api/v1/platform/operators",
             get(list_platform_operators_handler).post(upsert_platform_operator_handler),
         )
@@ -129,6 +160,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/signing/vault",
             get(list_signing_wallets_handler).post(create_signing_wallet_handler),
         )
+        .route(
+            "/api/v1/organization/wallets",
+            get(list_organization_wallets_handler).post(register_organization_wallet_handler),
+        )
+        .route(
+            "/api/v1/organization/wallets/:wallet_id",
+            axum::routing::patch(update_wallet_threshold_handler),
+        )
+        .route(
+            "/api/v1/organization/wallets/:wallet_id/access",
+            get(list_wallet_access_handler).post(grant_wallet_access_handler),
+        )
+        .route(
+            "/api/v1/organization/wallets/:wallet_id/access/:subject",
+            axum::routing::delete(revoke_wallet_access_handler),
+        )
+        .route(
+            "/api/v1/agents/:agent/load",
+            axum::routing::post(prepare_load_handler),
+        )
+        .route(
+            "/api/v1/agents/:agent/unload",
+            axum::routing::post(prepare_unload_handler),
+        )
+        .route(
+            "/api/v1/agents/:agent/wallet-transfers",
+            get(list_wallet_transfers_handler),
+        )
+        .route(
+            "/api/v1/wallet-transfers/:transfer_id/submit",
+            axum::routing::post(submit_wallet_transfer_handler),
+        )
+        .route(
+            "/api/v1/wallet-transfers/:transfer_id/approve",
+            axum::routing::post(sign_approval_ticket_handler),
+        )
+        .route(
+            "/api/v1/api-keys",
+            get(list_api_keys_handler).post(create_api_key_handler),
+        )
+        .route(
+            "/api/v1/api-keys/:id",
+            axum::routing::patch(rotate_api_key_handler).delete(revoke_api_key_handler),
+        )
+        .route(
+            "/api/v1/policies/pbac",
+            get(list_pbac_policies_handler).post(create_or_revise_pbac_policy_handler),
+        )
+        .route(
+            "/api/v1/policies/pbac/:id",
+            axum::routing::delete(deactivate_pbac_policy_handler),
+        )
+        .route(
+            "/api/v1/policies/abac",
+            get(get_abac_policy_handler).put(put_abac_policy_handler),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             authorization_middleware,
@@ -145,11 +232,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?;
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(cors_origins))
-        .allow_methods(axum::http::Method::GET)
-        .allow_methods(axum::http::Method::POST)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PATCH,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ])
         .allow_headers(Any);
 
     let app = public
+        .merge(onboarding)
         .merge(protected)
         .layer(cors)
         .layer(TraceLayer::new_for_http())

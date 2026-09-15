@@ -22,11 +22,15 @@ pub enum RiskTier {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AbacPolicy {
     #[serde(default)]
     pub allowed_cidrs: Vec<IpNet>,
+    #[serde(default)]
     pub require_mfa: bool,
+    #[serde(default)]
     pub max_amount: Option<U256>,
+    #[serde(default)]
     pub max_gas_price: Option<U256>,
     #[serde(default = "default_start_hour")]
     pub trading_start_hour_utc: u8,

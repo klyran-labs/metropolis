@@ -1,7 +1,42 @@
 import { privateKeyToAccount } from 'viem/accounts';
+import {
+  createWalletClient,
+  createPublicClient,
+  http,
+  encodeFunctionData,
+  parseAbi,
+  type Chain,
+} from 'viem';
 import type { EncryptedVault } from './vault.js';
 
 export const MONAD_TESTNET_CHAIN_ID = 10143;
+
+const ERC20_ABI = parseAbi([
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+]);
+
+const AGENT_WALLET_GUARD_ABI = parseAbi([
+  'function executeGatedPayment((address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint256 nonce) req, bytes signature, address token, bytes extraCallData) returns (bool success)',
+]);
+
+const POLICY_ENGINE_ABI = parseAbi([
+  'function setMerchantWhitelist(address agent, address merchant, bool allowed) external',
+]);
+
+export interface ChainConnection {
+  rpcUrl: string;
+  chainId: number;
+}
+
+function chainFor(chainId: number): Chain {
+  return {
+    id: chainId,
+    name: `monad-${chainId}`,
+    nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+    rpcUrls: { default: { http: [] } },
+  };
+}
 
 export const DEFAULT_EIP712_DOMAIN_NAME = 'AgentGuard_PolicyEngine';
 export const DEFAULT_EIP712_DOMAIN_VERSION = '1';
@@ -50,9 +85,23 @@ export interface SpendRequestSignResult {
 
 export class OpenSignerEngine {
   private vault: EncryptedVault;
+  private connection?: ChainConnection;
 
-  constructor(vault: EncryptedVault) {
+  constructor(vault: EncryptedVault, connection?: ChainConnection) {
     this.vault = vault;
+    this.connection = connection;
+  }
+
+  private clients(chainId?: number) {
+    if (!this.connection) {
+      throw new Error('OpenSigner is not configured with an RPC connection; transaction submission is unavailable.');
+    }
+    const chain = chainFor(chainId || this.connection.chainId);
+    const transport = http(this.connection.rpcUrl);
+    return {
+      publicClient: createPublicClient({ chain, transport }),
+      walletClient: createWalletClient({ chain, transport }),
+    };
   }
 
   public async signSpendRequest(
@@ -137,5 +186,149 @@ export class OpenSignerEngine {
       signature,
       signer: account.address,
     };
+  }
+
+  /**
+   * Plain ERC-20 transfer submitted and paid for by this wallet's own MON balance. Used for
+   * Load into a sovereign wallet. Deliberately narrow: the only calldata this method will ever
+   * construct is `transfer(to, amount)` on the caller-specified token.
+   */
+  public async executeTransfer(
+    walletIdOrAddress: string,
+    params: { tokenAddress: `0x${string}`; to: `0x${string}`; amount: string | bigint; chainId?: number }
+  ): Promise<{ transactionHash: `0x${string}`; from: `0x${string}` }> {
+    const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
+    const account = privateKeyToAccount(privKey);
+    const { publicClient, walletClient } = this.clients(params.chainId);
+
+    const data = encodeFunctionData({
+      abi: ERC20_ABI,
+      functionName: 'transfer',
+      args: [params.to, BigInt(params.amount)],
+    });
+    const transactionHash = await walletClient.sendTransaction({
+      account,
+      chain: null,
+      to: params.tokenAddress,
+      data,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
+    if (receipt.status !== 'success') {
+      throw new Error(`Transfer transaction reverted: ${transactionHash}`);
+    }
+    return { transactionHash, from: account.address };
+  }
+
+  /**
+   * Signs and submits a policy-gated sweep: approve() then executeGatedPayment() on the
+   * AgentWalletGuard, using this wallet's own MON for gas. Used for Unload. The spend is still
+   * evaluated by PolicyEngine on execution — this method never bypasses it, it only removes the
+   * need for a human to hold the agent's key in order to submit the resulting transaction.
+   */
+  public async executeGatedPayment(
+    walletIdOrAddress: string,
+    params: {
+      request: SpendRequestPayload;
+      signature?: `0x${string}`;
+      verifyingContract: `0x${string}`;
+      tokenAddress: `0x${string}`;
+      chainId?: number;
+      /** If set, submits setMerchantWhitelist(agent, merchant, true) on PolicyEngine first —
+       * the agent whitelisting its own sweep destination, same as any other policy change it's
+       * entitled to make for itself. Only ever called when the caller has confirmed onchain
+       * that the merchant isn't already whitelisted. */
+      whitelistMerchant?: { policyEngineAddress: `0x${string}` };
+    }
+  ): Promise<{ whitelistHash?: `0x${string}`; approvalHash: `0x${string}`; transactionHash: `0x${string}` }> {
+    const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
+    const account = privateKeyToAccount(privKey);
+    const { publicClient, walletClient } = this.clients(params.chainId);
+
+    let whitelistHash: `0x${string}` | undefined;
+    if (params.whitelistMerchant) {
+      const whitelistData = encodeFunctionData({
+        abi: POLICY_ENGINE_ABI,
+        functionName: 'setMerchantWhitelist',
+        args: [params.request.agent, params.request.merchant, true],
+      });
+      whitelistHash = await walletClient.sendTransaction({
+        account,
+        chain: null,
+        to: params.whitelistMerchant.policyEngineAddress,
+        data: whitelistData,
+      });
+      const whitelistReceipt = await publicClient.waitForTransactionReceipt({ hash: whitelistHash });
+      if (whitelistReceipt.status !== 'success') {
+        throw new Error(`Merchant whitelist transaction reverted: ${whitelistHash}`);
+      }
+    }
+
+    const signed = params.signature
+      ? {
+          signature: params.signature,
+          request: {
+            agent: params.request.agent,
+            merchant: params.request.merchant,
+            amount: BigInt(params.request.amount).toString(),
+            category:
+              params.request.category ||
+              ('0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`),
+            timestamp: BigInt(params.request.timestamp).toString(),
+            deadline: BigInt(params.request.deadline).toString(),
+            nonce: BigInt(params.request.nonce).toString(),
+          },
+        }
+      : await this.signSpendRequest(walletIdOrAddress, {
+          request: params.request,
+          verifyingContract: params.verifyingContract,
+          chainId: params.chainId,
+        });
+
+    const approvalData = encodeFunctionData({
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [params.verifyingContract, BigInt(signed.request.amount)],
+    });
+    const approvalHash = await walletClient.sendTransaction({
+      account,
+      chain: null,
+      to: params.tokenAddress,
+      data: approvalData,
+    });
+    const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+    if (approvalReceipt.status !== 'success') {
+      throw new Error(`Approval transaction reverted: ${approvalHash}`);
+    }
+
+    const executeData = encodeFunctionData({
+      abi: AGENT_WALLET_GUARD_ABI,
+      functionName: 'executeGatedPayment',
+      args: [
+        {
+          agent: signed.request.agent,
+          merchant: signed.request.merchant,
+          amount: BigInt(signed.request.amount),
+          category: signed.request.category,
+          timestamp: BigInt(signed.request.timestamp),
+          deadline: BigInt(signed.request.deadline),
+          nonce: BigInt(signed.request.nonce),
+        },
+        signed.signature,
+        params.tokenAddress,
+        '0x',
+      ],
+    });
+    const transactionHash = await walletClient.sendTransaction({
+      account,
+      chain: null,
+      to: params.verifyingContract,
+      data: executeData,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
+    if (receipt.status !== 'success') {
+      throw new Error(`Gated payment transaction reverted: ${transactionHash}`);
+    }
+
+    return { whitelistHash, approvalHash, transactionHash };
   }
 }

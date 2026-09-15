@@ -10,6 +10,7 @@ pub enum PolicyEffect {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PbacConditions {
     pub max_amount: Option<U256>,
     pub required_multisig_signatures: Option<u8>,
@@ -19,6 +20,7 @@ pub struct PbacConditions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PbacPolicy {
     pub id: Uuid,
     pub org_id: String,

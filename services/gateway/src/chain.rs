@@ -2,10 +2,10 @@ use crate::{
     config::Config,
     repository::{ChainEventRecord, PgRepository},
     telemetry::{EventHub, GatewayEvent},
-    types::{IPolicyEngine, SpendRequest},
+    types::{IERC20Balance, IERC1271, IPolicyEngine, SpendRequest},
 };
 use alloy::{
-    primitives::{Address, U256, keccak256},
+    primitives::{Address, B256, U256, keccak256},
     providers::{Provider, ProviderBuilder, ReqwestProvider},
 };
 use reqwest::Client;
@@ -70,6 +70,49 @@ impl ChainClient {
                 kill_switch: result.killSwitch,
                 whitelist_enabled: result.whitelistEnabled,
             })
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn is_merchant_whitelisted(
+        &self,
+        agent: Address,
+        merchant: Address,
+    ) -> Result<bool, String> {
+        let contract = IPolicyEngine::new(self.config.policy_engine_address, self.provider.clone());
+        contract
+            .isMerchantWhitelisted(agent, merchant)
+            .call()
+            .await
+            .map(|result| result._0)
+            .map_err(|error| error.to_string())
+    }
+
+    /// ERC-1271 `isValidSignature` check against a smart-contract wallet (e.g. a Safe). Returns
+    /// false (not an error) when `contract` has no bytecode or reverts, since that just means
+    /// "not a valid contract signer" rather than a chain-connectivity failure.
+    pub async fn verify_erc1271_signature(
+        &self,
+        contract: Address,
+        digest: B256,
+        signature: &[u8],
+    ) -> bool {
+        const ERC1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
+        let binding = IERC1271::new(contract, self.provider.clone());
+        binding
+            .isValidSignature(digest, signature.to_vec().into())
+            .call()
+            .await
+            .map(|result| result.magicValue.0 == ERC1271_MAGIC_VALUE)
+            .unwrap_or(false)
+    }
+
+    pub async fn token_balance(&self, token: Address, holder: Address) -> Result<U256, String> {
+        let contract = IERC20Balance::new(token, self.provider.clone());
+        contract
+            .balanceOf(holder)
+            .call()
+            .await
+            .map(|result| result._0)
             .map_err(|error| error.to_string())
     }
 
@@ -368,6 +411,41 @@ impl ChainReceipt {
             })
         })
     }
+
+    pub fn matches_erc20_transfer(
+        &self,
+        token: Address,
+        from: Address,
+        to: Address,
+        amount: U256,
+    ) -> bool {
+        if self.to.as_deref().map(str::to_ascii_lowercase) != Some(format!("{token:#x}"))
+            || self.status.as_deref() != Some("0x1")
+        {
+            return false;
+        }
+        let transfer_topic = keccak256("Transfer(address,address,uint256)".as_bytes()).to_string();
+        let expected_from = format!("0x{:064x}", from);
+        let expected_to = format!("0x{:064x}", to);
+        self.logs.as_deref().is_some_and(|logs| {
+            logs.iter().any(|log| {
+                log.address.eq_ignore_ascii_case(&format!("{token:#x}"))
+                    && log.topics.len() == 3
+                    && log.topics[0].eq_ignore_ascii_case(&transfer_topic)
+                    && log.topics[1].eq_ignore_ascii_case(&expected_from)
+                    && log.topics[2].eq_ignore_ascii_case(&expected_to)
+                    && decode_transfer_amount(&log.data) == Some(amount)
+            })
+        })
+    }
+}
+
+fn decode_transfer_amount(data: &str) -> Option<U256> {
+    let bytes = hex::decode(data.strip_prefix("0x").unwrap_or(data)).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    Some(U256::from_be_slice(&bytes))
 }
 
 fn decode_payment_words(data: &str) -> Option<(U256, U256, String)> {

@@ -16,13 +16,18 @@ interface IERC721Minimal {
 contract AgentAccount is IERC6551Account, IERC1271 {
     uint256 private _state;
 
+    error NotTokenOwner();
+    error ExecutionFailed();
+    error ZeroAddress();
+
     receive() external payable {}
 
     function execute(address to, uint256 value, bytes calldata data) external payable returns (bytes memory) {
-        require(msg.sender == owner(), "Not token owner");
+        if (msg.sender != owner()) revert NotTokenOwner();
+        if (to == address(0)) revert ZeroAddress();
         _state++;
         (bool success, bytes memory result) = to.call{value: value}(data);
-        require(success, "Execution failed");
+        if (!success) revert ExecutionFailed();
         return result;
     }
 

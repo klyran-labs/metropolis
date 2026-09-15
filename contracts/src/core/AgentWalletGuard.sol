@@ -182,6 +182,10 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
             s := calldataload(add(sig.offset, 32))
             v := byte(0, calldataload(add(sig.offset, 64)))
         }
+        // EIP-2 enforces s <= secp256k1n / 2 to reject malleable signatures
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            return address(0);
+        }
         if (v < 27) v += 27;
         if (v != 27 && v != 28) return address(0);
         return ecrecover(digest, v, r, s);
