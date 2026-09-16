@@ -27,9 +27,16 @@ const address = (key: string): Address | null => {
     : null;
 };
 
+export type AppTarget = "tenant" | "admin" | "unified";
+
+const targetRaw = read("VITE_APP_TARGET", "unified");
+const appTarget: AppTarget =
+  targetRaw === "tenant" || targetRaw === "admin" ? targetRaw : "unified";
+
 export const configuration = {
   brand: read("VITE_BRAND_NAME", "AgentGuard"),
   profile: runtimeProfile,
+  appTarget,
   chainId,
   rpcUrl: read("VITE_RPC_URL"),
   apiBaseUrl: read("VITE_API_BASE_URL", "/api/v1"),
@@ -41,6 +48,10 @@ export const configuration = {
     settlementToken: address("VITE_USDC_TOKEN_ADDRESS"),
   },
 } as const;
+
+export const isTenantTarget = () => configuration.appTarget === "tenant";
+export const isAdminTarget = () => configuration.appTarget === "admin";
+export const isUnifiedTarget = () => configuration.appTarget === "unified";
 
 export const networkLabel =
   runtimeProfile === "local"

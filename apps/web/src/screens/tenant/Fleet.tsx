@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, PauseCircle, Sparkles, Wallet } from "lucide-react";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, PauseCircle, Sparkles, Wallet } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   request,
@@ -13,26 +13,63 @@ import {
   useWalletTransfers,
   type Agent,
 } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
 import { AgentInspector } from "./AgentInspector";
 
+function CopyAddressButton({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void navigator.clipboard?.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="agent-cell-wrapper">
+      <Mono>{truncateMiddle(address, 10, 6)}</Mono>
+      <button
+        type="button"
+        className="table-copy-btn"
+        onClick={copy}
+        title={copied ? "Copied!" : "Copy address to clipboard"}
+        aria-label="Copy address"
+      >
+        {copied ? <Check size={13} className="copy-success" /> : <Copy size={13} />}
+      </button>
+    </div>
+  );
+}
+
 const fleetFeatures = tableFeatures({});
 const fleetColumnHelper = createColumnHelper<typeof fleetFeatures, Agent>();
 const fleetColumns = fleetColumnHelper.columns([
-  fleetColumnHelper.accessor("address", { header: "Agent", cell: (info) => <Mono>{info.getValue()}</Mono> }),
+  fleetColumnHelper.accessor("address", {
+    header: "Agent",
+    cell: (info) => <CopyAddressButton address={info.getValue()} />,
+  }),
   fleetColumnHelper.accessor("walletSource", {
     header: "Wallet",
     cell: (info) => (
       <Badge tone={info.getValue() === "sovereign" ? "info" : "neutral"}>
-        {info.getValue() === "sovereign" ? "Managed for you" : "Connected"}
+        {info.getValue() === "sovereign" ? "Managed Enclave" : "Connected Wallet"}
       </Badge>
     ),
   }),
   fleetColumnHelper.accessor("environment", { header: "Environment" }),
   fleetColumnHelper.accessor("riskTier", { header: "Risk tier" }),
-  fleetColumnHelper.accessor("status", { header: "State" }),
+  fleetColumnHelper.accessor("status", {
+    header: "State",
+    cell: (info) => (
+      <div className="agent-state-pill">
+        <span
+          className={`status-dot ${info.getValue() === "active" ? "status-dot-success" : "status-dot-warning"}`}
+        />
+        <span>{info.getValue()}</span>
+      </div>
+    ),
+  }),
 ]);
 
 function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
@@ -245,7 +282,7 @@ export function Fleet() {
   const virtual = useVirtualizer({
     count: table.getRowModel().rows.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => 52,
+    estimateSize: () => 38,
     overscan: 8,
   });
   const register = async () => {

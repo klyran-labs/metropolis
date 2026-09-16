@@ -139,7 +139,10 @@ export function TopBar({
 
         {/* Ambient Monad Finality Beacon */}
         <div className="top-bar-finality-beacon" title="Live Monad Parallel EVM settlement (400ms blocks)">
-          <span className="beacon-dot" />
+          <span className="beacon-radar" aria-hidden="true">
+            <span className="beacon-radar-ping" />
+            <span className="beacon-radar-dot" />
+          </span>
           <span className="beacon-text">{networkLabel}</span>
           <span className="beacon-speed">400ms</span>
         </div>

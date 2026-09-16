@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNo
 import { useEffect, useId, useRef, useState } from "react";
 import { Moon, Sun, SunMoon } from "lucide-react";
 import { clsx } from "clsx";
-import { applyTheme, getStoredTheme, resolveTheme, type ThemeMode } from "./theme";
+import { applyTheme, getStoredTheme, resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme";
 
 export function Mono({
   children,
@@ -253,31 +253,83 @@ export function RecordSummary({
 
 export function useTheme() {
   const [mode, setModeState] = useState<ThemeMode>(() => getStoredTheme());
+  const [systemPrefers, setSystemPrefers] = useState<"light" | "dark">(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light",
+  );
+
   useEffect(() => {
     applyTheme(mode);
   }, [mode]);
-  const setMode = (next: ThemeMode) => setModeState(next);
-  return { mode, resolved: resolveTheme(mode), setMode };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleSync = (e: Event) => {
+      const ce = e as CustomEvent<{ mode: ThemeMode; resolved: ResolvedTheme }>;
+      if (ce.detail?.mode && ce.detail.mode !== mode) {
+        setModeState(ce.detail.mode);
+      }
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "agentguard-theme" && e.newValue) {
+        const val = e.newValue as ThemeMode;
+        if (val === "light" || val === "dark" || val === "system") {
+          setModeState(val);
+        }
+      }
+    };
+    window.addEventListener("agentguard:theme-change", handleSync);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("agentguard:theme-change", handleSync);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemPrefers(e.matches ? "dark" : "light");
+      if (mode === "system") {
+        applyTheme("system");
+      }
+    };
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, [mode]);
+
+  const resolved = mode === "system" ? systemPrefers : mode;
+
+  const toggleTheme = () => {
+    // 1-click direct toggle: if currently dark (system or manual), switch to light; if light, switch to dark
+    const nextMode: ThemeMode = resolved === "dark" ? "light" : "dark";
+    applyTheme(nextMode);
+    setModeState(nextMode);
+  };
+
+  const setMode = (next: ThemeMode) => {
+    applyTheme(next);
+    setModeState(next);
+  };
+
+  return { mode, resolved, setMode, toggleTheme };
 }
 
-const themeCycle: ThemeMode[] = ["system", "light", "dark"];
-const themeIcon: Record<ThemeMode, ReactNode> = {
-  system: <SunMoon size={16} />,
-  light: <Sun size={16} />,
-  dark: <Moon size={16} />,
-};
-
 export function ThemeToggle() {
-  const { mode, setMode } = useTheme();
+  const { resolved, toggleTheme } = useTheme();
   return (
     <button
       type="button"
       className="theme-toggle"
-      title={`Theme: ${mode}`}
-      aria-label={`Switch theme, currently ${mode}`}
-      onClick={() => setMode(themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length])}
+      title={`Switch to ${resolved === "dark" ? "light" : "dark"} mode`}
+      aria-label={`Switch to ${resolved === "dark" ? "light" : "dark"} mode`}
+      onClick={toggleTheme}
     >
-      {themeIcon[mode]}
+      <span className="theme-toggle-icon" aria-hidden="true">
+        {resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+      </span>
     </button>
   );
 }

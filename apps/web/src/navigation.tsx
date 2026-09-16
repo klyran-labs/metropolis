@@ -15,6 +15,10 @@ import {
   Wallet,
   Sparkles,
   HelpCircle,
+  PlayCircle,
+  Radio,
+  Store,
+  CheckCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { configuration, networkLabel } from "./configuration";
@@ -31,8 +35,12 @@ export type NavItemDef = {
 export const tenantNavItems: NavItemDef[] = [
   { to: "/app/overview", label: "Overview", icon: <LayoutDashboard size={19} /> },
   { to: "/app/fleet", label: "Fleet", icon: <ListTree size={19} /> },
-  { to: "/app/treasury", label: "Treasury", icon: <Landmark size={19} /> },
   { to: "/app/policy", label: "Policy", icon: <ShieldCheck size={19} /> },
+  { to: "/app/simulator", label: "Simulator", icon: <PlayCircle size={19} />, badge: "Dry-Run" },
+  { to: "/app/activity", label: "Activity", icon: <Radio size={19} />, badge: "Live" },
+  { to: "/app/merchants", label: "Merchants", icon: <Store size={19} /> },
+  { to: "/app/quorum", label: "Quorum", icon: <UsersRound size={19} /> },
+  { to: "/app/treasury", label: "Treasury", icon: <Landmark size={19} /> },
   { to: "/app/billing", label: "Billing", icon: <CreditCard size={19} /> },
   { to: "/app/settings", label: "Settings", icon: <Settings2 size={19} /> },
 ];
@@ -63,7 +71,7 @@ export function SlimIconRail({
       {/* Brand Mark */}
       <div className="rail-top">
         <Link to={area === "app" ? "/app/overview" : "/admin/overview"} className="rail-brand-mark" title={configuration.brand}>
-          <span className="brand-letter">C</span>
+          <span className="brand-letter">A</span>
         </Link>
       </div>
 

@@ -220,7 +220,8 @@ make docker-up
 # Tear down
 make docker-down
 ```
-- **Enterprise Web Control Plane**: `http://localhost:3110`
+- **Tenant Web Control Plane (Client)**: `http://localhost:3110`
+- **Platform Admin Control Plane (Isolated Enclave)**: `http://localhost:3111`
 - **High-Throughput Rust x402 Gateway**: `http://localhost:8080`
 - **Self-Hosted OpenSigner Enclave**: `http://localhost:3001`
 - **Monad Anvil RPC**: `http://localhost:8545`

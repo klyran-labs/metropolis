@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fundAllWallets } from './fund-wallets.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = join(scriptDirectory, '..');
@@ -145,6 +146,16 @@ async function main() {
   console.log(`ReputationRegistry: ${reputationRegistry.address}`);
   console.log(`AgentWalletGuard: ${agentWalletGuard.address}`);
   console.log(`LocalSettlementToken: ${settlementToken.address}`);
+
+  // Automatically fund devnet wallets and pre-seed active agent policies
+  await fundAllWallets({
+    rpcUrl,
+    deployerPrivateKey,
+    usdcAddress: settlementToken.address,
+    walletGuardAddress: agentWalletGuard.address,
+    policyEngineAddress: policyEngine.address,
+    merchantAddress: account.address,
+  });
 }
 
 main().catch((error) => {

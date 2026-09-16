@@ -21,6 +21,9 @@ export default defineConfig(({ mode }) => {
       throw new Error(`DeploymentConfigurationError: VITE_CHAIN_ID must match ${env.VITE_APP_ENV}.`);
     }
   }
+  const appTarget = env.VITE_APP_TARGET || process.env.VITE_APP_TARGET || "unified";
+  const outDir = appTarget === "tenant" ? "dist/tenant" : appTarget === "admin" ? "dist/admin" : "dist";
+
   return {
     plugins: [react()],
     resolve: {
@@ -45,6 +48,7 @@ export default defineConfig(({ mode }) => {
       "process.env": {
         NODE_ENV: JSON.stringify(env.NODE_ENV || mode),
         VITE_APP_ENV: JSON.stringify(env.VITE_APP_ENV || "local"),
+        VITE_APP_TARGET: JSON.stringify(appTarget),
         VITE_CHAIN_ID: JSON.stringify(env.VITE_CHAIN_ID),
         VITE_RPC_URL: JSON.stringify(env.VITE_RPC_URL),
         VITE_WS_URL: JSON.stringify(env.VITE_WS_URL),
@@ -56,7 +60,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: "dist",
+      outDir,
       sourcemap: false,
       emptyOutDir: true,
       rollupOptions: {

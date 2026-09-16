@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Command,
@@ -16,18 +17,25 @@ import {
   CheckCircle2,
   X,
   Radio,
+  PlayCircle,
+  Store,
+  UsersRound,
+  Shield,
+  Building2,
+  type LucideIcon,
 } from "lucide-react";
 import { useAgents, type Agent } from "./api";
 import { useIdentity } from "./identity";
+import { configuration, isTenantTarget } from "./configuration";
 import { applyTheme, getStoredTheme, resolveTheme, type ThemeMode } from "./theme";
 import { Mono, truncateMiddle } from "./design-system";
 
 export interface CommandItem {
   id: string;
-  category: "Navigation" | "Fleet Actions" | "AI Copilot" | "System";
+  category: "Navigation" | "Fleet Actions" | "AI Copilot" | "System" | "Platform Admin";
   label: string;
   detail?: string;
-  icon: typeof Bot;
+  icon: LucideIcon;
   action: () => void;
   keywords?: string;
 }
@@ -49,12 +57,17 @@ export function CommandPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus input on open
+  // Focus input and lock body scroll on open
   useEffect(() => {
     if (open) {
       setSearch("");
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
     }
   }, [open]);
 
@@ -99,6 +112,54 @@ export function CommandPalette({
         keywords: "policy rules spending limits caps invariants abac pbac",
       },
       {
+        id: "nav-simulator",
+        category: "Navigation",
+        label: "Go to Policy What-If Simulator",
+        detail: "Dry-run hypothetical spend requests against Monad storage slots",
+        icon: PlayCircle,
+        action: () => {
+          void navigate({ to: "/app/simulator" });
+          onClose();
+        },
+        keywords: "simulate dry run test sandbox spend policy invariants eval",
+      },
+      {
+        id: "nav-activity",
+        category: "Navigation",
+        label: "Go to Live Spend Waterfall & Trace Explorer",
+        detail: "Sub-second streaming settlement traces and failure post-mortems",
+        icon: Radio,
+        action: () => {
+          void navigate({ to: "/app/activity" });
+          onClose();
+        },
+        keywords: "activity waterfall traces audit logs settlement monad",
+      },
+      {
+        id: "nav-merchants",
+        category: "Navigation",
+        label: "Go to Approved Merchant & Paywall Directory",
+        detail: "Curated registry of x402 and AP2 verified vendor paywalls",
+        icon: Store,
+        action: () => {
+          void navigate({ to: "/app/merchants" });
+          onClose();
+        },
+        keywords: "merchants vendors whitelist paywalls x402 ap2 anthropic openai",
+      },
+      {
+        id: "nav-quorum",
+        category: "Navigation",
+        label: "Go to Dual-Control Quorum & Escalation Center",
+        detail: "Multi-operator consensus queue for high-value spend authorizations",
+        icon: UsersRound,
+        action: () => {
+          void navigate({ to: "/app/quorum" });
+          onClose();
+        },
+        keywords: "quorum approvals multisig escalation signatures consensus",
+      },
+      {
         id: "nav-treasury",
         category: "Navigation",
         label: "Go to Treasury & Float Custody",
@@ -134,6 +195,35 @@ export function CommandPalette({
         },
         keywords: "settings iam rbac sso scim api keys security",
       },
+      // Platform Administration (Excluded in tenant packaging for zero counterparty reconnaissance)
+      ...(!isTenantTarget()
+        ? [
+            {
+              id: "nav-admin-overview",
+              category: "Platform Admin" as const,
+              label: "Go to Platform Administration Overview",
+              detail: "Multi-tenant registry, global onchain ledger, and plan governance",
+              icon: Shield,
+              action: () => {
+                void navigate({ to: "/admin/overview" });
+                onClose();
+              },
+              keywords: "admin platform superadmin root overview",
+            },
+            {
+              id: "nav-admin-tenants",
+              category: "Platform Admin" as const,
+              label: "Admin: Tenant Organization Registry",
+              detail: "Manage tenant organizations, risk tiers, and spending authority",
+              icon: Building2,
+              action: () => {
+                void navigate({ to: "/admin/tenants" });
+                onClose();
+              },
+              keywords: "admin tenants organizations enterprise clients fleet",
+            },
+          ]
+        : []),
       // AI Copilot
       {
         id: "ai-copilot",
@@ -221,14 +311,24 @@ export function CommandPalette({
 
   if (!open) return null;
 
-  return (
-    <div className="command-palette-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+  const modal = (
+    <div
+      className="command-palette-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Global Command Palette"
+    >
       <div className="command-palette-window" onClick={(e) => e.stopPropagation()}>
         <div className="command-palette-header">
-          <Search size={18} className="command-palette-search-icon" />
+          <Search size={18} className="command-palette-search-icon" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls="command-palette-results"
             className="command-palette-input"
             placeholder="Search commands, navigate screens, or inspect agents… (Esc to close)"
             value={search}
@@ -240,7 +340,7 @@ export function CommandPalette({
           <kbd className="command-palette-kbd">Esc</kbd>
         </div>
 
-        <div className="command-palette-list">
+        <div id="command-palette-results" className="command-palette-list" role="listbox">
           {filtered.length === 0 ? (
             <div className="command-palette-empty">
               <span>No matching commands found for "{search}"</span>
@@ -252,6 +352,9 @@ export function CommandPalette({
               return (
                 <div
                   key={item.id}
+                  id={`cmd-item-${item.id}`}
+                  role="option"
+                  aria-selected={isSelected}
                   className={`command-palette-item ${isSelected ? "command-palette-item-selected" : ""}`}
                   onClick={item.action}
                   onMouseEnter={() => setSelectedIndex(index)}
@@ -268,7 +371,7 @@ export function CommandPalette({
                       <p className="command-palette-item-detail">{item.detail}</p>
                     ) : null}
                   </div>
-                  {isSelected ? <ArrowRight size={14} className="command-palette-arrow" /> : null}
+                  {isSelected ? <ArrowRight size={14} className="command-palette-arrow" aria-hidden="true" /> : null}
                 </div>
               );
             })
@@ -295,4 +398,6 @@ export function CommandPalette({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }

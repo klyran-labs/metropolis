@@ -15,6 +15,7 @@
     "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs services/opensigner/test/opensigner.test.mjs",
     "test:gateway": "cargo test --manifest-path services/gateway/Cargo.toml",
     "test:opensigner": "node --test services/opensigner/test/opensigner.test.mjs",
+    "fund:local": "node scripts/fund-wallets.mjs",
     "lint": "node scripts/verify-theme-contract.mjs && npm run lint --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present"
   },

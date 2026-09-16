@@ -17,9 +17,11 @@ export function useResolvedTheme(): ResolvedTheme {
     media.addEventListener("change", recompute);
     const observer = new MutationObserver(recompute);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    window.addEventListener("agentguard:theme-change", recompute);
     return () => {
       media.removeEventListener("change", recompute);
       observer.disconnect();
+      window.removeEventListener("agentguard:theme-change", recompute);
     };
   }, []);
   return theme;

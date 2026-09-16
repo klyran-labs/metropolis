@@ -12,7 +12,9 @@ import {
   Copy,
   ExternalLink,
   Layers,
+  Terminal,
 } from "lucide-react";
+import { configuration } from "../../configuration";
 import {
   type Agent,
   useOrganizationWallets,
@@ -20,9 +22,11 @@ import {
   useUnloadAgentWallet,
   useWalletTransfers,
   useSubmitWalletTransfer,
+  useAgentPolicy,
 } from "../../api";
 import { Badge, Button, EmptyState, Mono, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { useAgentRuntimeState, useTripKillSwitch } from "../../hooks/usePolicyContracts";
 
 export function AgentInspector({
   agent,
@@ -36,8 +40,28 @@ export function AgentInspector({
   const identity = useIdentity();
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
   const transfers = useWalletTransfers(agent.address, Boolean(identity.authenticated));
-  const [activeTab, setActiveTab] = useState<"overview" | "storage" | "transfers">("overview");
+  const policyQuery = useAgentPolicy(agent.address, Boolean(identity.authenticated));
+  const policy = policyQuery.data;
+  const runtimeState = useAgentRuntimeState(agent.address, Boolean(identity.authenticated));
+  const tripKillSwitch = useTripKillSwitch();
+
+  const maxSpendPerTxFormatted = policy?.maxPerTx
+    ? `${(Number(policy.maxPerTx) / 1_000_000).toFixed(2)} USDC`
+    : "Not configured";
+  const maxSpendPerWindowFormatted = policy?.maxPerWindow
+    ? `${(Number(policy.maxPerWindow) / 1_000_000).toFixed(2)} USDC`
+    : "Not configured";
+  const windowDurationFormatted = policy?.windowSeconds ? `${policy.windowSeconds}s` : "3600s";
+  const maxVelocityFormatted = policy?.maxVelocity ? `${policy.maxVelocity} txs/window` : "1 tx/window";
+
+  const spentUnits = runtimeState.data ? Number(runtimeState.data.spentInWindow) : 0;
+  const maxWindowUnits = policy?.maxPerWindow ? Number(policy.maxPerWindow) : 0;
+  const velocityPct = maxWindowUnits > 0 ? Math.min(100, Math.round((spentUnits / maxWindowUnits) * 100)) : 0;
+
+  const [activeTab, setActiveTab] = useState<"overview" | "storage" | "transfers" | "sdk">("overview");
   const [copied, setCopied] = useState(false);
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const [sdkLang, setSdkLang] = useState<"python" | "typescript" | "curl">("python");
   const [isTripped, setIsTripped] = useState(agent.status === "paused" || agent.status === "tripped");
 
   const [loadWalletId, setLoadWalletId] = useState("");
@@ -49,6 +73,7 @@ export function AgentInspector({
   const refresh = () => {
     void transfers.refetch();
     void wallets.refetch();
+    void runtimeState.refetch();
   };
 
   const submitTransfer = useSubmitWalletTransfer(refresh);
@@ -77,10 +102,17 @@ export function AgentInspector({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCircuitToggle = () => {
+  const handleCircuitToggle = async () => {
     const nextState = !isTripped;
-    setIsTripped(nextState);
-    onTripCircuit(agent.address, nextState);
+    try {
+      setMessage(`Broadcasting kill-switch ${nextState ? "freeze" : "resume"} to Monad…`);
+      await tripKillSwitch.mutateAsync({ agentAddress: agent.address, active: nextState });
+      setIsTripped(nextState);
+      onTripCircuit(agent.address, nextState);
+      setMessage(`Circuit ${nextState ? "tripped" : "reset"} confirmed onchain.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Circuit update failed.");
+    }
   };
 
   const treasuryWallets = wallets.data ?? [];
@@ -148,6 +180,14 @@ export function AgentInspector({
             <ArrowDownToLine size={14} />
             Wallet Funds ({transfers.data?.length ?? 0})
           </button>
+          <button
+            type="button"
+            className={`inspector-tab ${activeTab === "sdk" ? "active" : ""}`}
+            onClick={() => setActiveTab("sdk")}
+          >
+            <Terminal size={14} />
+            SDK Sandbox
+          </button>
         </div>
 
         {/* Tab Content */}
@@ -188,11 +228,17 @@ export function AgentInspector({
                   <div className="velocity-bar-track">
                     <div
                       className="velocity-bar-fill"
-                      style={{ width: isTripped ? "0%" : "28%" }}
+                      style={{ width: isTripped ? "0%" : `${velocityPct}%` }}
                     />
                   </div>
                   <div className="velocity-labels">
-                    <span>Active window: 28% of hourly cap</span>
+                    <span>
+                      {isTripped
+                        ? "Circuit Tripped · Spending Halted"
+                        : maxWindowUnits > 0
+                        ? `Spent: ${(spentUnits / 1_000_000).toFixed(2)} / ${(maxWindowUnits / 1_000_000).toFixed(2)} USDC (${velocityPct}%)`
+                        : "No active spend window published"}
+                    </span>
                     <span>10143 Monad Testnet</span>
                   </div>
                 </div>
@@ -245,22 +291,73 @@ export function AgentInspector({
                   <div className="slot-row">
                     <span className="field-name">maxSpendPerTx</span>
                     <span className="field-type">uint128</span>
-                    <Mono className="field-val">100.00 USDC</Mono>
+                    <Mono className="field-val">{maxSpendPerTxFormatted}</Mono>
                   </div>
                   <div className="slot-row">
-                    <span className="field-name">lastEpochTimestamp</span>
+                    <span className="field-name">maxPerWindow</span>
+                    <span className="field-type">uint128</span>
+                    <Mono className="field-val">{maxSpendPerWindowFormatted}</Mono>
+                  </div>
+                  <div className="slot-row">
+                    <span className="field-name">windowDuration</span>
                     <span className="field-type">uint32</span>
-                    <Mono className="field-val">Active Epoch</Mono>
+                    <Mono className="field-val">{windowDurationFormatted}</Mono>
                   </div>
                   <div className="slot-row">
-                    <span className="field-name">windowSpendCount</span>
+                    <span className="field-name">maxVelocity</span>
                     <span className="field-type">uint32</span>
-                    <Mono className="field-val">12 txs</Mono>
+                    <Mono className="field-val">{maxVelocityFormatted}</Mono>
                   </div>
                   <div className="slot-row">
-                    <span className="field-name">nonce</span>
+                    <span className="field-name">killSwitch</span>
+                    <span className="field-type">bool</span>
+                    <Mono className="field-val">{isTripped ? "1 (Halted)" : "0 (Active)"}</Mono>
+                  </div>
+                  <div className="slot-row">
+                    <span className="field-name">whitelistEnabled</span>
+                    <span className="field-type">bool</span>
+                    <Mono className="field-val">{policy?.whitelistEnabled ? "1 (Enforced)" : "0 (Open)"}</Mono>
+                  </div>
+                </div>
+              </div>
+
+              <div className="storage-slot-card">
+                <div className="slot-title">
+                  <span className="slot-pill">Slot 1</span>
+                  <strong>PackedState (32-Byte Word)</strong>
+                </div>
+                <div className="slot-fields">
+                  <div className="slot-row">
+                    <span className="field-name">spentInWindow</span>
+                    <span className="field-type">uint128</span>
+                    <Mono className="field-val">
+                      {runtimeState.data
+                        ? `${(Number(runtimeState.data.spentInWindow) / 1_000_000).toFixed(2)} USDC`
+                        : "0.00 USDC"}
+                    </Mono>
+                  </div>
+                  <div className="slot-row">
+                    <span className="field-name">txCountInWindow</span>
+                    <span className="field-type">uint32</span>
+                    <Mono className="field-val">
+                      {runtimeState.data?.txCountInWindow ?? 0}
+                    </Mono>
+                  </div>
+                  <div className="slot-row">
+                    <span className="field-name">windowStart</span>
+                    <span className="field-type">uint32</span>
+                    <Mono className="field-val">
+                      {runtimeState.data?.windowStart
+                        ? `${runtimeState.data.windowStart} (epoch timestamp)`
+                        : "Uninitialized"}
+                    </Mono>
+                  </div>
+                  <div className="slot-row">
+                    <span className="field-name">replayNonce</span>
                     <span className="field-type">uint64</span>
-                    <Mono className="field-val">Replay Protected</Mono>
+                    <Mono className="field-val">
+                      {runtimeState.data ? String(runtimeState.data.nonce) : "0"}
+                    </Mono>
                   </div>
                 </div>
               </div>
@@ -404,6 +501,136 @@ export function AgentInspector({
                 ) : (
                   <EmptyState title="No transfers yet" detail="Transfer funds to begin operations." />
                 )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "sdk" && (
+            <div className="inspector-sdk-panel">
+              <div className="sdk-header-row">
+                <div>
+                  <span className="card-kicker">Headless Agent Integration</span>
+                  <h4>Runnable Client Code</h4>
+                </div>
+                <div className="sdk-lang-chips">
+                  <button
+                    type="button"
+                    className={`activity-chip ${sdkLang === "python" ? "active" : ""}`}
+                    onClick={() => setSdkLang("python")}
+                  >
+                    Python (LangChain)
+                  </button>
+                  <button
+                    type="button"
+                    className={`activity-chip ${sdkLang === "typescript" ? "active" : ""}`}
+                    onClick={() => setSdkLang("typescript")}
+                  >
+                    TypeScript (Viem)
+                  </button>
+                  <button
+                    type="button"
+                    className={`activity-chip ${sdkLang === "curl" ? "active" : ""}`}
+                    onClick={() => setSdkLang("curl")}
+                  >
+                    cURL / Shell
+                  </button>
+                </div>
+              </div>
+
+              <p className="sdk-desc">
+                Embed this client snippet in your autonomous agent loop. Requests are verified against the Monad Parallel EVM in sub-millisecond time.
+              </p>
+
+              <div className="code-snippet-box">
+                <div className="code-snippet-head">
+                  <span>{sdkLang === "python" ? "agent_guard.py" : sdkLang === "typescript" ? "agent-spend.ts" : "settlement.sh"}</span>
+                  <button
+                    type="button"
+                    className="copy-snippet-btn"
+                    onClick={() => {
+                      let code = "";
+                      if (sdkLang === "python") {
+                        code = `from agentguard import AgentGuardClient\n\nclient = AgentGuardClient(\n    agent_address="${agent.address}",\n    guard_contract="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n    chain_id=${configuration.chainId},\n)\n\n# Autonomous spend with onchain invariant checks\nreceipt = client.execute_gated_payment(\n    merchant="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n    amount_usdc=25.00,\n    category="inference",\n)\nprint(f"Settled on Monad in {receipt.latency_ms}ms: {receipt.tx_hash}")`;
+                      } else if (sdkLang === "typescript") {
+                        code = `import { createWalletClient, http } from "viem";\n\nconst client = createWalletClient({\n  account: "${agent.address}",\n  transport: http("${configuration.rpcUrl || "http://127.0.0.1:8545"}"),\n});\n\nconst signature = await client.signTypedData({\n  domain: {\n    name: "AgentGuard_PolicyEngine",\n    version: "1",\n    chainId: ${configuration.chainId},\n    verifyingContract: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n  },\n  types: { SpendRequest: [...] },\n  primaryType: "SpendRequest",\n  message: { agent: "${agent.address}", amount: 25000000n },\n});`;
+                      } else {
+                        code = `curl -i -X POST ${configuration.apiBaseUrl}/v1/inference \\\n  -H "Authorization: Bearer x402-token" \\\n  -H "X-Agent-Address: ${agent.address}" \\\n  -H "X-Settlement-Chain: ${configuration.chainId}"`;
+                      }
+                      void navigator.clipboard.writeText(code);
+                      setCopiedSnippet(true);
+                      setTimeout(() => setCopiedSnippet(false), 2000);
+                    }}
+                  >
+                    {copiedSnippet ? <CheckCircle2 size={13} className="copied-icon" /> : <Copy size={13} />}
+                    <span>{copiedSnippet ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+                <pre className="code-snippet-pre">
+                  {sdkLang === "python" && (
+`from agentguard import AgentGuardClient
+
+# Initialize sovereign client on Monad
+client = AgentGuardClient(
+    agent_address="${agent.address}",
+    guard_contract="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    chain_id=${configuration.chainId},
+)
+
+# Autonomous spend authorization with EIP-712 invariant checks
+receipt = client.execute_gated_payment(
+    merchant="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    amount_usdc=25.00,
+    category="inference",
+)
+print(f"Settled on Monad in {receipt.latency_ms}ms: {receipt.tx_hash}")`
+                  )}
+                  {sdkLang === "typescript" && (
+`import { createWalletClient, http } from "viem";
+
+const client = createWalletClient({
+  account: "${agent.address}",
+  transport: http("${configuration.rpcUrl || "http://127.0.0.1:8545"}"),
+});
+
+// Sign EIP-712 SpendRequest matching AgentGuard PolicyEngine
+const signature = await client.signTypedData({
+  domain: {
+    name: "AgentGuard_PolicyEngine",
+    version: "1",
+    chainId: ${configuration.chainId},
+    verifyingContract: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+  },
+  types: {
+    SpendRequest: [
+      { name: "agent", type: "address" },
+      { name: "merchant", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "timestamp", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "nonce", type: "uint256" },
+    ],
+  },
+  primaryType: "SpendRequest",
+  message: {
+    agent: "${agent.address}",
+    merchant: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    amount: 25000000n, // 25.00 USDC
+    category: "0x696e666572656e63650000000000000000000000000000000000000000000000",
+    timestamp: BigInt(Math.floor(Date.now() / 1000)),
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 300),
+    nonce: 0n,
+  },
+});`
+                  )}
+                  {sdkLang === "curl" && (
+`# Challenge negotiation via x402 payment required protocol
+curl -i -X POST ${configuration.apiBaseUrl}/v1/inference \\
+  -H "Authorization: Bearer x402-token" \\
+  -H "X-Agent-Address: ${agent.address}" \\
+  -H "X-Settlement-Chain: ${configuration.chainId}"`
+                  )}
+                </pre>
               </div>
             </div>
           )}

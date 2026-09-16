@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 LOCAL_ENV_FILE ?= .env.local
 
-.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down clean help
+.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down docker-prod-up docker-prod-down clean help
 
 all: lint build test
 
@@ -100,7 +100,11 @@ docker-up:
 		ENV_FILE="$(LOCAL_ENV_FILE)" \
 		DEPLOYER_PRIVATE_KEY="$$deployer_key" \
 			node scripts/deploy-local.mjs
-	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build --force-recreate --no-deps -d agentguard-gateway agentguard-web
+	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build --force-recreate --no-deps -d agentguard-gateway agentguard-web agentguard-admin-web
+
+fund-wallets:
+	@echo "=== Funding Local Devnet Wallets and Seeding Policies ==="
+	@ENV_FILE="$(LOCAL_ENV_FILE)" node scripts/fund-wallets.mjs
 
 docker-down:
 	@echo "=== Stopping AgentGuard Local Devnet Stack ==="
@@ -124,6 +128,10 @@ docker-mainnet-up:
 docker-mainnet-down:
 	@echo "=== Stopping mainnet profile ==="
 	@docker compose -f docker/docker-compose.mainnet.yml down
+
+docker-prod-up: docker-mainnet-up
+
+docker-prod-down: docker-mainnet-down
 
 clean:
 	@rm -rf apps/web/dist packages/shared-types/dist packages/x402-middleware/dist

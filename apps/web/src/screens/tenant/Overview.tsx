@@ -33,6 +33,7 @@ import { Badge, Button, Mono, Surface, TokenAmount, truncateMiddle } from "../..
 import { Breakdown, Gauge, StatTile, TrendArea } from "../../charts";
 import { useIdentity } from "../../identity";
 import { AgentInspector } from "./AgentInspector";
+import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
 
 function computeStats(agents: Agent[] | undefined, telemetryCount: number) {
   const active = agents?.filter((agent) => agent.status === "active").length ?? 0;
@@ -91,11 +92,23 @@ export function Overview() {
       .map(([label, value]) => ({ label: label.slice(5), value }));
   }, [telemetry.data]);
 
-  const handleTripEmergency = () => {
+  const tripKillSwitch = useTripKillSwitch();
+
+  const handleTripEmergency = async () => {
     if (!emergencyAddress.trim()) return;
-    setEmergencyMessage(`O(1) Kill-Switch active for ${emergencyAddress.slice(0, 10)}… Invariant enforced.`);
-    setEmergencyAddress("");
-    setTimeout(() => setEmergencyMessage(""), 5000);
+    setEmergencyMessage(`Broadcasting O(1) Kill-Switch freeze for ${emergencyAddress.slice(0, 10)}…`);
+    try {
+      await tripKillSwitch.mutateAsync({
+        agentAddress: emergencyAddress.trim(),
+        active: true,
+      });
+      setEmergencyMessage(`Kill-Switch active onchain for ${emergencyAddress.slice(0, 10)}… Invariant enforced.`);
+      setEmergencyAddress("");
+      void agents.refetch();
+    } catch (err) {
+      setEmergencyMessage(err instanceof Error ? err.message : "Kill-switch transaction failed.");
+    }
+    setTimeout(() => setEmergencyMessage(""), 6000);
   };
 
   const operatorLabel = identity.subject?.split(":").at(-1)?.slice(0, 8) ?? "operator";
@@ -156,35 +169,76 @@ export function Overview() {
         {/* Right Highlights Card: Stacked Progress Bar & Channel Breakdown */}
         <Surface className="saas-highlights-card">
           <div className="highlights-header">
-            <h3>Highlights</h3>
+            <h3>Fleet Posture & Highlights</h3>
             <span className="status-dot status-dot-success" title="Live Monad Feed" />
           </div>
 
           <div className="highlights-headline">
-            <small>All time protected spend</small>
+            <small>Active Spend Governance Fleet</small>
             <div className="headline-number-row">
-              <span className="headline-currency">$295.7k</span>
+              <span className="headline-currency">{total} Registered Agents</span>
               <span className="delta-badge positive">
-                <TrendingUp size={13} /> +2.7%
+                <TrendingUp size={13} /> {active} Active
               </span>
             </div>
           </div>
 
-          {/* Multi-Segment Stacked Progress Bar */}
-          <div className="stacked-allocation-bar">
-            <div className="allocation-segment seg-blue" style={{ width: "42%" }} title="Managed Vaults (42%)" />
-            <div className="allocation-segment seg-green" style={{ width: "28%" }} title="Connected Wallets (28%)" />
-            <div className="allocation-segment seg-amber" style={{ width: "18%" }} title="Treasury Pools (18%)" />
-            <div className="allocation-segment seg-purple" style={{ width: "12%" }} title="Parallel Relayers (12%)" />
-          </div>
+          {/* Multi-Segment Stacked Allocation Bar Derived From Real Data */}
+          {total + (wallets.data?.length ?? 0) > 0 ? (
+            <>
+              <div className="stacked-allocation-bar">
+                {agents.data?.filter((a) => a.walletSource === "sovereign").length ? (
+                  <div
+                    className="allocation-segment seg-blue"
+                    style={{
+                      width: `${Math.round(
+                        ((agents.data.filter((a) => a.walletSource === "sovereign").length) /
+                          Math.max(1, total + (wallets.data?.length ?? 0))) *
+                          100,
+                      )}%`,
+                    }}
+                    title={`Managed Enclaves (${agents.data.filter((a) => a.walletSource === "sovereign").length})`}
+                  />
+                ) : null}
+                {agents.data?.filter((a) => a.walletSource !== "sovereign").length ? (
+                  <div
+                    className="allocation-segment seg-green"
+                    style={{
+                      width: `${Math.round(
+                        ((agents.data.filter((a) => a.walletSource !== "sovereign").length) /
+                          Math.max(1, total + (wallets.data?.length ?? 0))) *
+                          100,
+                      )}%`,
+                    }}
+                    title={`Connected Wallets (${agents.data.filter((a) => a.walletSource !== "sovereign").length})`}
+                  />
+                ) : null}
+                {wallets.data?.length ? (
+                  <div
+                    className="allocation-segment seg-amber"
+                    style={{
+                      width: `${Math.round(
+                        (wallets.data.length / Math.max(1, total + (wallets.data?.length ?? 0))) * 100,
+                      )}%`,
+                    }}
+                    title={`Treasury Pools (${wallets.data.length})`}
+                  />
+                ) : null}
+              </div>
 
-          <div className="stacked-legend">
-            <span><span className="legend-dot seg-blue" /> Managed Enclaves</span>
-            <span><span className="legend-dot seg-green" /> Connected Wallets</span>
-            <span><span className="legend-dot seg-amber" /> Treasury</span>
-          </div>
+              <div className="stacked-legend">
+                <span><span className="legend-dot seg-blue" /> Managed Enclaves ({agents.data?.filter((a) => a.walletSource === "sovereign").length ?? 0})</span>
+                <span><span className="legend-dot seg-green" /> Connected Wallets ({agents.data?.filter((a) => a.walletSource !== "sovereign").length ?? 0})</span>
+                <span><span className="legend-dot seg-amber" /> Treasury ({wallets.data?.length ?? 0})</span>
+              </div>
+            </>
+          ) : (
+            <div className="stacked-allocation-empty">
+              <small>No agents or treasury wallets provisioned yet.</small>
+            </div>
+          )}
 
-          {/* Itemized Channel Rows */}
+          {/* Itemized Channel Rows Derived from Real Onchain Data */}
           <div className="channel-list">
             <div className="channel-row">
               <div className="channel-info">
@@ -192,9 +246,9 @@ export function Overview() {
                 <span>Sovereign Enclave Vaults</span>
               </div>
               <div className="channel-metrics">
-                <strong>$172k</strong>
+                <strong>{agents.data?.filter((a) => a.walletSource === "sovereign").length ?? 0} active</strong>
                 <span className="channel-delta positive">
-                  <TrendingUp size={12} /> 3.9%
+                  <ShieldCheck size={12} /> Hardware Sealed
                 </span>
               </div>
             </div>
@@ -205,9 +259,9 @@ export function Overview() {
                 <span>Connected Agent Wallets</span>
               </div>
               <div className="channel-metrics">
-                <strong>$85k</strong>
-                <span className="channel-delta negative">
-                  <TrendingDown size={12} /> 0.7%
+                <strong>{agents.data?.filter((a) => a.walletSource !== "sovereign").length ?? 0} linked</strong>
+                <span className="channel-delta neutral">
+                  <Check size={12} /> Non-Custodial
                 </span>
               </div>
             </div>
@@ -218,9 +272,9 @@ export function Overview() {
                 <span>Organization Treasury</span>
               </div>
               <div className="channel-metrics">
-                <strong>$36k</strong>
+                <strong>{wallets.data?.length ?? 0} vaults</strong>
                 <span className="channel-delta positive">
-                  <TrendingUp size={12} /> 8.2%
+                  <TrendingUp size={12} /> Onchain
                 </span>
               </div>
             </div>
@@ -228,12 +282,12 @@ export function Overview() {
             <div className="channel-row">
               <div className="channel-info">
                 <Zap size={15} />
-                <span>Parallel EVM Clearing</span>
+                <span>Parallel EVM Settlement</span>
               </div>
               <div className="channel-metrics">
-                <strong>$26k</strong>
+                <strong>{telemetry.data?.length ?? 0} events</strong>
                 <span className="channel-delta positive">
-                  <TrendingUp size={12} /> 8.2%
+                  <Radio size={12} /> 400ms Cadence
                 </span>
               </div>
             </div>
@@ -428,8 +482,15 @@ export function Overview() {
         <AgentInspector
           agent={selectedAgent}
           onClose={() => setSelectedAgent(null)}
-          onTripCircuit={(addr, trip) => {
-            setEmergencyMessage(`Agent ${addr.slice(0, 10)}… ${trip ? "frozen" : "resumed"}.`);
+          onTripCircuit={async (addr, trip) => {
+            setEmergencyMessage(`Updating circuit status onchain for ${addr.slice(0, 10)}…`);
+            try {
+              await tripKillSwitch.mutateAsync({ agentAddress: addr, active: trip });
+              setEmergencyMessage(`Agent ${addr.slice(0, 10)}… ${trip ? "frozen onchain" : "resumed onchain"}.`);
+              void agents.refetch();
+            } catch (err) {
+              setEmergencyMessage(err instanceof Error ? err.message : "Circuit update failed.");
+            }
             setTimeout(() => setEmergencyMessage(""), 5000);
           }}
         />

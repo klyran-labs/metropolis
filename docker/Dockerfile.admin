@@ -1,0 +1,80 @@
+# AgentGuard Platform Admin Container (Admin Client)
+# High-Performance Alpine Nginx Container for Monad Metropolis Hackathon
+# Protected by RFC 1918 Private Enclave CIDR Controls
+
+# Build stage
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# Injected environment configuration for the selected runtime profile.
+ARG VITE_APP_ENV
+ARG VITE_APP_TARGET=admin
+ARG VITE_CHAIN_ID
+ARG VITE_RPC_URL
+ARG VITE_POLICY_ENGINE_ADDRESS
+ARG VITE_REPUTATION_REGISTRY_ADDRESS
+ARG VITE_AGENT_WALLET_GUARD_ADDRESS
+ARG VITE_USDC_TOKEN_ADDRESS
+ARG VITE_PRIVY_APP_ID
+ARG VITE_BRAND_NAME=AgentGuard
+
+RUN test -n "$VITE_APP_ENV" \
+    -a -n "$VITE_CHAIN_ID" \
+    -a -n "$VITE_RPC_URL" \
+    -a -n "$VITE_POLICY_ENGINE_ADDRESS" \
+    -a -n "$VITE_REPUTATION_REGISTRY_ADDRESS" \
+    -a -n "$VITE_AGENT_WALLET_GUARD_ADDRESS" \
+    -a -n "$VITE_USDC_TOKEN_ADDRESS" \
+    -a -n "$VITE_PRIVY_APP_ID" \
+    || (echo "Required deployment configuration is missing" >&2 && exit 1)
+
+ENV VITE_APP_ENV=$VITE_APP_ENV \
+    VITE_APP_TARGET=$VITE_APP_TARGET \
+    VITE_CHAIN_ID=$VITE_CHAIN_ID \
+    VITE_RPC_URL=$VITE_RPC_URL \
+    VITE_POLICY_ENGINE_ADDRESS=$VITE_POLICY_ENGINE_ADDRESS \
+    VITE_REPUTATION_REGISTRY_ADDRESS=$VITE_REPUTATION_REGISTRY_ADDRESS \
+    VITE_AGENT_WALLET_GUARD_ADDRESS=$VITE_AGENT_WALLET_GUARD_ADDRESS \
+    VITE_USDC_TOKEN_ADDRESS=$VITE_USDC_TOKEN_ADDRESS \
+    VITE_PRIVY_APP_ID=$VITE_PRIVY_APP_ID \
+    VITE_BRAND_NAME=$VITE_BRAND_NAME
+
+# Copy package manifests
+COPY package.json package-lock.json ./
+COPY packages/shared-types/package.json ./packages/shared-types/package.json
+COPY packages/x402-middleware/package.json ./packages/x402-middleware/package.json
+COPY apps/web/package.json ./apps/web/package.json
+
+# Install build dependencies for Alpine Linux
+RUN apk add --no-cache python3 make g++
+
+# Install dependencies
+RUN npm ci --ignore-scripts
+
+# Copy sources and build packages
+COPY deployments ./deployments
+COPY packages/shared-types ./packages/shared-types
+COPY packages/x402-middleware ./packages/x402-middleware
+COPY apps/web ./apps/web
+
+RUN npm run build --workspace=@agentguard/shared-types
+RUN npm run build --workspace=@agentguard/x402-middleware
+RUN npm run build --workspace=@agentguard/web
+
+# Production stage with tuned Nginx
+FROM nginx:alpine
+
+# Copy custom Nginx admin configuration with RFC 1918 CIDR controls
+COPY docker/nginx.admin.conf /etc/nginx/nginx.conf
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# Copy build artifacts for admin target
+COPY --from=builder /app/apps/web/dist/admin /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:80/health || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

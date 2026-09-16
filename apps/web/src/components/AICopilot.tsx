@@ -11,6 +11,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { Badge, Button, Mono, TextField } from "../design-system";
+import { ONCHAIN_REASON_CODES } from "../hooks/usePolicyContracts";
 
 export function AICopilot({
   open,
@@ -35,7 +36,6 @@ export function AICopilot({
   const handleCompile = () => {
     if (!prompt.trim()) return;
     setApplied(false);
-    // Parse user prompt keywords to configure policy parameters deterministically
     const lower = prompt.toLowerCase();
     let maxTx = 50;
     let velocity = 500;
@@ -61,54 +61,6 @@ export function AICopilot({
       selectedTier: tier,
       explanation: `Synthesized policy: Limit each autonomous spend action to ${maxTx} USDC with an hourly sliding window ceiling of ${velocity} USDC under ${tier}.`,
     });
-  };
-
-  const reasonCodeDescriptions: Record<number, { code: string; title: string; desc: string }> = {
-    1: {
-      code: "ERR_MAX_PER_TX",
-      title: "Per-Transaction Limit Exceeded",
-      desc: "The transaction amount requested exceeds the maxSpendPerTx slot configured in the agent's PackedPolicy.",
-    },
-    2: {
-      code: "ERR_TOTAL_LIMIT",
-      title: "Lifetime Limit Exceeded",
-      desc: "Total cumulative spend has surpassed the hard lifetime maximum budget allocated to this agent.",
-    },
-    3: {
-      code: "ERR_VELOCITY_EXCEEDED",
-      title: "Hourly Velocity Window Saturated",
-      desc: "The cumulative expenditure within the active sliding epoch window exceeded maxVelocityCeiling.",
-    },
-    4: {
-      code: "ERR_MERCHANT_NOT_ALLOWED",
-      title: "Merchant Not Whitelisted",
-      desc: "The destination recipient address is not authorized in the merchant whitelist mapping.",
-    },
-    5: {
-      code: "ERR_KILL_SWITCH",
-      title: "Circuit Breaker Tripped",
-      desc: "Emergency halt active. The O(1) kill-switch bit is set to true for this agent address.",
-    },
-    6: {
-      code: "ERR_BUDGET_EXHAUSTED",
-      title: "Budget Pool Depleted",
-      desc: "The shared organizational budget pool assigned to this agent has zero remaining unallocated balance.",
-    },
-    7: {
-      code: "ERR_REPUTATION_TOO_LOW",
-      title: "Reputation Threshold Breach",
-      desc: "Agent's EWMA trust score in ReputationRegistry has fallen below minReputationScore.",
-    },
-    8: {
-      code: "ERR_CALLDATA_FORBIDDEN",
-      title: "Forbidden Calldata Signature",
-      desc: "Calldata payload contains a method selector explicitly blocked by PBAC risk policy rules.",
-    },
-    9: {
-      code: "ERR_SIGNATURE_INVALID",
-      title: "Cryptographic Signature Invalid",
-      desc: "EIP-712 signature verification failed against the recovered signer address or nonce was reused.",
-    },
   };
 
   return (
@@ -149,51 +101,48 @@ export function AICopilot({
         <div className="copilot-content">
           {activeTab === "compiler" ? (
             <div className="copilot-compiler-view">
-              <p className="copilot-intro">
-                Describe desired spending guardrails in plain English. The compiler synthesizes onchain policy parameters with live interactive controls.
-              </p>
-
-              <div className="copilot-presets">
-                <span className="copilot-preset-label">Suggested prompts:</span>
-                <button
-                  type="button"
-                  className="copilot-preset-chip"
-                  onClick={() => {
-                    setPrompt("Cap transaction at 75 USDC with 300 USDC hourly limit under conservative tier");
-                  }}
-                >
-                  "Cap at 75 USDC with 300 USDC hourly limit"
-                </button>
-                <button
-                  type="button"
-                  className="copilot-preset-chip"
-                  onClick={() => {
-                    setPrompt("Strict defense mode: max 25 USDC per transaction for newly deployed agents");
-                  }}
-                >
-                  "Strict defense: max 25 USDC for new agents"
-                </button>
-              </div>
-
-              <div className="copilot-input-row">
-                <input
-                  type="text"
-                  className="copilot-input"
-                  placeholder="e.g. Set maximum 100 USDC per tx and 1000 USDC hourly velocity..."
+              <div className="copilot-input-box">
+                <textarea
+                  className="copilot-textarea"
+                  placeholder="Describe your agent workload (e.g., 'Autonomous scraping bot making up to $25 payments per call, max $300/hr, strict merchant whitelist')..."
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCompile();
-                  }}
+                  rows={4}
                 />
-                <button
-                  type="button"
-                  className="copilot-submit-btn"
-                  onClick={handleCompile}
-                  disabled={!prompt.trim()}
-                >
-                  <Send size={15} />
-                </button>
+                <div className="copilot-input-footer">
+                  <div className="copilot-chips">
+                    <button
+                      type="button"
+                      className="prompt-chip"
+                      onClick={() =>
+                        setPrompt(
+                          "Autonomous LLM agent making up to $10 micro-inference calls, max $100 per hour.",
+                        )
+                      }
+                    >
+                      Micro Inference
+                    </button>
+                    <button
+                      type="button"
+                      className="prompt-chip"
+                      onClick={() =>
+                        setPrompt(
+                          "High-cadence trading agent executing up to $250 rebalancing swaps, max $2000 per hour with strict whitelist.",
+                        )
+                      }
+                    >
+                      DeFi Rebalancer
+                    </button>
+                  </div>
+                  <Button
+                    variant="filled"
+                    onClick={handleCompile}
+                    disabled={!prompt.trim()}
+                  >
+                    <Sparkles size={14} />
+                    <span>Compile Policy</span>
+                  </Button>
+                </div>
               </div>
 
               {compiledResult && (
@@ -274,7 +223,7 @@ export function AICopilot({
               </p>
 
               <div className="reason-code-list">
-                {Object.entries(reasonCodeDescriptions).map(([codeStr, item]) => {
+                {Object.entries(ONCHAIN_REASON_CODES).map(([codeStr, item]) => {
                   const code = parseInt(codeStr, 10);
                   const isSelected = selectedReasonCode === code;
                   return (
@@ -293,9 +242,7 @@ export function AICopilot({
                           <p>{item.desc}</p>
                           <div className="remediation-box">
                             <strong>Remediation:</strong>
-                            <small>
-                              Adjust spending limits in Policy Studio, replenish the treasury wallet, or clear the circuit breaker freeze.
-                            </small>
+                            <small>{item.remediation}</small>
                           </div>
                         </div>
                       )}

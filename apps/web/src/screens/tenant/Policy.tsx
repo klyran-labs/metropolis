@@ -1,7 +1,19 @@
 import { useWallets } from "@privy-io/react-auth";
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import {
+  PlayCircle,
+  ShieldCheck,
+  ShieldAlert,
+  Sliders,
+  Sparkles,
+  Clock,
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 import { request, useAgentPolicy, useAgents, type PolicyUpdate } from "../../api";
-import { Button, EmptyState, RecordSummary, Surface, TextField } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, RecordSummary, Surface, TextField } from "../../design-system";
 import { useIdentity } from "../../identity";
 
 async function waitForReceipt(
@@ -33,12 +45,49 @@ const policyLabels: Record<string, string> = {
   whitelistEnabled: "Approved merchants required",
 };
 
+interface PolicyPreset {
+  label: string;
+  description: string;
+  maxPerTx: string;
+  maxPerWindow: string;
+  windowSeconds: number;
+  maxVelocity: number;
+}
+
+const POLICY_PRESETS: PolicyPreset[] = [
+  {
+    label: "Micro Inference",
+    description: "LLM completions & embeddings ($10/tx, $100/hr)",
+    maxPerTx: "10000000",
+    maxPerWindow: "100000000",
+    windowSeconds: 3600,
+    maxVelocity: 50,
+  },
+  {
+    label: "Standard Autonomous",
+    description: "Autonomous task execution ($50/tx, $500/hr)",
+    maxPerTx: "50000000",
+    maxPerWindow: "500000000",
+    windowSeconds: 3600,
+    maxVelocity: 20,
+  },
+  {
+    label: "High-Volume Trader",
+    description: "DeFi rebalancing & high-cadence bots ($250/tx, $2k/hr)",
+    maxPerTx: "250000000",
+    maxPerWindow: "2000000000",
+    windowSeconds: 3600,
+    maxVelocity: 100,
+  },
+];
+
 export function Policy() {
   const identity = useIdentity();
   const agents = useAgents(Boolean(identity.authenticated));
   const [agent, setAgent] = useState("");
-  const policy = useAgentPolicy(agent, Boolean(identity.authenticated));
+  const policy = useAgentPolicy(agent, Boolean(identity.authenticated && agent));
   const { wallets } = useWallets();
+
   const [draft, setDraft] = useState<PolicyUpdate>({
     maxPerTx: "0",
     maxPerWindow: "0",
@@ -48,6 +97,15 @@ export function Policy() {
     whitelistEnabled: false,
   });
   const [message, setMessage] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  // Auto-select first agent if available and none selected
+  useEffect(() => {
+    if (!agent && agents.data && agents.data.length > 0) {
+      setAgent(agents.data[0].address);
+    }
+  }, [agents.data, agent]);
+
   useEffect(() => {
     if (!policy.data) return;
     setDraft({
@@ -59,12 +117,28 @@ export function Policy() {
       whitelistEnabled: Boolean(policy.data.whitelistEnabled),
     });
   }, [policy.data]);
+
+  const applyPreset = (preset: PolicyPreset) => {
+    setDraft((prev) => ({
+      ...prev,
+      maxPerTx: preset.maxPerTx,
+      maxPerWindow: preset.maxPerWindow,
+      windowSeconds: preset.windowSeconds,
+      maxVelocity: preset.maxVelocity,
+    }));
+  };
+
+  const setDuration = (seconds: number) => {
+    setDraft((prev) => ({ ...prev, windowSeconds: seconds }));
+  };
+
   const publish = async () => {
     const wallet = wallets[0];
     if (!agent || !wallet) {
       setMessage("Connect your organization's admin wallet before publishing policy.");
       return;
     }
+    setIsPublishing(true);
     try {
       setMessage("Preparing the policy change…");
       const prepared = await request<{ target: string; data: string }>(
@@ -81,86 +155,246 @@ export function Policy() {
       void policy.refetch();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The policy change could not be completed.");
+    } finally {
+      setIsPublishing(false);
     }
   };
+
   return (
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Home / Policy</span>
-          <h1>Policy</h1>
-          <p>Only your organization's admin wallet can publish policy changes, and every change is verified onchain.</p>
+          <span className="eyebrow">Risk Governance / Policy Engine</span>
+          <h1>Policy Studio</h1>
+          <p>
+            Author and enforce deterministic Monad EVM spend invariants per autonomous agent. Changes settle atomically in 400ms.
+          </p>
+        </div>
+        <div className="page-heading-actions">
+          <Link to="/app/simulator" className="control control-tonal">
+            <PlayCircle size={15} />
+            <span>Open "What-If" Simulator</span>
+          </Link>
         </div>
       </header>
-      <Surface>
-        <div className="section-heading">
-          <div>
-            <h2>Onchain policy state</h2>
-            <p>Read directly from the verified policy contract.</p>
+
+      {/* 2-Column Studio Grid */}
+      <div className="policy-studio-grid">
+        {/* Left Column: Authoring Form */}
+        <Surface className="policy-editor-panel">
+          <div className="section-heading">
+            <div>
+              <h2>Policy Authoring</h2>
+              <p>Configure ceilings, sliding window epochs, and circuit breakers.</p>
+            </div>
+            {draft.killSwitch ? (
+              <Badge tone="critical">Paused</Badge>
+            ) : (
+              <Badge tone="success">Active</Badge>
+            )}
           </div>
-        </div>
-        <select aria-label="Agent policy" value={agent} onChange={(event) => setAgent(event.target.value)}>
-          <option value="">Select an agent</option>
-          {agents.data?.map((item) => (
-            <option key={item.address} value={item.address}>
-              {item.address}
-            </option>
-          ))}
-        </select>
-        <div className="form-grid">
-          <TextField
-            label="Maximum per transaction"
-            value={draft.maxPerTx}
-            onChange={(event) => setDraft({ ...draft, maxPerTx: event.target.value })}
-          />
-          <TextField
-            label="Maximum per window"
-            value={draft.maxPerWindow}
-            onChange={(event) => setDraft({ ...draft, maxPerWindow: event.target.value })}
-          />
-          <TextField
-            label="Window duration (seconds)"
-            type="number"
-            min={1}
-            value={draft.windowSeconds}
-            onChange={(event) => setDraft({ ...draft, windowSeconds: Number(event.target.value) })}
-          />
-          <TextField
-            label="Velocity limit"
-            type="number"
-            min={1}
-            value={draft.maxVelocity}
-            onChange={(event) => setDraft({ ...draft, maxVelocity: Number(event.target.value) })}
-          />
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={draft.killSwitch}
-              onChange={(event) => setDraft({ ...draft, killSwitch: event.target.checked })}
+
+          <div className="policy-field-group">
+            <label className="field-label">Target Agent</label>
+            <select
+              aria-label="Agent policy"
+              value={agent}
+              onChange={(event) => setAgent(event.target.value)}
+              className="policy-agent-select"
+            >
+              <option value="">Select an agent</option>
+              {agents.data?.map((item) => (
+                <option key={item.address} value={item.address}>
+                  {item.address} ({item.riskTier} tier)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="policy-presets-container">
+            <div className="presets-label-row">
+              <Sliders size={13} className="text-muted" />
+              <span className="preset-kicker">Role Presets:</span>
+            </div>
+            <div className="policy-preset-chips">
+              {POLICY_PRESETS.map((p) => (
+                <button
+                  type="button"
+                  key={p.label}
+                  className="policy-preset-chip"
+                  onClick={() => applyPreset(p)}
+                  title={p.description}
+                >
+                  <Sparkles size={12} />
+                  <span>{p.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="form-grid">
+            <TextField
+              label="Maximum per transaction (USDC base units)"
+              value={draft.maxPerTx}
+              onChange={(event) => setDraft({ ...draft, maxPerTx: event.target.value })}
             />
-            Pause agent activity
-          </label>
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={draft.whitelistEnabled}
-              onChange={(event) => setDraft({ ...draft, whitelistEnabled: event.target.checked })}
+            <TextField
+              label="Maximum per window (USDC base units)"
+              value={draft.maxPerWindow}
+              onChange={(event) => setDraft({ ...draft, maxPerWindow: event.target.value })}
             />
-            Require approved merchants
-          </label>
-          <Button onClick={() => void publish()} disabled={!agent}>
-            Publish policy
-          </Button>
+
+            <div className="duration-input-wrapper">
+              <TextField
+                label="Window duration (seconds)"
+                type="number"
+                min={1}
+                value={draft.windowSeconds}
+                onChange={(event) => setDraft({ ...draft, windowSeconds: Number(event.target.value) })}
+              />
+              <div className="duration-quick-chips">
+                <button
+                  type="button"
+                  className={`duration-chip ${draft.windowSeconds === 900 ? "active" : ""}`}
+                  onClick={() => setDuration(900)}
+                >
+                  15m
+                </button>
+                <button
+                  type="button"
+                  className={`duration-chip ${draft.windowSeconds === 3600 ? "active" : ""}`}
+                  onClick={() => setDuration(3600)}
+                >
+                  1h
+                </button>
+                <button
+                  type="button"
+                  className={`duration-chip ${draft.windowSeconds === 86400 ? "active" : ""}`}
+                  onClick={() => setDuration(86400)}
+                >
+                  24h
+                </button>
+              </div>
+            </div>
+
+            <TextField
+              label="Velocity limit (txs per window)"
+              type="number"
+              min={1}
+              value={draft.maxVelocity}
+              onChange={(event) => setDraft({ ...draft, maxVelocity: Number(event.target.value) })}
+            />
+
+            <div className="policy-toggle-group">
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={draft.killSwitch}
+                  onChange={(event) => setDraft({ ...draft, killSwitch: event.target.checked })}
+                />
+                <span className="check-title">Pause agent activity (O(1) Kill Switch)</span>
+              </label>
+
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={draft.whitelistEnabled}
+                  onChange={(event) => setDraft({ ...draft, whitelistEnabled: event.target.checked })}
+                />
+                <span className="check-title">Require approved merchants from directory</span>
+              </label>
+            </div>
+
+            <Button
+              onClick={() => void publish()}
+              disabled={!agent || isPublishing}
+              className="publish-policy-btn"
+            >
+              {isPublishing ? "Submitting to Monad…" : "Publish Policy to Monad"}
+            </Button>
+          </div>
+
+          {message && (
+            <div className={`form-message-banner ${message.includes("confirmed") ? "banner-success" : ""}`}>
+              {message.includes("confirmed") ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+              <span>{message}</span>
+            </div>
+          )}
+        </Surface>
+
+        {/* Right Column: Live Onchain State & Verification */}
+        <div className="policy-state-column">
+          <Surface className="policy-preview-card">
+            <div className="section-heading">
+              <div>
+                <h2>Live Onchain Policy</h2>
+                <p>Derived directly from Monad verified storage slots.</p>
+              </div>
+              <span className="epoch-pill">
+                <span className="epoch-dot" />
+                Slot 0 Word
+              </span>
+            </div>
+
+            {policy.isError ? (
+              <EmptyState title="Policy unavailable" detail="The selected policy could not be read from Monad." />
+            ) : policy.data ? (
+              <div className="policy-metrics-breakdown">
+                <div className="policy-metric-tile">
+                  <span className="tile-label">Max Per Transaction</span>
+                  <strong className="tile-val">
+                    {(Number(policy.data.maxPerTx ?? 0) / 1_000_000).toFixed(2)} USDC
+                  </strong>
+                  <small className="tile-sub">Base units: {String(policy.data.maxPerTx ?? 0)}</small>
+                </div>
+
+                <div className="policy-metric-tile">
+                  <span className="tile-label">Sliding Window Cap</span>
+                  <strong className="tile-val">
+                    {(Number(policy.data.maxPerWindow ?? 0) / 1_000_000).toFixed(2)} USDC
+                  </strong>
+                  <small className="tile-sub">Per {String(policy.data.windowSeconds ?? 3600)}s epoch</small>
+                </div>
+
+                <div className="policy-metric-tile">
+                  <span className="tile-label">Velocity Ceiling</span>
+                  <strong className="tile-val">{String(policy.data.maxVelocity ?? 1)} txs</strong>
+                  <small className="tile-sub">Max payments per epoch</small>
+                </div>
+
+                <div className="policy-metric-tile">
+                  <span className="tile-label">Enforced Standards</span>
+                  <div className="enforced-tags">
+                    <Badge tone={policy.data.killSwitch ? "critical" : "success"}>
+                      {policy.data.killSwitch ? "Circuit Tripped" : "Guarded Active"}
+                    </Badge>
+                    <Badge tone={policy.data.whitelistEnabled ? "info" : "neutral"}>
+                      {policy.data.whitelistEnabled ? "Whitelist Required" : "Open Merchant"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="simulator-cta-box">
+                  <div className="cta-copy">
+                    <strong>Want to verify this policy safely?</strong>
+                    <p>Dry-run simulated payments against Monad Cancun transient storage with zero financial risk.</p>
+                  </div>
+                  <Link to="/app/simulator" className="control control-tonal cta-btn">
+                    <span>Dry-Run in Simulator</span>
+                    <ArrowRight size={14} />
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                title="No agent selected"
+                detail="Choose an agent to inspect and publish its onchain policy limits."
+              />
+            )}
+          </Surface>
         </div>
-        {message && <p className="form-message">{message}</p>}
-        {policy.isError ? (
-          <EmptyState title="Policy unavailable" detail="The selected policy could not be read from Monad." />
-        ) : policy.data ? (
-          <RecordSummary record={policy.data} labels={policyLabels} />
-        ) : (
-          <EmptyState title="No policy selected" detail="Choose an agent to inspect its chain-derived limits." />
-        )}
-      </Surface>
+      </div>
     </div>
   );
 }

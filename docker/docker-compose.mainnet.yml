@@ -68,6 +68,7 @@ services:
       dockerfile: docker/Dockerfile.web
       args:
         VITE_APP_ENV: mainnet
+        VITE_APP_TARGET: tenant
         VITE_CHAIN_ID: "143"
         VITE_RPC_URL: ${VITE_RPC_URL:?VITE_RPC_URL is required}
         VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:?VITE_POLICY_ENGINE_ADDRESS is required}
@@ -87,6 +88,38 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    networks:
+      - agentguard-mainnet-network
+
+  agentguard-admin-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.admin
+      args:
+        VITE_APP_ENV: mainnet
+        VITE_APP_TARGET: admin
+        VITE_CHAIN_ID: "143"
+        VITE_RPC_URL: ${VITE_RPC_URL:?VITE_RPC_URL is required}
+        VITE_POLICY_ENGINE_ADDRESS: ${VITE_POLICY_ENGINE_ADDRESS:?VITE_POLICY_ENGINE_ADDRESS is required}
+        VITE_REPUTATION_REGISTRY_ADDRESS: ${VITE_REPUTATION_REGISTRY_ADDRESS:?VITE_REPUTATION_REGISTRY_ADDRESS is required}
+        VITE_AGENT_WALLET_GUARD_ADDRESS: ${VITE_AGENT_WALLET_GUARD_ADDRESS:?VITE_AGENT_WALLET_GUARD_ADDRESS is required}
+        VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:?VITE_USDC_TOKEN_ADDRESS is required}
+        VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
+        VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
+    container_name: agentguard-admin-web-mainnet
+    restart: always
+    ports:
+      - "${PORT_ADMIN_WEB:-3111}:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      agentguard-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
       interval: 15s
       timeout: 3s
       retries: 3

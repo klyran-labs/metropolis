@@ -1,9 +1,9 @@
 import { Outlet, createRootRoute, createRoute, createRouter, redirect, useNavigate } from "@tanstack/react-router";
-import { Radio, ShieldCheck, Wallet } from "lucide-react";
+import { Layers, Radio, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
-import { configuration, networkLabel } from "./configuration";
+import { configuration, isAdminTarget, isTenantTarget, networkLabel } from "./configuration";
 import { useIdentity } from "./identity";
-import { AdminNav, TenantNav, SubheaderTabs, tenantNavItems, adminNavItems } from "./navigation";
+import { AdminNav, TenantNav } from "./navigation";
 import { TopBar } from "./components/TopBar";
 import { CommandPalette } from "./command-palette";
 import { AICopilot } from "./components/AICopilot";
@@ -24,75 +24,108 @@ import { Overview } from "./screens/tenant/Overview";
 import { Policy } from "./screens/tenant/Policy";
 import { Settings } from "./screens/tenant/Settings";
 import { Treasury } from "./screens/tenant/Treasury";
+import { PolicySimulator } from "./screens/tenant/PolicySimulator";
+import { ActivityTrace } from "./screens/tenant/ActivityTrace";
+import { MerchantDirectory } from "./screens/tenant/MerchantDirectory";
+import { QuorumApprovals } from "./screens/tenant/QuorumApprovals";
 
 function Landing() {
   const identity = useIdentity();
   return (
     <main className="landing">
       <div className="landing-split">
-        <div className="landing-content">
-          <span className="brand-mark">A</span>
-          <span className="eyebrow">{identity.ready ? "Sign in to continue" : "Preparing your workspace"}</span>
-          <h1>Govern autonomous spend with clear authority.</h1>
-          <p>
-            Private policy for your organization, verified settlement, and chain-derived evidence
-            for every agent action.
-          </p>
-          <div className="landing-points">
-            <div>
-              <ShieldCheck size={18} />
-              <span>Policy enforced onchain, private to your organization</span>
-            </div>
-            <div>
-              <Wallet size={18} />
-              <span>Non-custodial settlement — your private key never leaves your wallet</span>
-            </div>
-            <div>
-              <Radio size={18} />
-              <span>Live, chain-derived evidence for every agent action</span>
+        {/* Left Side: Brand, Mission & Live Telemetry Showcase */}
+        <div className="landing-hero">
+          <div className="landing-brand-row">
+            <span className="brand-mark">A</span>
+            <div className="landing-brand-meta">
+              <span className="landing-brand-name">{configuration.brand}</span>
+              <span className="landing-brand-tag">Autonomous Spend Guard</span>
             </div>
           </div>
-          <InlineSignIn />
-          <div className="landing-trust">
-            <span className="status-dot status-dot-success" />
-            {networkLabel} · verified contract bytecode
+
+          <div className="landing-hero-headline">
+            <span className="eyebrow">
+              {identity.ready ? "Enterprise Spend Governance" : "Preparing Workspace"}
+            </span>
+            <h1>Govern autonomous spend with clear authority.</h1>
+            <p>
+              Private policy for your organization, verified onchain settlement, and chain-derived
+              evidence for every autonomous agent execution.
+            </p>
+          </div>
+
+          <div className="landing-pillars">
+            <div className="landing-pillar-card">
+              <div className="pillar-icon-box accent-blue">
+                <ShieldCheck size={18} />
+              </div>
+              <div className="pillar-content">
+                <strong>Sub-Millisecond Policy Engine</strong>
+                <p>Disjoint storage slot partitioning on Monad Parallel EVM eliminates write-lock contention.</p>
+              </div>
+            </div>
+
+            <div className="landing-pillar-card">
+              <div className="pillar-icon-box accent-amber">
+                <Zap size={18} />
+              </div>
+              <div className="pillar-content">
+                <strong>O(1) Instant Kill-Switch</strong>
+                <p>Zero-allocation emergency circuit breaker halts compromised agents instantly.</p>
+              </div>
+            </div>
+
+            <div className="landing-pillar-card">
+              <div className="pillar-icon-box accent-aqua">
+                <Wallet size={18} />
+              </div>
+              <div className="pillar-content">
+                <strong>Non-Custodial Enclave Settlement</strong>
+                <p>Autonomous agent keypairs sealed in sovereign vaults — private keys never leave local custody.</p>
+              </div>
+            </div>
+
+            <div className="landing-pillar-card">
+              <div className="pillar-icon-box accent-purple">
+                <Layers size={18} />
+              </div>
+              <div className="pillar-content">
+                <strong>Cryptographic Evidence Trail</strong>
+                <p>Machine-readable onchain reason codes (ERR_NONE through ERR_SIGNATURE_INVALID) for all intents.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="landing-telemetry-bar">
+            <div className="landing-telemetry-item">
+              <div className="landing-telemetry-status">
+                <span className="status-dot status-dot-success" />
+                <span className="telemetry-label">{networkLabel}</span>
+              </div>
+              <span className="telemetry-sub">Chain ID 10143</span>
+            </div>
+            <div className="landing-telemetry-divider" />
+            <div className="landing-telemetry-item">
+              <span className="telemetry-metric">400ms</span>
+              <span className="telemetry-sub">Block Finality</span>
+            </div>
+            <div className="landing-telemetry-divider" />
+            <div className="landing-telemetry-item">
+              <span className="telemetry-metric">O(1)</span>
+              <span className="telemetry-sub">Emergency Freeze</span>
+            </div>
+            <div className="landing-telemetry-divider" />
+            <div className="landing-telemetry-item">
+              <span className="telemetry-metric">EIP-712</span>
+              <span className="telemetry-sub">Intent Auth</span>
+            </div>
           </div>
         </div>
-        <div className="landing-visual" aria-hidden="true">
-          <div className="landing-mock-window">
-            <div className="landing-mock-bar">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="landing-mock-stats">
-              <div className="landing-mock-stat">
-                <span className="stat-tile-icon accent-blue">
-                  <ShieldCheck size={16} />
-                </span>
-                <div>
-                  <strong>Ready</strong>
-                  <small>Policy posture</small>
-                </div>
-              </div>
-              <div className="landing-mock-stat">
-                <span className="stat-tile-icon accent-aqua">
-                  <Radio size={16} />
-                </span>
-                <div>
-                  <strong>Live</strong>
-                  <small>Telemetry</small>
-                </div>
-              </div>
-            </div>
-            <div className="landing-mock-trend" />
-            <div className="breakdown-track landing-mock-breakdown">
-              <span style={{ width: "38%", background: "#2a78d6" }} />
-              <span style={{ width: "26%", background: "#1baf7a" }} />
-              <span style={{ width: "20%", background: "#eda100" }} />
-              <span style={{ width: "16%", background: "#4a3aa7" }} />
-            </div>
-          </div>
+
+        {/* Right Side: Redesigned Enterprise Authentication Panel */}
+        <div className="landing-auth-panel">
+          <InlineSignIn />
         </div>
       </div>
     </main>
@@ -152,7 +185,12 @@ function IndexScreen() {
   useEffect(() => {
     if (!identity.ready || !identity.authenticated) return;
     if (identity.membershipLoading || identity.membershipUnavailable) return;
-    navigate({ to: identity.needsOnboarding ? "/onboarding" : "/app/overview", replace: true });
+    const destination = configuration.appTarget === "admin"
+      ? "/admin/overview"
+      : identity.needsOnboarding
+        ? "/onboarding"
+        : "/app/overview";
+    navigate({ to: destination, replace: true });
   }, [
     identity.ready,
     identity.authenticated,
@@ -250,7 +288,6 @@ function AppLayout() {
           onOpenCommandPalette={() => setPaletteOpen(true)}
           onOpenCopilot={() => setCopilotOpen(true)}
         />
-        <SubheaderTabs items={tenantNavItems} />
         <main className="content">
           <Outlet />
         </main>
@@ -333,7 +370,6 @@ function AdminLayout() {
           onOpenCommandPalette={() => setPaletteOpen(true)}
           onOpenCopilot={() => setCopilotOpen(true)}
         />
-        <SubheaderTabs items={adminNavItems} />
         <main className="content">
           <Outlet />
         </main>
@@ -375,6 +411,10 @@ const appOverviewRoute = createRoute({ getParentRoute: () => appLayoutRoute, pat
 const appFleetRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/fleet", component: Fleet });
 const appTreasuryRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/treasury", component: Treasury });
 const appPolicyRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/policy", component: Policy });
+const appSimulatorRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/simulator", component: PolicySimulator });
+const appActivityRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/activity", component: ActivityTrace });
+const appMerchantsRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/merchants", component: MerchantDirectory });
+const appQuorumRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/quorum", component: QuorumApprovals });
 const appBillingRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/billing", component: Billing });
 const appSettingsRoute = createRoute({ getParentRoute: () => appLayoutRoute, path: "/settings", component: Settings });
 
@@ -423,29 +463,50 @@ const adminAccessRoute = createRoute({
   component: AdminAccess,
 });
 
-const routeTree = rootRoute.addChildren([
-  indexRoute,
-  onboardingRoute,
-  appLayoutRoute.addChildren([
-    appIndexRoute,
-    appOverviewRoute,
-    appFleetRoute,
-    appTreasuryRoute,
-    appPolicyRoute,
-    appBillingRoute,
-    appSettingsRoute,
-  ]),
-  adminLayoutRoute.addChildren([
-    adminIndexRoute,
-    adminOverviewRoute,
-    adminTenantsRoute,
-    adminPlansRoute,
-    adminSubscriptionsRoute,
-    adminBillingRoute,
-    adminReconciliationRoute,
-    adminRevenueRoute,
-    adminAccessRoute,
-  ]),
-]);
+const appRoutes = [
+  appIndexRoute,
+  appOverviewRoute,
+  appFleetRoute,
+  appPolicyRoute,
+  appSimulatorRoute,
+  appActivityRoute,
+  appMerchantsRoute,
+  appQuorumRoute,
+  appTreasuryRoute,
+  appBillingRoute,
+  appSettingsRoute,
+];
+
+const adminRoutes = [
+  adminIndexRoute,
+  adminOverviewRoute,
+  adminTenantsRoute,
+  adminPlansRoute,
+  adminSubscriptionsRoute,
+  adminBillingRoute,
+  adminReconciliationRoute,
+  adminRevenueRoute,
+  adminAccessRoute,
+];
+
+// Target-partitioned route assembly (Principle of Least Privilege)
+const routeTree = isTenantTarget()
+  ? rootRoute.addChildren([
+      indexRoute,
+      onboardingRoute,
+      appLayoutRoute.addChildren(appRoutes),
+    ])
+  : isAdminTarget()
+    ? rootRoute.addChildren([
+        indexRoute,
+        onboardingRoute,
+        adminLayoutRoute.addChildren(adminRoutes),
+      ])
+    : rootRoute.addChildren([
+        indexRoute,
+        onboardingRoute,
+        appLayoutRoute.addChildren(appRoutes),
+        adminLayoutRoute.addChildren(adminRoutes),
+      ]);
 
 export const router = createRouter({ routeTree });

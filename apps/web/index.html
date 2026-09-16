@@ -8,6 +8,19 @@
       name="description"
       content="Agentic risk management and spend control layer for autonomous payments on Monad Parallel EVM."
     />
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("agentguard-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var resolved = stored === "dark" || (stored !== "light" && prefersDark) ? "dark" : "light";
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.dataset.theme = stored;
+          }
+          document.documentElement.style.colorScheme = resolved;
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

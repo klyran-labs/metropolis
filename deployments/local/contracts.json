@@ -5,17 +5,17 @@
   "deployer": "0xA978BD5ea722e96caFe47384877F39f8E7EAD22f",
   "contracts": {
     "policyEngine": {
-      "address": "0x14d0c340556843a8aaf0578bc4fd6cd9377de7e5"
+      "address": "0x42a48994d154036a71b4b86194f0f697b274d05d"
     },
     "reputationRegistry": {
-      "address": "0x7d631bbd6d0913d189122f02755623a5eb1d60ba"
+      "address": "0x20940f8e826eb79bd5001427bd749e86a328f51b"
     },
     "agentWalletGuard": {
-      "address": "0xbbc76a4e3933c00bffb5d5bcdfdb9664cdff8b04"
+      "address": "0x020172c0d071af0ec07077b878c0ae6e7cd14fa1"
     },
     "settlementToken": {
-      "address": "0x859974e6aa10d5e7da77ddf87e39137c61ac222b"
+      "address": "0x45e4629eb28d36d759df975926f90924dbf2b8fb"
     }
   },
-  "deployBlock": 23
+  "deployBlock": 19973
 }
