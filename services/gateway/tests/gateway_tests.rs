@@ -295,3 +295,211 @@ async fn unverified_privy_jwt_is_rejected_before_database_access() {
         agentguard_gateway::error::AccessReasonCode::Unauthenticated
     );
 }
+
+#[test]
+fn finops_pricing_calculation_and_rate_cards_contract() {
+    use agentguard_gateway::finops::{calculate_inference_spend, get_official_catalog};
+    use agentguard_gateway::types::{PricingModelType, TenantPricingModel};
+    use std::collections::HashMap;
+
+    let catalog = get_official_catalog();
+    assert!(catalog.iter().any(|c| c.model_id == "claude-3-7-sonnet"));
+    assert!(catalog.iter().any(|c| c.model_id == "gpt-4o"));
+    assert!(catalog.iter().any(|c| c.model_id == "qwen-max"));
+
+    // Verify 100k input + 20k output on Claude 3.7 Sonnet ($3 / 1M in, $15 / 1M out)
+    // 100,000 * $3 / 1M = $0.30 (300,000 micro-dollars)
+    // 20,000 * $15 / 1M = $0.30 (300,000 micro-dollars)
+    // Nominal = 600,000 micro-dollars
+    let base_pricing = TenantPricingModel {
+        org_id: "org_test".to_string(),
+        model_type: PricingModelType::FlatDiscount,
+        discount_bps: 2500, // 25% off
+        volume_tiers: vec![],
+        ptu_capacity_tokens: 0,
+        custom_rates: HashMap::new(),
+        monthly_tokens_consumed: 0,
+        updated_at: "2026-09-17T00:00:00Z".to_string(),
+    };
+
+    let result = calculate_inference_spend("claude-3-7-sonnet", 100_000, 20_000, 0, 0, &base_pricing);
+    assert_eq!(result.nominal_list_cost_micro_dollars, 600_000);
+    assert_eq!(result.effective_cost_micro_dollars, 450_000); // 25% off 600,000 = 450,000
+    assert_eq!(result.effective_discount_bps, 2500);
+
+    // Verify PTU capacity mode
+    let ptu_pricing = TenantPricingModel {
+        org_id: "org_test".to_string(),
+        model_type: PricingModelType::CommittedPtu,
+        discount_bps: 0,
+        volume_tiers: vec![],
+        ptu_capacity_tokens: 500_000,
+        custom_rates: HashMap::new(),
+        monthly_tokens_consumed: 450_000,
+        updated_at: "2026-09-17T00:00:00Z".to_string(),
+    };
+
+    // 100k requested: 50k absorbed by PTU ($0 marginal), 50k overage charged
+    let ptu_result = calculate_inference_spend("gpt-4o", 50_000, 50_000, 0, 0, &ptu_pricing);
+    assert_eq!(ptu_result.ptu_capacity_applied, 50_000);
+    assert_eq!(ptu_result.ptu_overage_tokens, 50_000);
+    assert!(ptu_result.effective_cost_micro_dollars < ptu_result.nominal_list_cost_micro_dollars);
+}
+
+#[test]
+fn adr_0008_qwen_copilot_compilation_and_catalog_invariants() {
+    use agentguard_gateway::qwen::compile_policy_from_prompt;
+    use agentguard_gateway::finops::get_official_catalog;
+
+    // Invariant 1: Qwen 3.8 Max is in the official catalog
+    let catalog = get_official_catalog();
+    let qwen_model = catalog.iter().find(|m| m.model_id == "qwen-max" || m.model_id.contains("qwen"));
+    assert!(qwen_model.is_some(), "Qwen model must be present in enterprise catalog");
+    assert_eq!(qwen_model.unwrap().provider, "alibaba");
+
+    // Invariant 2: Natural language policy compilation parses velocity, window, limits, and whitelist
+    let prompt = "Deploy high-velocity trading bot with 0.50 USDC per tx, max 5.00 USDC per hour, 10 tx/hr velocity, whitelisting 0x1234567890123456789012345678901234567890";
+    let compiled = compile_policy_from_prompt(prompt);
+
+    assert_eq!(compiled.max_per_tx, 500_000); // $0.50 = 500,000 base units (6 decimals)
+    assert_eq!(compiled.max_per_window, 5_000_000); // $5.00 = 5,000,000 base units
+    assert_eq!(compiled.window_seconds, 3600);
+    assert_eq!(compiled.max_velocity, 10);
+    assert!(compiled.whitelist_enabled);
+    assert_eq!(compiled.suggested_merchants.len(), 1);
+    assert_eq!(compiled.suggested_merchants[0], "0x1234567890123456789012345678901234567890");
+    assert!(!compiled.explanation.is_empty());
+}
+
+#[test]
+fn adr_0011_anthropic_messages_proxy_schema() {
+    use agentguard_gateway::handlers::AnthropicMessagesRequest;
+
+    let payload = serde_json::json!({
+        "model": "claude-3-7-sonnet",
+        "messages": [
+            {"role": "user", "content": "Hello AgentGuard"}
+        ],
+        "max_tokens": 1024
+    });
+
+    let req: AnthropicMessagesRequest = serde_json::from_value(payload).expect("deserialize Anthropic payload");
+    assert_eq!(req.model, "claude-3-7-sonnet");
+    assert_eq!(req.max_tokens, Some(1024));
+    assert_eq!(req.messages.len(), 1);
+}
+
+#[test]
+fn erc7677_paymaster_rpc_schema_and_methods() {
+    use agentguard_gateway::types::PaymasterRpcRequest;
+
+    let stub_req_json = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "pm_getPaymasterStubData",
+        "params": [
+            {
+                "sender": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "nonce": "0x0",
+                "initCode": "0x",
+                "callData": "0x",
+                "callGasLimit": "0x10000",
+                "verificationGasLimit": "0x186a0",
+                "preVerificationGas": "0x5000",
+                "maxFeePerGas": "0x3b9aca00",
+                "maxPriorityFeePerGas": "0x3b9aca00"
+            },
+            "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+            "0x279f",
+            {}
+        ]
+    });
+
+    let rpc_req: PaymasterRpcRequest = serde_json::from_value(stub_req_json).expect("valid ERC-7677 JSON-RPC");
+    assert_eq!(rpc_req.method, "pm_getPaymasterStubData");
+    assert_eq!(rpc_req.id, 1);
+}
+
+#[test]
+fn finops_distributed_sync_payload_and_reconciliation() {
+    use agentguard_gateway::finops::{FinopsSyncPayload, DistributedFinopsSync};
+    use agentguard_gateway::types::{TenantPricingModel, PricingModelType, VolumeTier};
+    use std::collections::HashMap;
+
+    let sync = DistributedFinopsSync::new();
+    let mut pricing = TenantPricingModel {
+        org_id: "org_multi_region".to_string(),
+        model_type: PricingModelType::TieredVolume,
+        discount_bps: 1000, // 10%
+        volume_tiers: vec![
+            VolumeTier { min_tokens: 5_000_000, discount_bps: 2500 }
+        ],
+        ptu_capacity_tokens: 0,
+        custom_rates: HashMap::new(),
+        monthly_tokens_consumed: 4_000_000,
+        updated_at: "2026-09-17T00:00:00Z".to_string(),
+    };
+
+    let payload = FinopsSyncPayload {
+        node_id: "eu-central-1-gateway".to_string(),
+        org_id: "org_multi_region".to_string(),
+        delta_tokens: 2_000_000,
+        sync_timestamp: 1741500000,
+        sequence_number: 42,
+    };
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let res = rt.block_on(sync.process_sync(&payload, &mut pricing)).unwrap();
+
+    assert!(res.synced);
+    assert_eq!(res.reconciled_monthly_tokens, 6_000_000);
+    assert_eq!(res.active_discount_bps, 2500); // Graduated to 25% bracket
+    assert_eq!(res.current_tier_index, 1);
+}
+
+#[test]
+fn streaming_sse_rejection_frame_formatting() {
+    use agentguard_gateway::types::OnchainReasonCode;
+
+    let code = OnchainReasonCode::KillSwitch;
+    let json_data = serde_json::to_string(&serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "policy_denied",
+            "reason_code": code.as_u8(),
+            "reason_name": code.as_str(),
+            "message": code.message(),
+            "remediation": code.remediation(),
+            "window_reset_seconds": 3600
+        }
+    })).unwrap();
+
+    let sse_payload = format!("event: error\ndata: {json_data}\n\ndata: [DONE]\n\n");
+    assert!(sse_payload.starts_with("event: error\n"));
+    assert!(sse_payload.contains("\"reason_code\":1"));
+    assert!(sse_payload.contains("\"reason_name\":\"ERR_KILL_SWITCH\""));
+    assert!(sse_payload.ends_with("data: [DONE]\n\n"));
+}
+
+#[test]
+fn dispute_finalization_readiness_evaluation() {
+    use agentguard_gateway::chain::ChainClient;
+
+    // Challenge block 1000, challenge cooldown 200 blocks
+    let challenge_block = 1000;
+
+    // Block 1100: not ready (only 100 blocks elapsed)
+    assert!(!ChainClient::check_dispute_finalization_readiness(1100, challenge_block));
+
+    // Block 1199: not ready (199 blocks elapsed)
+    assert!(!ChainClient::check_dispute_finalization_readiness(1199, challenge_block));
+
+    // Block 1200: ready (exact 200 blocks elapsed)
+    assert!(ChainClient::check_dispute_finalization_readiness(1200, challenge_block));
+
+    // Block 1500: ready (500 blocks elapsed)
+    assert!(ChainClient::check_dispute_finalization_readiness(1500, challenge_block));
+}
+
+
+

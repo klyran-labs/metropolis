@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, PauseCircle, Sparkles, Wallet } from "lucide-react";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, PauseCircle, ShieldCheck, Sparkles, Wallet } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   request,
@@ -13,9 +13,10 @@ import {
   useWalletTransfers,
   type Agent,
 } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
+import { useAgentTba, usePaymasterEligibility } from "../../hooks/usePolicyContracts";
 import { AgentInspector } from "./AgentInspector";
 
 function CopyAddressButton({ address }: { address: string }) {
@@ -81,6 +82,8 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
   const [unloadWalletId, setUnloadWalletId] = useState("");
   const [unloadAmount, setUnloadAmount] = useState("");
   const [message, setMessage] = useState("");
+  const [confirmTransferId, setConfirmTransferId] = useState<string | null>(null);
+  const [txHashInput, setTxHashInput] = useState("");
 
   const refresh = () => {
     void transfers.refetch();
@@ -107,6 +110,9 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
     refresh();
   });
 
+  const tba = useAgentTba(agent.address);
+  const paymaster = usePaymasterEligibility(agent.address);
+
   const treasuryWallets = wallets.data ?? [];
 
   return (
@@ -116,6 +122,16 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
           <h2>
             <Mono>{agent.address}</Mono>
           </h2>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.35rem", marginBottom: "0.35rem", flexWrap: "wrap", alignItems: "center" }}>
+            <Badge tone={paymaster.data?.eligible ? "success" : "neutral"}>
+              {paymaster.data?.eligible ? "Paymaster Sponsored Gas" : "Self-Funded Gas"}
+            </Badge>
+            {tba.data?.tbaAddress && (
+              <Badge tone="info">
+                Token Bound Account: <Mono>{truncateMiddle(tba.data.tbaAddress, 8, 4)}</Mono>
+              </Badge>
+            )}
+          </div>
           <p>Send funds to this agent, or send its balance back to a treasury wallet.</p>
         </div>
         <Button variant="text" onClick={onClose}>
@@ -245,10 +261,8 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
                 <Button
                   variant="text"
                   onClick={() => {
-                    const transactionHash = window.prompt("Paste the transaction hash");
-                    if (transactionHash) {
-                      submitTransfer.mutate({ transferId: transfer.id, transactionHash });
-                    }
+                    setConfirmTransferId(transfer.id);
+                    setTxHashInput("");
                   }}
                 >
                   I've sent this
@@ -260,6 +274,51 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
       ) : (
         <EmptyState title="No wallet activity yet" detail="Load this agent's wallet to begin." />
       )}
+
+      <Dialog
+        open={Boolean(confirmTransferId)}
+        onClose={() => {
+          setConfirmTransferId(null);
+          setTxHashInput("");
+        }}
+        title="Confirm Transfer Broadcast"
+        description="Provide the transaction hash from your wallet once the transfer has settled on Monad."
+        footer={
+          <>
+            <Button
+              variant="text"
+              onClick={() => {
+                setConfirmTransferId(null);
+                setTxHashInput("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (confirmTransferId && txHashInput.trim()) {
+                  submitTransfer.mutate({
+                    transferId: confirmTransferId,
+                    transactionHash: txHashInput.trim(),
+                  });
+                  setConfirmTransferId(null);
+                  setTxHashInput("");
+                }
+              }}
+              disabled={!txHashInput.trim() || submitTransfer.isPending}
+            >
+              Confirm submission
+            </Button>
+          </>
+        }
+      >
+        <TextField
+          label="Transaction hash"
+          value={txHashInput}
+          placeholder="0x…"
+          onChange={(e) => setTxHashInput(e.target.value)}
+        />
+      </Dialog>
     </Surface>
   );
 }
@@ -270,7 +329,7 @@ export function Fleet() {
   const treasuryWallets = useOrganizationWallets(Boolean(identity.authenticated));
   const client = useQueryClient();
   const [address, setAddress] = useState("");
-  const [walletSource, setWalletSource] = useState<"external" | "sovereign">("sovereign");
+  const [walletSource, setWalletSource] = useState<"external" | "sovereign" | "tba">("sovereign");
   const [label, setLabel] = useState("");
   const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -293,6 +352,8 @@ export function Fleet() {
         body: JSON.stringify(
           walletSource === "sovereign"
             ? { walletSource: "sovereign", label, environment: "production", riskTier: "tier2_standard" }
+            : walletSource === "tba"
+            ? { walletSource: "sovereign", label: `${label || "Passport Agent"} [ERC-6551 TBA]`, environment: "production", riskTier: "tier2_standard" }
             : { walletSource: "external", address, environment: "production", riskTier: "tier2_standard" },
         ),
       });
@@ -324,7 +385,7 @@ export function Fleet() {
         <div className="section-heading">
           <div>
             <h2>Register an agent</h2>
-            <p>Generate a wallet we'll manage for this agent, or connect one you already control. Either way, the private key never enters this app.</p>
+            <p>Generate a wallet we'll manage for this agent, bind an ERC-6551 Token Bound Account, or connect one you already control. Either way, the private key never enters this app.</p>
           </div>
         </div>
         <div className="wallet-kind-toggle" role="tablist" aria-label="Wallet source">
@@ -337,6 +398,13 @@ export function Fleet() {
           </button>
           <button
             type="button"
+            className={walletSource === "tba" ? "workspace-tab active" : "workspace-tab"}
+            onClick={() => setWalletSource("tba")}
+          >
+            <ShieldCheck size={14} /> Sovereign Passport (ERC-6551 TBA)
+          </button>
+          <button
+            type="button"
             className={walletSource === "external" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => setWalletSource("external")}
           >
@@ -344,8 +412,13 @@ export function Fleet() {
           </button>
         </div>
         <div className="inline-form">
-          {walletSource === "sovereign" ? (
-            <TextField label="Agent label" value={label} onChange={(event) => setLabel(event.target.value)} />
+          {walletSource === "sovereign" || walletSource === "tba" ? (
+            <TextField
+              label={walletSource === "tba" ? "Passport agent label" : "Agent label"}
+              placeholder={walletSource === "tba" ? "e.g. Autonomous Strategy Bot [TBA]" : "e.g. Inference Agent"}
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+            />
           ) : (treasuryWallets.data?.length ?? 0) > 0 ? (
             <select aria-label="Treasury wallet to link" value={address} onChange={(event) => setAddress(event.target.value)}>
               <option value="">Select a wallet your organization has registered</option>

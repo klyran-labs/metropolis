@@ -6,6 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "lint": "tsc --noEmit",
     "start": "node dist/index.js",
     "dev": "tsc -w",
     "test": "node --test test/opensigner.test.mjs"

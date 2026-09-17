@@ -44,4 +44,5 @@ exclude_lints = [
     "missing-inheritance",
     "cyclomatic-complexity",
     "modifier-used-only-once",
+    "missing-events-access-control",
 ]

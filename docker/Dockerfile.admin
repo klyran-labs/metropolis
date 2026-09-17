@@ -40,17 +40,25 @@ ENV VITE_APP_ENV=$VITE_APP_ENV \
     VITE_PRIVY_APP_ID=$VITE_PRIVY_APP_ID \
     VITE_BRAND_NAME=$VITE_BRAND_NAME
 
-# Copy package manifests
+# Copy package manifests for complete monorepo workspace resolution
 COPY package.json package-lock.json ./
 COPY packages/shared-types/package.json ./packages/shared-types/package.json
 COPY packages/x402-middleware/package.json ./packages/x402-middleware/package.json
+COPY packages/cli/package.json ./packages/cli/package.json
+COPY packages/mcp-server/package.json ./packages/mcp-server/package.json
+COPY contracts/package.json ./contracts/package.json
+COPY services/opensigner/package.json ./services/opensigner/package.json
 COPY apps/web/package.json ./apps/web/package.json
 
 # Install build dependencies for Alpine Linux
 RUN apk add --no-cache python3 make g++
 
-# Install dependencies
-RUN npm ci --ignore-scripts
+# Install dependencies with persistent build cache and network retry configuration
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm ci --ignore-scripts
 
 # Copy sources and build packages
 COPY deployments ./deployments

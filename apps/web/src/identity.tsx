@@ -55,7 +55,7 @@ function useIdentityQuery() {
   const role = useQuery({
     queryKey: ["role", subject],
     queryFn: ({ signal }) =>
-      request<{ role: string; org_id: string }>(
+      request<{ role: string; org_id: string; tenant_name?: string }>(
         `/users/${encodeURIComponent(subject ?? "")}/role`,
         { signal },
       ),
@@ -80,11 +80,25 @@ function useIdentityQuery() {
   // negative before the role fetch has even started.
   const membershipResolved = role.isSuccess || role.isError;
   const membershipLoading = Boolean(privy.authenticated) && !membershipResolved;
+
+  // Persist or resolve human-readable tenant name without leaking raw hex IDs
+  const serverTenantName = role.data?.tenant_name?.trim();
+  if (serverTenantName) {
+    try {
+      localStorage.setItem("agentguard_tenant_name", serverTenantName);
+    } catch {
+      // Ignore storage errors in restricted contexts
+    }
+  }
+  const cachedTenantName = typeof window !== "undefined" ? localStorage.getItem("agentguard_tenant_name") : null;
+  const tenantName = serverTenantName || cachedTenantName || "Workspace";
+
   return {
     ...privy,
     subject,
     role: role.data?.role ?? "",
     tenantId: role.data?.org_id ?? "",
+    tenantName,
     platformAccess: platform.isSuccess,
     platformAccessLoading: platform.isLoading,
     membershipLoading,

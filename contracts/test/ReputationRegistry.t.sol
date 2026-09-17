@@ -20,7 +20,7 @@ contract ReputationRegistryTest is Test {
         registry.setReporter(reporter, true);
     }
 
-    function test_NewAgentStartsAtNeutralBaseline() public {
+    function test_NewAgentStartsAtNeutralBaseline() public view {
         assertEq(registry.getScore(agent), 500_000);
     }
 

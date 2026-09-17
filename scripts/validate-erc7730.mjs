@@ -15,6 +15,12 @@ for (const field of ['agent', 'merchant', 'amount', 'category', 'timestamp', 'de
   if (!format?.fields?.some((entry) => entry.path === field)) errors.push(`missing display field: ${field}`);
 }
 for (const key of ['name', 'version', 'chainId', 'verifyingContract']) {
+  if (key === 'verifyingContract' && deployment.status === 'unprovisioned' && !deployment.verifyingContract) {
+    if (!/^0x[a-fA-F0-9]{40}$/.test(domain?.[key] || '')) {
+      errors.push(`invalid descriptor verifyingContract address: ${domain?.[key]}`);
+    }
+    continue;
+  }
   if (domain?.[key] !== deployment[key]) errors.push(`domain mismatch: ${key}`);
 }
 if (errors.length) {

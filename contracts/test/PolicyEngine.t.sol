@@ -54,7 +54,7 @@ contract PolicyEngineTest is Test {
         });
     }
 
-    function test_DenyWhenAmountExceedsMaxPerTx() public {
+    function test_DenyWhenAmountExceedsMaxPerTx() public view {
         IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(MAX_PER_TX + 1, 1));
         assertFalse(d.allowed);
         assertEq(uint8(d.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_MAX_PER_TX));
@@ -72,7 +72,7 @@ contract PolicyEngineTest is Test {
         assertEq(uint8(d.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_VELOCITY_EXCEEDED));
     }
 
-    function test_AllowWhenWithinAllLimits() public {
+    function test_AllowWhenWithinAllLimits() public view {
         IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(0.5 ether, 1));
         assertTrue(d.allowed);
         assertEq(uint8(d.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_NONE));
@@ -91,7 +91,7 @@ contract PolicyEngineTest is Test {
         assertEq(uint8(d.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_KILL_SWITCH));
     }
 
-    function test_ReasonCodeAlwaysPresentOnDeny() public {
+    function test_ReasonCodeAlwaysPresentOnDeny() public view {
         IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(MAX_PER_TX + 1, 1));
         assertFalse(d.allowed);
         assertTrue(uint8(d.reasonCode) != uint8(IPolicyEngine.ReasonCode.ERR_NONE));
@@ -198,7 +198,7 @@ contract PolicyEngineTest is Test {
     }
 
     /// forge-config: default.fuzz.runs = 5000
-    function testFuzz_NeverAllowsAboveMaxPerTx(uint256 amount) public {
+    function testFuzz_NeverAllowsAboveMaxPerTx(uint256 amount) public view {
         amount = bound(amount, uint256(MAX_PER_TX) + 1, type(uint128).max);
         IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(amount, 1));
         assertFalse(d.allowed);
@@ -206,9 +206,87 @@ contract PolicyEngineTest is Test {
     }
 
     /// forge-config: default.fuzz.runs = 5000
-    function testFuzz_WithinMaxPerTxNeverDeniedForTxLimitReason(uint128 amount) public {
+    function testFuzz_WithinMaxPerTxNeverDeniedForTxLimitReason(uint128 amount) public view {
         amount = uint128(bound(amount, 0, MAX_PER_TX));
         IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(amount, 1));
         assertTrue(d.reasonCode != IPolicyEngine.ReasonCode.ERR_MAX_PER_TX);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       ADR-0012: CIRCUIT PROTOCOL FINANCIAL CIRCUIT BREAKER TESTS
+       ═══════════════════════════════════════════════════════════════════ */
+
+    function test_ADR0012_TripAndResetCircuitBreaker_ByAdmin() public {
+        address admin = makeAddr("enterpriseAdmin");
+        // Bind enterprise controller
+        vm.prank(agent);
+        engine.setAgentAdmin(agent, admin);
+
+        assertFalse(engine.isCircuitBroken(agent));
+        assertFalse(engine.circuitBroken(agent));
+
+        // Enterprise controller trips circuit breaker
+        vm.prank(admin);
+        engine.tripCircuitBreaker(agent);
+
+        assertTrue(engine.isCircuitBroken(agent));
+        assertTrue(engine.circuitBroken(agent));
+
+        // Evaluation is immediately short-circuited with ERR_KILL_SWITCH
+        IPolicyEngine.PolicyDecision memory d = engine.evaluate(_req(0.1 ether, 1));
+        assertFalse(d.allowed);
+        assertEq(uint8(d.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_KILL_SWITCH));
+
+        // Enterprise controller resets circuit breaker
+        vm.prank(admin);
+        engine.resetCircuitBreaker(agent);
+
+        assertFalse(engine.isCircuitBroken(agent));
+        assertFalse(engine.circuitBroken(agent));
+
+        // Evaluation succeeds again
+        IPolicyEngine.PolicyDecision memory dRestored = engine.evaluate(_req(0.1 ether, 1));
+        assertTrue(dRestored.allowed);
+        assertEq(uint8(dRestored.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_NONE));
+    }
+
+    function test_ADR0012_RevertWhenAgentAttemptsToResetCircuitBreaker() public {
+        address admin = makeAddr("enterpriseAdmin");
+        vm.prank(agent);
+        engine.setAgentAdmin(agent, admin);
+
+        // Admin trips breaker
+        vm.prank(admin);
+        engine.tripCircuitBreaker(agent);
+        assertTrue(engine.isCircuitBroken(agent));
+
+        // Autonomous agent (0xAgent) must NEVER be allowed to reset its own circuit breaker
+        vm.prank(agent);
+        vm.expectRevert(PolicyEngine.Unauthorized.selector);
+        engine.resetCircuitBreaker(agent);
+
+        // Circuit breaker remains tripped
+        assertTrue(engine.isCircuitBroken(agent));
+    }
+
+    function test_ADR0012_RevertWhenUnauthorizedCallerTripsOrResetsCircuitBreaker() public {
+        address admin = makeAddr("enterpriseAdmin");
+        address attacker = makeAddr("attacker");
+        vm.prank(agent);
+        engine.setAgentAdmin(agent, admin);
+
+        // Attacker cannot trip
+        vm.prank(attacker);
+        vm.expectRevert(PolicyEngine.Unauthorized.selector);
+        engine.tripCircuitBreaker(agent);
+
+        // Admin trips
+        vm.prank(admin);
+        engine.tripCircuitBreaker(agent);
+
+        // Attacker cannot reset
+        vm.prank(attacker);
+        vm.expectRevert(PolicyEngine.Unauthorized.selector);
+        engine.resetCircuitBreaker(agent);
     }
 }

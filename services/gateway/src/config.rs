@@ -102,6 +102,8 @@ pub struct Config {
     pub inference_service_id: String,
     pub inference_category: String,
     pub cors_allowed_origins: Vec<String>,
+    pub dashscope_api_key: Option<String>,
+    pub dashscope_base_url: String,
 }
 
 fn required(name: &str) -> Result<String, String> {
@@ -326,6 +328,12 @@ impl Config {
             inference_service_id: required("INFERENCE_SERVICE_ID")?,
             inference_category: required("INFERENCE_CATEGORY")?,
             cors_allowed_origins,
+            dashscope_api_key: env::var("DASHSCOPE_API_KEY")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+            dashscope_base_url: env::var("DASHSCOPE_BASE_URL")
+                .unwrap_or_else(|_| "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string()),
         })
     }
 
@@ -358,6 +366,8 @@ impl Config {
             inference_service_id: "test.service".to_string(),
             inference_category: "test".to_string(),
             cors_allowed_origins: vec!["http://test.local".to_string()],
+            dashscope_api_key: None,
+            dashscope_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string(),
         }
     }
 }

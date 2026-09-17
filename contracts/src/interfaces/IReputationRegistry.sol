@@ -13,6 +13,11 @@ interface IReputationRegistry {
         TIMEOUT // 3
     }
 
+    /// @dev Storage layout invariant: 1 slot (32 bytes).
+    ///   6 × uint32 = 24 bytes < 32 bytes → packed into a single SLOAD/SSTORE.
+    ///   CRITICAL: Do NOT add any field wider than uint64 (8B) without measuring
+    ///   the slot impact — even uint256 amount would split this to 2 slots, doubling
+    ///   read cost for every getMetrics() and recordOutcome() call.
     struct ReputationMetrics {
         uint32 scoreBps; // 0 to 1,000,000 parts-per-million (100.00%). Named `scoreBps`
         // for historical reasons; NOT a 0-10,000 basis-points scale

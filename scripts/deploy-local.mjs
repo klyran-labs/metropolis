@@ -82,26 +82,44 @@ async function main() {
   const deploymentDirectory = join(rootDirectory, 'deployments/local');
   mkdirSync(deploymentDirectory, { recursive: true });
 
+  const contractsJsonPath = join(deploymentDirectory, 'contracts.json');
+  const manifestJsonPath = join(rootDirectory, 'deploy/environments/local/deployment-manifest.json');
+  let existingContracts = {};
+  if (existsSync(contractsJsonPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(contractsJsonPath, 'utf8'));
+      existingContracts = existing.contracts || {};
+    } catch {}
+  } else if (existsSync(manifestJsonPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(manifestJsonPath, 'utf8'));
+      existingContracts = existing.contracts || {};
+    } catch {}
+  }
+
+  const mergedContracts = {
+    ...existingContracts,
+    policyEngine: { address: policyEngine.address },
+    reputationRegistry: { address: reputationRegistry.address },
+    agentWalletGuard: { address: agentWalletGuard.address },
+    settlementToken: { address: settlementToken.address },
+  };
+
   const deployment = {
     status: 'provisioned',
     environment: 'local',
     chainId,
     deployer: account.address,
-    contracts: {
-      policyEngine: { address: policyEngine.address },
-      reputationRegistry: { address: reputationRegistry.address },
-      agentWalletGuard: { address: agentWalletGuard.address },
-      settlementToken: { address: settlementToken.address },
-    },
+    contracts: mergedContracts,
     deployBlock: Number(policyEngine.blockNumber),
   };
 
   writeFileSync(
-    join(deploymentDirectory, 'contracts.json'),
+    contractsJsonPath,
     JSON.stringify(deployment, null, 2) + '\n',
   );
   writeFileSync(
-    join(rootDirectory, 'deploy/environments/local/deployment-manifest.json'),
+    manifestJsonPath,
     JSON.stringify(
       {
         environment: 'local',
@@ -109,7 +127,7 @@ async function main() {
         version: '1.0.0',
         chainId,
         rpcEndpoints: [rpcUrl],
-        contracts: deployment.contracts,
+        contracts: mergedContracts,
       },
       null,
       2,

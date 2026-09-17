@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "AgentGuard Parallel EVM Smart Contracts for Monad",
   "scripts": {
-    "build": "command -v forge >/dev/null 2>&1 && forge build || true",
+    "build": "node ../scripts/check-contracts.mjs --compile",
+    "compile": "node ../scripts/check-contracts.mjs --compile",
+    "lint": "node ../scripts/check-contracts.mjs --lint",
     "test": "forge test -vvv",
     "test:js-parity": "node --test test/agentguard-contracts.test.mjs"
   },

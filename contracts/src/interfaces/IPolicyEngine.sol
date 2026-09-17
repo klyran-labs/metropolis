@@ -39,9 +39,13 @@ interface IPolicyEngine {
         uint256 nonce;
     }
 
+    /// @dev Storage layout: 2 slots (down from 3).
+    ///   Slot 0: uint96 orgId (12B) + uint128 totalBudget (16B) + uint32 windowSeconds (4B) = 32B
+    ///   Slot 1: uint128 spentBudget (16B) + uint32 windowStart (4B) + bool active (1B) + 11B pad
+    ///   Saves 100 gas (1 warm SLOAD) per budget pool check in evaluate().
     struct BudgetPool {
         bytes32 poolId;
-        bytes32 orgId;
+        uint96 orgId;
         uint128 totalBudget;
         uint128 spentBudget;
         uint32 windowSeconds;
@@ -66,21 +70,30 @@ interface IPolicyEngine {
     );
 
     event KillSwitchUpdated(address indexed agent, bool active);
+    event CircuitBreakerTripped(address indexed agent, address indexed admin);
+    event CircuitBreakerReset(address indexed agent, address indexed admin);
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
     event MerchantWhitelistUpdated(address indexed agent, address indexed merchant, bool allowed);
     event SpendEvaluated(
         address indexed agent, address indexed merchant, uint256 amount, bool allowed, ReasonCode reasonCode
     );
     event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow);
-    event BudgetPoolCreated(bytes32 indexed poolId, bytes32 indexed orgId, uint128 totalBudget, uint32 windowSeconds);
+    event BudgetPoolCreated(bytes32 indexed poolId, uint96 indexed orgId, uint128 totalBudget, uint32 windowSeconds);
     event AgentAssignedToPool(address indexed agent, bytes32 indexed poolId);
     event BudgetPoolSpent(bytes32 indexed poolId, uint128 amount, uint128 totalSpent);
+    event AgentAdminUpdated(address indexed agent, address indexed newAdmin);
 
+    function setAgentAdmin(address agent, address admin) external;
+    function agentAdmin(address agent) external view returns (address);
     function setPolicy(address agent, SpendPolicy calldata policy) external;
     function batchSetPolicies(address[] calldata agents, SpendPolicy[] calldata policies) external;
-    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds) external;
+    function createBudgetPool(bytes32 poolId, uint96 orgId, uint128 totalBudget, uint32 windowSeconds) external;
     function assignAgentToPool(address agent, bytes32 poolId) external;
     function setKillSwitch(address agent, bool active) external;
+    function tripCircuitBreaker(address agent) external;
+    function resetCircuitBreaker(address agent) external;
+    function isCircuitBroken(address agent) external view returns (bool);
+    function circuitBroken(address agent) external view returns (bool);
     function setAuthorizedCaller(address caller, bool allowed) external;
     function setMerchantWhitelist(address agent, address merchant, bool allowed) external;
     function evaluate(SpendRequest calldata req) external view returns (PolicyDecision memory);

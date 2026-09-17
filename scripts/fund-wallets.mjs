@@ -28,10 +28,11 @@ const ERC20_ABI = parseAbi([
 ]);
 
 const POLICY_ENGINE_ABI = parseAbi([
-  'function setPolicy(address agent, (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowDuration, bool requiresMerchantWhitelist, bool requiresCategoryWhitelist, uint32 budgetPoolId) policy) external',
+  'struct SpendPolicy { uint128 maxPerTx; uint128 maxPerWindow; uint32 windowSeconds; uint32 maxVelocity; bool killSwitch; bool whitelistEnabled; }',
+  'function setPolicy(address agent, SpendPolicy calldata policy) external',
   'function setMerchantWhitelist(address agent, address merchant, bool allowed) external',
   'function isMerchantWhitelisted(address agent, address merchant) external view returns (bool)',
-  'function getPolicy(address agent) external view returns (uint128 maxPerTx, uint128 maxPerWindow, uint32 windowDuration, bool requiresMerchantWhitelist, bool requiresCategoryWhitelist, uint32 budgetPoolId, bool killSwitch)',
+  'function getAgentPolicy(address agent) external view returns (SpendPolicy memory)',
 ]);
 
 function readEnv(key, fallback = '') {
@@ -180,10 +181,10 @@ export async function fundAllWallets(customOptions = {}) {
       const policyArgs = {
         maxPerTx: parseUnits(seed.maxPerTx, 6),
         maxPerWindow: parseUnits(seed.maxPerWindow, 6),
-        windowDuration: seed.windowSec,
-        requiresMerchantWhitelist: Boolean(merchantAddress),
-        requiresCategoryWhitelist: false,
-        budgetPoolId: 0,
+        windowSeconds: seed.windowSec,
+        maxVelocity: 50,
+        killSwitch: false,
+        whitelistEnabled: Boolean(merchantAddress),
       };
 
       const setPolicyHash = await walletClient.writeContract({

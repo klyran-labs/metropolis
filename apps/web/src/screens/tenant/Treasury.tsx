@@ -1,7 +1,7 @@
 import { useWallets } from "@privy-io/react-auth";
-import { ArrowRightLeft, CheckCircle2, Landmark, SendHorizontal, ShieldCheck, Sparkles, UsersRound, Wallet } from "lucide-react";
+import { ArrowRightLeft, CheckCircle2, Fuel, Landmark, SendHorizontal, ShieldCheck, Sparkles, UsersRound, Wallet } from "lucide-react";
 import { useState } from "react";
-import { encodeFunctionData, isAddress, parseAbi } from "viem";
+import { encodeFunctionData, isAddress, parseAbi, parseEther } from "viem";
 import {
   useAgents,
   useGrantWalletAccess,
@@ -17,7 +17,7 @@ import { StatTile } from "../../charts";
 import { configuration } from "../../configuration";
 import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount } from "../../design-system";
 import { useIdentity } from "../../identity";
-import { useDevnetFaucet } from "../../hooks/usePolicyContracts";
+import { useDevnetFaucet, useLiveTokenBalance, usePaymasterTreasuryBalance, useDepositPaymasterGas } from "../../hooks/usePolicyContracts";
 
 function parseBaseUnits(amountStr: string, decimals: number): bigint {
   const [whole = "0", fraction = ""] = amountStr.trim().split(".");
@@ -113,6 +113,59 @@ function WalletAccessPanel({ wallet }: { wallet: OrganizationWallet }) {
   );
 }
 
+function TreasuryWalletCard({
+  wallet,
+  expanded,
+  onToggleExpand,
+  onOpenTransfer,
+}: {
+  wallet: OrganizationWallet;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onOpenTransfer: () => void;
+}) {
+  const liveToken = useLiveTokenBalance(wallet.address);
+  const displayBalance =
+    wallet.balanceBaseUnits !== null && wallet.balanceBaseUnits !== undefined
+      ? wallet.balanceBaseUnits
+      : liveToken.data !== null && liveToken.data !== undefined
+        ? liveToken.data.toString()
+        : null;
+
+  return (
+    <div className="wallet-card" key={wallet.id}>
+      <div className="entity-row">
+        <strong>{wallet.label}</strong>
+        <Badge tone={wallet.kind === "sovereign" ? "info" : "neutral"}>
+          {wallet.kind === "sovereign" ? "Managed for you" : "Connected"}
+        </Badge>
+        <span>
+          <Mono>{wallet.address}</Mono>
+        </span>
+        <TokenAmount baseUnits={displayBalance} />
+        {wallet.approvalThreshold > 1 && (
+          <Badge tone="warning">Needs {wallet.approvalThreshold} approvals</Badge>
+        )}
+        <Button
+          variant="tonal"
+          onClick={onOpenTransfer}
+          disabled={!wallet.hasAccess}
+        >
+          Transfer
+        </Button>
+        <Button
+          variant="text"
+          onClick={onToggleExpand}
+          disabled={!wallet.hasAccess}
+        >
+          {expanded ? "Hide access" : "Manage access"}
+        </Button>
+      </div>
+      {expanded && <WalletAccessPanel wallet={wallet} />}
+    </div>
+  );
+}
+
 export function Treasury() {
   const identity = useIdentity();
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
@@ -181,6 +234,37 @@ export function Treasury() {
     message: string;
     txHash?: string;
   } | null>(null);
+
+  // Paymaster Gas Sponsorship Float state
+  const primaryTreasury = rows[0]?.address || connectedWallets[0]?.address || "";
+  const paymasterBalanceQuery = usePaymasterTreasuryBalance(primaryTreasury);
+  const paymasterFloatMon = Number(paymasterBalanceQuery.data || 0n) / 1e18;
+  const [paymasterModalOpen, setPaymasterModalOpen] = useState(false);
+  const [paymasterAmount, setPaymasterAmount] = useState("2.0");
+  const [paymasterWorking, setPaymasterWorking] = useState(false);
+  const [paymasterMessage, setPaymasterMessage] = useState("");
+  const depositPaymaster = useDepositPaymasterGas(() => {
+    setPaymasterWorking(false);
+    setPaymasterModalOpen(false);
+    setMessage("Paymaster gas sponsorship float replenished on Monad.");
+    void paymasterBalanceQuery.refetch();
+  });
+
+  const handleDepositPaymaster = async () => {
+    if (!primaryTreasury || !paymasterAmount.trim()) return;
+    setPaymasterWorking(true);
+    setPaymasterMessage("");
+    try {
+      const amountWei = parseEther(paymasterAmount.trim());
+      await depositPaymaster.mutateAsync({
+        treasuryAddress: primaryTreasury,
+        amountWei,
+      });
+    } catch (err) {
+      setPaymasterMessage(err instanceof Error ? err.message : "Paymaster deposit failed.");
+      setPaymasterWorking(false);
+    }
+  };
 
   const loadAgent = useLoadAgentWallet(selectedAgentAddress, (result) => {
     setTransferWorking(false);
@@ -347,6 +431,7 @@ export function Treasury() {
         <StatTile label="Treasury wallets" value={String(rows.length)} icon={<Landmark size={18} />} accent={0} />
         <StatTile label="Wallets we manage" value={String(sovereignCount)} icon={<ShieldCheck size={18} />} accent={2} />
         <StatTile label="You can access" value={String(withAccessCount)} icon={<UsersRound size={18} />} accent={1} />
+        <StatTile label="Paymaster Gas Float" value={`${paymasterFloatMon.toFixed(2)} MON`} icon={<Fuel size={18} />} accent={3} />
       </div>
       <Surface>
         <div className="section-heading">
@@ -386,6 +471,12 @@ export function Treasury() {
             <p>{rows.length} wallets registered for this organization.</p>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <Button
+              variant="tonal"
+              onClick={() => setPaymasterModalOpen(true)}
+            >
+              <Fuel size={14} style={{ marginRight: 6 }} /> Replenish Gas Float
+            </Button>
             {configuration.profile === "local" && (
               <Button
                 variant="tonal"
@@ -422,36 +513,13 @@ export function Treasury() {
         ) : rows.length ? (
           <div className="entity-list">
             {rows.map((wallet) => (
-              <div className="wallet-card" key={wallet.id}>
-                <div className="entity-row">
-                  <strong>{wallet.label}</strong>
-                  <Badge tone={wallet.kind === "sovereign" ? "info" : "neutral"}>
-                    {wallet.kind === "sovereign" ? "Managed for you" : "Connected"}
-                  </Badge>
-                  <span>
-                    <Mono>{wallet.address}</Mono>
-                  </span>
-                  <TokenAmount baseUnits={wallet.balanceBaseUnits} />
-                  {wallet.approvalThreshold > 1 && (
-                    <Badge tone="warning">Needs {wallet.approvalThreshold} approvals</Badge>
-                  )}
-                  <Button
-                    variant="tonal"
-                    onClick={() => openTransfer(wallet)}
-                    disabled={!wallet.hasAccess}
-                  >
-                    Transfer
-                  </Button>
-                  <Button
-                    variant="text"
-                    onClick={() => setExpanded(expanded === wallet.id ? null : wallet.id)}
-                    disabled={!wallet.hasAccess}
-                  >
-                    {expanded === wallet.id ? "Hide access" : "Manage access"}
-                  </Button>
-                </div>
-                {expanded === wallet.id && <WalletAccessPanel wallet={wallet} />}
-              </div>
+              <TreasuryWalletCard
+                key={wallet.id}
+                wallet={wallet}
+                expanded={expanded === wallet.id}
+                onToggleExpand={() => setExpanded(expanded === wallet.id ? null : wallet.id)}
+                onOpenTransfer={() => openTransfer(wallet)}
+              />
             ))}
           </div>
         ) : (
@@ -662,6 +730,55 @@ export function Treasury() {
               )}
             </div>
           )}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={paymasterModalOpen}
+        onClose={() => {
+          if (!paymasterWorking) setPaymasterModalOpen(false);
+        }}
+        title="Replenish Paymaster Gas Sponsorship Float"
+        description="Deposit native MON into CircuitPaymaster.sol to sponsor gasless transaction execution for sovereign autonomous agents."
+        footer={
+          <>
+            <Button
+              variant="text"
+              onClick={() => setPaymasterModalOpen(false)}
+              disabled={paymasterWorking}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              onClick={() => void handleDepositPaymaster()}
+              disabled={paymasterWorking || !primaryTreasury || !paymasterAmount.trim()}
+            >
+              <Fuel size={14} style={{ marginRight: 6 }} />
+              {paymasterWorking ? "Depositing…" : "Deposit MON Float"}
+            </Button>
+          </>
+        }
+      >
+        <div className="stack" style={{ gap: "var(--space-12)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>Target Treasury:</span>
+            <Mono>{primaryTreasury ? `${primaryTreasury.slice(0, 10)}…${primaryTreasury.slice(-6)}` : "No treasury configured"}</Mono>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>Current Float Status:</span>
+            <Badge tone={paymasterFloatMon >= 2.0 ? "success" : paymasterFloatMon > 0 ? "warning" : "critical"}>
+              {paymasterFloatMon >= 2.0 ? "Optimal Float" : paymasterFloatMon > 0 ? "Low Float" : "Unfunded"} ({paymasterFloatMon.toFixed(4)} MON)
+            </Badge>
+          </div>
+          <TextField
+            label="Deposit Amount (MON)"
+            type="number"
+            min={0.1}
+            value={paymasterAmount}
+            onChange={(e) => setPaymasterAmount(e.target.value)}
+          />
+          {paymasterMessage && <p className="form-message">{paymasterMessage}</p>}
         </div>
       </Dialog>
     </div>

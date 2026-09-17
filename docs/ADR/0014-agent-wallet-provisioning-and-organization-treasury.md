@@ -1,7 +1,7 @@
 # ADR 0014: Agent Wallet Provisioning, Organization Treasury Wallets, and Load/Unload Flows
 
 ## Status
-Accepted — Phase 1 in implementation.
+**Implemented** (All phases deployed — Phase 1 OpenSigner, Phase 2 Treasury UI & Paymaster Float)
 
 ## Decisions (finalized)
 

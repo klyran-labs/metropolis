@@ -1803,6 +1803,15 @@ td { height: 38px; }
   background: var(--surface-sunken);
 }
 
+.top-bar-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  padding: 6px 10px;
+  color: var(--on-surface);
+}
+
 .top-bar-tenant-name {
   font-weight: 750;
   letter-spacing: -0.01em;
@@ -3176,6 +3185,34 @@ kbd,
   width: 100%;
 }
 
+.copilot-invariant-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgb(239 68 68 / 10%);
+  border: 1px solid rgb(239 68 68 / 40%);
+  color: #ef4444;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  animation: invariant-pulse 0.25s ease-out;
+}
+
+.copilot-invariant-warning strong {
+  font-weight: 750;
+}
+
+.copilot-invariant-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+@keyframes invariant-pulse {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .reason-code-list {
   display: flex;
   flex-direction: column;
@@ -3516,6 +3553,189 @@ kbd,
 .simulator-idle-state p {
   max-width: 360px;
   font-size: 0.84rem;
+}
+
+/* ADR-0008 Autonomous Runaway Qwen 3.8 Max Circuit Breaker Testbench */
+.qwen-circuit-breaker-panel {
+  margin-top: 24px;
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--outline-soft);
+  background: var(--surface-container);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.breaker-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.breaker-icon-box {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-sunken);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.breaker-status-badge-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.breaker-state-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.breaker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.breaker-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--outline-soft);
+  border-radius: 8px;
+}
+
+.breaker-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--on-surface);
+}
+
+.agent-target-chip {
+  background: var(--surface-sunken);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--primary);
+}
+
+.separator {
+  color: var(--muted);
+}
+
+.physics-note {
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.breaker-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.simulate-runaway-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breaker-message-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.banner-info {
+  background: rgba(42, 120, 214, 0.1);
+  border: 1px solid rgba(42, 120, 214, 0.3);
+  color: var(--on-surface);
+}
+
+.banner-critical {
+  background: rgba(217, 58, 58, 0.1);
+  border: 1px solid rgba(217, 58, 58, 0.3);
+  color: var(--status-critical);
+}
+
+.runaway-log-table {
+  border: 1px solid var(--outline-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.runaway-table-header {
+  display: grid;
+  grid-template-columns: 80px 1.4fr 1.2fr 1.5fr 1fr;
+  padding: 10px 14px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--outline-soft);
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.runaway-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.runaway-row {
+  display: grid;
+  grid-template-columns: 80px 1.4fr 1.2fr 1.5fr 1fr;
+  padding: 10px 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--outline-soft);
+  font-size: 0.82rem;
+}
+
+.runaway-row:last-child {
+  border-bottom: none;
+}
+
+.status-denied {
+  background: rgba(217, 58, 58, 0.03);
+}
+
+.log-attempt {
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.log-amount {
+  font-weight: 600;
+}
+
+.log-code {
+  font-size: 0.76rem;
+  color: var(--status-critical);
+}
+
+.log-time {
+  font-size: 0.76rem;
+  color: var(--muted);
 }
 
 /* Activity & Trace Explorer */

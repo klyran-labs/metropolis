@@ -42,6 +42,11 @@ export function TenantOnboarding({ identity }: { identity: ReturnType<typeof use
           signature,
         }),
       });
+      try {
+        localStorage.setItem("agentguard_tenant_name", displayName.trim());
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
       setMessage("Organization created. Preparing your control plane…");
       await identity.refreshIdentity();
     } catch (error) {

@@ -164,6 +164,22 @@ export type GasMode = 'SELF_FUNDED' | 'PAYMASTER_SPONSORED';
 
 export type CircuitBreakerStatus = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
+/**
+ * Circuit Protocol (ADR-0012)
+ * The Zero-Trust Financial Firewall and Clearing Layer for Autonomous Machine Economies on Monad.
+ */
+export const CIRCUIT_PROTOCOL_NAME = "Circuit Protocol";
+export const CIRCUIT_PROTOCOL_TAGLINE =
+  "The Zero-Trust Financial Firewall and Clearing Layer for Autonomous Machine Economies on Monad";
+
+export interface CircuitBreakerEvent {
+  agent: Address;
+  admin: Address;
+  action: 'TRIPPED' | 'RESET';
+  timestamp: bigint;
+  txHash?: Hash;
+}
+
 export interface CircuitBreakerConfig {
   status: CircuitBreakerStatus;
   failureThreshold: number;       // e.g. 3 consecutive denials
@@ -173,6 +189,51 @@ export interface CircuitBreakerConfig {
   trippedAt?: number;
   reason?: string;
 }
+
+/**
+ * Monad Parallel Epoch Clearing & Settlement (ADR-0013)
+ */
+export interface EpochBucket {
+  allocatedCap: bigint;
+  cumulativeSettled: bigint;
+  epochStart: number;
+  epochDuration: number;
+  isClosed: boolean;
+}
+
+export interface UnilateralChallenge {
+  challengeBlock: bigint;
+  proposedSettlement: bigint;
+  active: boolean;
+}
+
+export interface WithdrawalRequest {
+  amount: bigint;
+  unlockTimestamp: bigint;
+  active: boolean;
+}
+
+export interface MicroVoucher {
+  agent: Address;
+  provider: Address;
+  epoch: bigint;
+  sessionId: Hash;
+  cumulativeSpent: bigint;
+  nonce: bigint;
+  deadline: bigint;
+}
+
+export const MICRO_VOUCHER_TYPES = {
+  MicroVoucher: [
+    { name: 'agent', type: 'address' },
+    { name: 'provider', type: 'address' },
+    { name: 'epoch', type: 'uint256' },
+    { name: 'sessionId', type: 'bytes32' },
+    { name: 'cumulativeSpent', type: 'uint128' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+} as const;
 
 /**
  * Enterprise Agent Fleet Member for Control Plane

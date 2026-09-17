@@ -208,6 +208,8 @@ pub struct RoleResponse {
     pub success: bool,
     pub subject: String,
     pub org_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_name: Option<String>,
     pub role: String,
     pub updated_at: String,
 }
@@ -409,4 +411,173 @@ pub struct PbacPolicyRequest {
 pub struct AbacPolicyRequest {
     #[serde(flatten)]
     pub policy: AbacPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PricingModelType {
+    FlatDiscount,
+    TieredVolume,
+    CommittedPtu,
+    BatchDiscount,
+    PerUnitRequest,
+    HybridCommitVolume,
+}
+
+impl Default for PricingModelType {
+    fn default() -> Self {
+        Self::FlatDiscount
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeTier {
+    #[serde(rename = "minTokens")]
+    pub min_tokens: u64,
+    #[serde(rename = "discountBps")]
+    pub discount_bps: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelRateOverride {
+    #[serde(rename = "inputPerMMicroDollars")]
+    pub input_per_m_micro_dollars: u64,
+    #[serde(rename = "outputPerMMicroDollars")]
+    pub output_per_m_micro_dollars: u64,
+    #[serde(rename = "cacheReadPerMMicroDollars", skip_serializing_if = "Option::is_none")]
+    pub cache_read_per_m_micro_dollars: Option<u64>,
+    #[serde(rename = "cacheWritePerMMicroDollars", skip_serializing_if = "Option::is_none")]
+    pub cache_write_per_m_micro_dollars: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolRateOverride {
+    #[serde(rename = "costPerCallMicroDollars")]
+    pub cost_per_call_micro_dollars: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCatalogEntry {
+    #[serde(rename = "toolId")]
+    pub tool_id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub provider: String,
+    pub category: String,
+    #[serde(rename = "costPerCallMicroDollars")]
+    pub cost_per_call_micro_dollars: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantPricingModel {
+    #[serde(rename = "orgId")]
+    pub org_id: String,
+    #[serde(rename = "modelType")]
+    pub model_type: PricingModelType,
+    #[serde(rename = "discountBps")]
+    pub discount_bps: u32,
+    #[serde(rename = "volumeTiers")]
+    pub volume_tiers: Vec<VolumeTier>,
+    #[serde(rename = "ptuCapacityTokens")]
+    pub ptu_capacity_tokens: u64,
+    #[serde(rename = "tokenCapTokens", default)]
+    pub token_cap_tokens: u64,
+    #[serde(rename = "perCallFeeMicroDollars", default)]
+    pub per_call_fee_micro_dollars: u64,
+    #[serde(rename = "customRates")]
+    pub custom_rates: std::collections::HashMap<String, ModelRateOverride>,
+    #[serde(rename = "toolCustomRates", default)]
+    pub tool_custom_rates: std::collections::HashMap<String, ToolRateOverride>,
+    #[serde(rename = "monthlyTokensConsumed")]
+    pub monthly_tokens_consumed: u64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePricingModelRequest {
+    #[serde(rename = "modelType")]
+    pub model_type: PricingModelType,
+    #[serde(rename = "discountBps", default)]
+    pub discount_bps: u32,
+    #[serde(rename = "volumeTiers", default)]
+    pub volume_tiers: Vec<VolumeTier>,
+    #[serde(rename = "ptuCapacityTokens", default)]
+    pub ptu_capacity_tokens: u64,
+    #[serde(rename = "tokenCapTokens", default)]
+    pub token_cap_tokens: u64,
+    #[serde(rename = "perCallFeeMicroDollars", default)]
+    pub per_call_fee_micro_dollars: u64,
+    #[serde(rename = "customRates", default)]
+    pub custom_rates: std::collections::HashMap<String, ModelRateOverride>,
+    #[serde(rename = "toolCustomRates", default)]
+    pub tool_custom_rates: std::collections::HashMap<String, ToolRateOverride>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinOpsSpendResult {
+    #[serde(rename = "modelName")]
+    pub model_name: String,
+    #[serde(rename = "totalTokens")]
+    pub total_tokens: u64,
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: u64,
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: u64,
+    #[serde(rename = "cacheReadTokens")]
+    pub cache_read_tokens: u64,
+    #[serde(rename = "cacheCreationTokens")]
+    pub cache_creation_tokens: u64,
+    #[serde(rename = "nominalListCostMicroDollars")]
+    pub nominal_list_cost_micro_dollars: u64,
+    #[serde(rename = "effectiveCostMicroDollars")]
+    pub effective_cost_micro_dollars: u64,
+    #[serde(rename = "effectiveDiscountBps")]
+    pub effective_discount_bps: u32,
+    #[serde(rename = "contractModel")]
+    pub contract_model: PricingModelType,
+    #[serde(rename = "ptuCapacityApplied")]
+    pub ptu_capacity_applied: u64,
+    #[serde(rename = "ptuOverageTokens")]
+    pub ptu_overage_tokens: u64,
+    #[serde(rename = "toolCostMicroDollars", default)]
+    pub tool_cost_micro_dollars: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalculateToolCallRequest {
+    #[serde(rename = "toolId")]
+    pub tool_id: String,
+    #[serde(default = "default_tool_count")]
+    pub count: u64,
+}
+
+fn default_tool_count() -> u64 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalculateSpendRequest {
+    #[serde(rename = "modelName")]
+    pub model_name: String,
+    #[serde(rename = "inputTokens", default)]
+    pub input_tokens: u64,
+    #[serde(rename = "outputTokens", default)]
+    pub output_tokens: u64,
+    #[serde(rename = "cacheReadTokens", default)]
+    pub cache_read_tokens: u64,
+    #[serde(rename = "cacheCreationTokens", default)]
+    pub cache_creation_tokens: u64,
+    #[serde(rename = "isBatch", default)]
+    pub is_batch: bool,
+    #[serde(rename = "toolCalls", default)]
+    pub tool_calls: Vec<CalculateToolCallRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantPricingModelResponse {
+    pub pricing: TenantPricingModel,
+    pub catalog: Vec<crate::finops::ModelCatalogEntry>,
+    #[serde(rename = "toolCatalog")]
+    pub tool_catalog: Vec<ToolCatalogEntry>,
 }

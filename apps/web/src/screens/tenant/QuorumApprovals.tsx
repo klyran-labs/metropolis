@@ -26,6 +26,34 @@ import {
 } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
+import type { OrganizationWallet } from "../../api";
+
+function MultisigWalletRow({ wallet }: { wallet: OrganizationWallet }) {
+  const liveToken = useLiveTokenBalance(wallet.address);
+  const displayBalance =
+    wallet.balanceBaseUnits !== null && wallet.balanceBaseUnits !== undefined
+      ? wallet.balanceBaseUnits
+      : liveToken.data !== null && liveToken.data !== undefined
+        ? liveToken.data.toString()
+        : null;
+
+  return (
+    <div key={wallet.id} className="entity-row">
+      <div className="agent-ident-cell">
+        <Wallet size={15} />
+        <strong>{wallet.label}</strong>
+      </div>
+      <Mono>{truncateMiddle(wallet.address, 10, 6)}</Mono>
+      <Badge tone="info">Requires {wallet.approvalThreshold} Operator Signatures</Badge>
+      <TokenAmount baseUnits={displayBalance} />
+      <Link to="/app/treasury" className="remediation-btn">
+        <span>Manage Quorum</span>
+        <ArrowRight size={13} />
+      </Link>
+    </div>
+  );
+}
 
 export function QuorumApprovals() {
   const identity = useIdentity();
@@ -228,19 +256,7 @@ export function QuorumApprovals() {
         {multisigWallets.length > 0 ? (
           <div className="entity-list">
             {multisigWallets.map((w) => (
-              <div key={w.id} className="entity-row">
-                <div className="agent-ident-cell">
-                  <Wallet size={15} />
-                  <strong>{w.label}</strong>
-                </div>
-                <Mono>{truncateMiddle(w.address, 10, 6)}</Mono>
-                <Badge tone="info">Requires {w.approvalThreshold} Operator Signatures</Badge>
-                <TokenAmount baseUnits={w.balanceBaseUnits} />
-                <Link to="/app/treasury" className="remediation-btn">
-                  <span>Manage Quorum</span>
-                  <ArrowRight size={13} />
-                </Link>
-              </div>
+              <MultisigWalletRow key={w.id} wallet={w} />
             ))}
           </div>
         ) : (

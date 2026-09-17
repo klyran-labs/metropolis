@@ -1,0 +1,32 @@
+{
+  "name": "@agentguard/mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Official Model Context Protocol (MCP) Server for AgentGuard on Monad",
+  "bin": {
+    "agentguard-mcp": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "node --test test/mcp.test.mjs"
+  },
+  "dependencies": {
+    "@agentguard/shared-types": "^1.0.0",
+    "viem": "^2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}

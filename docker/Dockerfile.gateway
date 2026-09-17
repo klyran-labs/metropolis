@@ -18,8 +18,10 @@ COPY services/gateway/tests ./tests
 COPY services/gateway/migrations ./migrations
 COPY deploy/environments ./deploy/environments
 
-# Compile optimized release binary
-RUN cargo build --release
+# Compile optimized release binary with BuildKit caching
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo build --release
 
 # Stage 2: Hardened Alpine runtime
 FROM alpine:3.20 AS runner

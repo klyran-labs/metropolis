@@ -68,18 +68,37 @@ const SPEND_REQUEST_TYPES = {
 class PolicyEngineSimulator {
   constructor(domainVerifyingContract = "0x2222222222222222222222222222222222222222") {
     this.verifyingContract = domainVerifyingContract;
+    this.owner = "0x1111111111111111111111111111111111111111";
     this.policies = new Map(); // agent -> PackedPolicy
     this.states = new Map();   // agent -> PackedState
     this.whitelists = new Map(); // `${agent}:${merchant}` -> bool
     this.usedNonces = new Map(); // `${agent}:${nonce}` -> bool
     this.budgetPools = new Map(); // poolId -> BudgetPool
     this.agentPools = new Map(); // agent -> poolId
+    this.circuitBroken = new Map(); // agent -> bool
+    this.agentAdmin = new Map(); // agent -> adminAddress
+  }
+
+  setAgentAdmin(agent, admin, caller) {
+    const agentKey = agent.toLowerCase();
+    const currentAdmin = this.agentAdmin.get(agentKey);
+    if (currentAdmin && caller) {
+      if (caller.toLowerCase() !== currentAdmin && caller.toLowerCase() !== this.owner.toLowerCase()) {
+        throw new Error("Unauthorized");
+      }
+    } else if (caller) {
+      if (caller.toLowerCase() !== agentKey && caller.toLowerCase() !== this.owner.toLowerCase()) {
+        throw new Error("Unauthorized");
+      }
+    }
+    this.agentAdmin.set(agentKey, admin.toLowerCase());
   }
 
   createBudgetPool(poolId, orgId, totalBudget, windowSeconds) {
+    // orgId is uint96 (numeric) — store as BigInt, matching the 2-slot PackedBudgetPool layout
     this.budgetPools.set(poolId.toLowerCase(), {
       poolId: poolId.toLowerCase(),
-      orgId: orgId.toLowerCase(),
+      orgId: BigInt(orgId),
       totalBudget: BigInt(totalBudget),
       spentBudget: 0n,
       windowSeconds: Number(windowSeconds),
@@ -100,21 +119,70 @@ class PolicyEngineSimulator {
   }
 
   setPolicy(agent, policy) {
-    this.policies.set(agent.toLowerCase(), {
+    const agentKey = agent.toLowerCase();
+    const kill = Boolean(policy.killSwitch);
+    this.policies.set(agentKey, {
       maxPerTx: BigInt(policy.maxPerTx),
       maxPerWindow: BigInt(policy.maxPerWindow),
       windowSeconds: Number(policy.windowSeconds),
       maxVelocity: Number(policy.maxVelocity),
-      killSwitch: Boolean(policy.killSwitch),
+      killSwitch: kill,
       whitelistEnabled: Boolean(policy.whitelistEnabled),
       isConfigured: true,
     });
+    this.circuitBroken.set(agentKey, kill);
   }
 
-  setKillSwitch(agent, active) {
-    const p = this.policies.get(agent.toLowerCase());
+  tripCircuitBreaker(agent, caller) {
+    const agentKey = agent.toLowerCase();
+    const admin = this.agentAdmin.get(agentKey);
+    if (caller) {
+      const c = caller.toLowerCase();
+      if (admin && c !== admin && c !== this.owner.toLowerCase() && c !== agentKey) {
+        throw new Error("Unauthorized");
+      }
+    }
+    this.circuitBroken.set(agentKey, true);
+    const p = this.policies.get(agentKey);
     if (p) {
-      p.killSwitch = Boolean(active);
+      p.killSwitch = true;
+    }
+  }
+
+  resetCircuitBreaker(agent, caller) {
+    const agentKey = agent.toLowerCase();
+    const admin = this.agentAdmin.get(agentKey);
+    if (caller) {
+      const c = caller.toLowerCase();
+      if (admin) {
+        if (c !== admin && c !== this.owner.toLowerCase()) {
+          throw new Error("Unauthorized");
+        }
+      } else {
+        if (c !== agentKey && c !== this.owner.toLowerCase()) {
+          throw new Error("Unauthorized");
+        }
+      }
+    }
+    this.circuitBroken.set(agentKey, false);
+    const p = this.policies.get(agentKey);
+    if (p) {
+      p.killSwitch = false;
+    }
+  }
+
+  isCircuitBroken(agent) {
+    const agentKey = agent.toLowerCase();
+    const p = this.policies.get(agentKey);
+    return Boolean(this.circuitBroken.get(agentKey) || (p && p.killSwitch));
+  }
+
+  setKillSwitch(agent, active, caller) {
+    const agentKey = agent.toLowerCase();
+    if (active) {
+      this.tripCircuitBreaker(agentKey, caller);
+    } else {
+      this.resetCircuitBreaker(agentKey, caller);
     }
   }
 
@@ -132,8 +200,8 @@ class PolicyEngineSimulator {
       nonce: 0n,
     };
 
-    // Kill switch or unconfigured
-    if (!policy || !policy.isConfigured || policy.killSwitch) {
+    // Kill switch, circuit breaker or unconfigured
+    if (!policy || !policy.isConfigured || policy.killSwitch || this.isCircuitBroken(agentKey)) {
       return {
         allowed: false,
         allowedAmount: 0n,
@@ -475,6 +543,87 @@ test("PolicyEngine: test_KillSwitchShortCircuitsAllOtherChecks (O(1) Invariant)"
   assert.equal(decision.allowedAmount, 0n);
 });
 
+test("ADR-0012: Circuit Protocol test_TripAndResetCircuitBreaker_DualRoleAuthority", () => {
+  const engine = new PolicyEngineSimulator();
+  const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const admin = "0xcccccccccccccccccccccccccccccccccccccccc";
+  const merchant = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  // Configure policy and bind enterprise admin controller
+  engine.setPolicy(agent, {
+    maxPerTx: 500n,
+    maxPerWindow: 2000n,
+    windowSeconds: 3600,
+    maxVelocity: 50,
+    killSwitch: false,
+    whitelistEnabled: false,
+  });
+  engine.setAgentAdmin(agent, admin, agent);
+
+  assert.equal(engine.isCircuitBroken(agent), false);
+
+  // Enterprise controller trips circuit breaker
+  engine.tripCircuitBreaker(agent, admin);
+  assert.equal(engine.isCircuitBroken(agent), true);
+
+  const req = {
+    agent,
+    merchant,
+    amount: 10n,
+    category: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    timestamp: 1000n,
+    deadline: 2000n,
+    nonce: 1n,
+  };
+
+  // Evaluation short-circuits instantly with ERR_KILL_SWITCH
+  const decision = engine.evaluate(req);
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reasonCode, REASON_CODES.ERR_KILL_SWITCH);
+
+  // Enterprise controller resets circuit breaker
+  engine.resetCircuitBreaker(agent, admin);
+  assert.equal(engine.isCircuitBroken(agent), false);
+
+  const restoredDecision = engine.evaluate(req);
+  assert.equal(restoredDecision.allowed, true);
+  assert.equal(restoredDecision.reasonCode, REASON_CODES.ERR_NONE);
+});
+
+test("ADR-0012: Circuit Protocol test_AgentForbiddenFromResettingCircuitBreaker", () => {
+  const engine = new PolicyEngineSimulator();
+  const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const admin = "0xcccccccccccccccccccccccccccccccccccccccc";
+  const attacker = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
+  engine.setPolicy(agent, {
+    maxPerTx: 500n,
+    maxPerWindow: 2000n,
+    windowSeconds: 3600,
+    maxVelocity: 50,
+    killSwitch: false,
+    whitelistEnabled: false,
+  });
+  engine.setAgentAdmin(agent, admin, agent);
+
+  // Enterprise admin trips circuit breaker
+  engine.tripCircuitBreaker(agent, admin);
+  assert.equal(engine.isCircuitBroken(agent), true);
+
+  // Autonomous agent (0xAgent) is strictly prohibited from resetting its own circuit breaker
+  assert.throws(() => {
+    engine.resetCircuitBreaker(agent, agent);
+  }, /Unauthorized/);
+
+  // Unauthorized third party cannot reset
+  assert.throws(() => {
+    engine.resetCircuitBreaker(agent, attacker);
+  }, /Unauthorized/);
+
+  // Circuit breaker remains solidly tripped
+  assert.equal(engine.isCircuitBroken(agent), true);
+});
+
 test("PolicyEngine: test_ReasonCodeAlwaysPresentOnDeny (Invariant #4)", () => {
   const engine = new PolicyEngineSimulator();
   const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -690,7 +839,7 @@ test("Monad Concurrency: test_MonadParallelStateIsolation (50 concurrent agents)
 test("PolicyEngine: test_DenyWhenBudgetPoolDepleted (ReasonCode 6)", () => {
   const engine = new PolicyEngineSimulator();
   const poolId = "0x0000000000000000000000000000000000000000000000000000000000000001";
-  const orgId = "0x00000000000000000000000000000000000000000000000000000000000000aa";
+  const orgId = 170n; // uint96 (was bytes32 0x...aa; now numeric matching PackedBudgetPool slot 0)
   const agent1 = "0x1111111111111111111111111111111111111111";
   const agent2 = "0x2222222222222222222222222222222222222222";
   const merchant = "0x8888888888888888888888888888888888888888";
@@ -755,7 +904,7 @@ test("PolicyEngine: test_DenyWhenBudgetPoolDepleted (ReasonCode 6)", () => {
 test("PolicyEngine: test_BudgetPoolWindowRollover", () => {
   const engine = new PolicyEngineSimulator();
   const poolId = "0x0000000000000000000000000000000000000000000000000000000000000002";
-  const orgId = "0x00000000000000000000000000000000000000000000000000000000000000bb";
+  const orgId = 187n; // uint96 (was bytes32 0x...bb; now numeric matching PackedBudgetPool slot 0)
   const agent = "0x3333333333333333333333333333333333333333";
   const merchant = "0x8888888888888888888888888888888888888888";
 
@@ -1026,4 +1175,142 @@ test("EnclaveAttestation: test_TEE_EnclaveAttestationVerification", () => {
   assert.equal(isExpired, true);
 });
 
+test("CircuitPaymaster: test_PaymasterSponsorshipEligibilityAndCircuitBreaker", () => {
+  const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const treasury = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const maxCost = 100000000000000000n; // 0.1 MON
 
+  const paymasterState = {
+    treasuryBalances: new Map([[treasury.toLowerCase(), 1000000000000000000n]]), // 1 MON
+    agentToTreasury: new Map([[agent.toLowerCase(), treasury.toLowerCase()]]),
+    circuitBrokenAgents: new Set(),
+  };
+
+  function isEligible(agentAddr, cost) {
+    const key = agentAddr.toLowerCase();
+    if (paymasterState.circuitBrokenAgents.has(key)) {
+      return { eligible: false, reasonCode: 8 }; // ERR_CIRCUIT_BREAKER_ACTIVE
+    }
+    const t = paymasterState.agentToTreasury.get(key);
+    if (!t) {
+      return { eligible: false, reasonCode: 1 }; // ERR_AGENT_NOT_AUTHORIZED
+    }
+    const bal = paymasterState.treasuryBalances.get(t) || 0n;
+    if (bal < cost) {
+      return { eligible: false, reasonCode: 6 }; // ERR_BUDGET_EXCEEDED
+    }
+    return { eligible: true, reasonCode: 0 };
+  }
+
+  // 1. Initially eligible
+  let check = isEligible(agent, maxCost);
+  assert.equal(check.eligible, true);
+  assert.equal(check.reasonCode, 0);
+
+  // 2. Circuit breaker tripped -> short circuit rejection
+  paymasterState.circuitBrokenAgents.add(agent.toLowerCase());
+  check = isEligible(agent, maxCost);
+  assert.equal(check.eligible, false);
+  assert.equal(check.reasonCode, 8);
+
+  // 3. Reset circuit breaker, simulate execution & postOp refund
+  paymasterState.circuitBrokenAgents.delete(agent.toLowerCase());
+  const actualCost = 40000000000000000n; // 0.04 MON
+  // ValidateUserOp reserves maxCost
+  paymasterState.treasuryBalances.set(treasury.toLowerCase(), paymasterState.treasuryBalances.get(treasury.toLowerCase()) - maxCost);
+  assert.equal(paymasterState.treasuryBalances.get(treasury.toLowerCase()), 900000000000000000n);
+  // PostOp refunds maxCost - actualCost (0.06 MON)
+  const refund = maxCost - actualCost;
+  paymasterState.treasuryBalances.set(treasury.toLowerCase(), paymasterState.treasuryBalances.get(treasury.toLowerCase()) + refund);
+  assert.equal(paymasterState.treasuryBalances.get(treasury.toLowerCase()), 960000000000000000n);
+});
+
+test("AgentPassportNFT: test_PassportMintingAndBoundAccountResolution", () => {
+  const agent = "0xcccccccccccccccccccccccccccccccccccccccc";
+  const owner = "0xdddddddddddddddddddddddddddddddddddddddd";
+  const registry = "0x9999999999999999999999999999999999999999";
+  const passportContract = "0x8888888888888888888888888888888888888888";
+  const implementation = "0x7777777777777777777777777777777777777777";
+  const tokenId = 1n;
+  const chainId = 10143n;
+  const salt = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+  // Simulate AgentPassportNFT minting
+  const passportRegistry = {
+    owners: new Map([[tokenId, owner.toLowerCase()]]),
+    tokenAgent: new Map([[tokenId, agent.toLowerCase()]]),
+    agentToken: new Map([[agent.toLowerCase(), tokenId]]),
+  };
+
+  assert.equal(passportRegistry.owners.get(tokenId), owner.toLowerCase());
+  assert.equal(passportRegistry.agentToken.get(agent.toLowerCase()), tokenId);
+
+  // Compute deterministic ERC-6551 Token Bound Account
+  const combinedSalt = keccak256(
+    encodeAbiParameters(
+      parseAbiParameters("bytes32, uint256, address, uint256"),
+      [salt, chainId, passportContract, tokenId]
+    )
+  );
+
+  assert.ok(combinedSalt.startsWith("0x"));
+  assert.equal(combinedSalt.length, 66);
+});
+
+test("Solidity Static Invariants: All core contract interface calls must exist in interface definitions", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+
+  const coreDir = path.resolve("contracts/src/core");
+  const intDir = path.resolve("contracts/src/interfaces");
+
+  const interfaceFiles = fs.readdirSync(intDir).filter((f) => f.endsWith(".sol"));
+  const interfaceContents = {};
+  for (const f of interfaceFiles) {
+    interfaceContents[f] = fs.readFileSync(path.join(intDir, f), "utf8");
+  }
+
+  const interfaceMap = {};
+  for (const [f, content] of Object.entries(interfaceContents)) {
+    const match = content.match(/interface\s+([A-Za-z0-9_]+)/);
+    if (match) {
+      interfaceMap[match[1]] = content;
+    }
+  }
+
+  const coreFiles = fs.readdirSync(coreDir).filter((f) => f.endsWith(".sol"));
+  const errors = [];
+
+  for (const cf of coreFiles) {
+    const content = fs.readFileSync(path.join(coreDir, cf), "utf8");
+
+    for (const [iName, iContent] of Object.entries(interfaceMap)) {
+      const varRegex = new RegExp(`\\b${iName}\\s+(?:public|private|internal|immutable)?\\s*([a-zA-Z0-9_]+)`, "g");
+      let match;
+      const varNames = new Set();
+      while ((match = varRegex.exec(content)) !== null) {
+        if (!["override", "memory", "calldata", "storage"].includes(match[1])) {
+          varNames.add(match[1]);
+        }
+      }
+
+      for (const vName of varNames) {
+        const callRegex = new RegExp(`\\b${vName}\\.([a-zA-Z0-9_]+)\\s*\\(`, "g");
+        let cMatch;
+        while ((cMatch = callRegex.exec(content)) !== null) {
+          const method = cMatch[1];
+          const hasMethod = new RegExp(`function\\s+${method}\\s*\\(`).test(iContent);
+          if (!hasMethod) {
+            errors.push(`${cf}: Variable "${vName}" of type ${iName} calls ".${method}()", but "${method}" is not declared in ${iName}!`);
+          }
+        }
+      }
+    }
+  }
+
+  assert.equal(
+    errors.length,
+    0,
+    `Found undeclared interface calls in Solidity contracts:\n${errors.join("\n")}`
+  );
+});

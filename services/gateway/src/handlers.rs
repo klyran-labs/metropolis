@@ -45,6 +45,8 @@ pub struct AppState {
     pub auth: AuthService,
     pub chain: ChainClient,
     pub events: EventHub,
+    pub finops_sync: crate::finops::DistributedFinopsSync,
+    pub streaming_reserves: crate::finops::StreamingReserveHold,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -287,6 +289,18 @@ fn required_capability(method: &http::Method, path: &str) -> (Capability, &'stat
             Capability::ManageAuthorizationPolicy,
             Capability::ManageAuthorizationPolicy.action(),
         );
+    }
+    if path.starts_with("/api/v1/tenant/pricing-model") {
+        if method == http::Method::GET {
+            return (Capability::ReadFleet, Capability::ReadFleet.action());
+        }
+        return (Capability::ManageTreasury, Capability::ManageTreasury.action());
+    }
+    if path.starts_with("/api/v1/finops/calculate-spend") {
+        return (Capability::ReadFleet, Capability::ReadFleet.action());
+    }
+    if path.starts_with("/api/v1/copilot/compile-policy") {
+        return (Capability::AuthorPolicy, Capability::AuthorPolicy.action());
     }
     if method == http::Method::GET {
         (Capability::ReadFleet, Capability::ReadFleet.action())
@@ -3302,6 +3316,54 @@ fn x402_rejection(
         .into_response()
 }
 
+fn x402_sse_rejection(
+    status: StatusCode,
+    code: OnchainReasonCode,
+    agent: Option<alloy::primitives::Address>,
+    chain_id: u64,
+) -> Response {
+    let body = X402PolicyRejectionBody {
+        error: code.as_str().to_string(),
+        reason_code: code.as_u8(),
+        message: code.message().to_string(),
+        remediation: code.remediation().to_string(),
+        agent: agent
+            .map(|value| format!("{value:#x}"))
+            .unwrap_or_else(|| "unresolved".to_string()),
+        network: network_name(chain_id).to_string(),
+        chain_id,
+        evaluated_at: Utc::now().to_rfc3339(),
+    };
+    let json_data = serde_json::to_string(&serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "policy_denied",
+            "reason_code": code.as_u8(),
+            "reason_name": code.as_str(),
+            "message": code.message(),
+            "remediation": code.remediation(),
+            "agent": body.agent,
+            "window_reset_seconds": 3600
+        }
+    }))
+    .unwrap_or_default();
+
+    let sse_payload = format!("event: error\ndata: {json_data}\n\ndata: [DONE]\n\n");
+
+    (
+        status,
+        [
+            ("Content-Type", "text/event-stream"),
+            ("Cache-Control", "no-cache"),
+            ("Connection", "keep-alive"),
+            ("X-AgentGuard-Reason-Code", &code.as_u8().to_string()),
+        ],
+        sse_payload,
+    )
+        .into_response()
+}
+
+
 pub async fn telemetry_stream(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
@@ -3386,10 +3448,19 @@ pub async fn get_user_role_handler(
             )
         })?
     };
+    let tenant_name = sqlx::query_scalar::<_, String>(
+        "SELECT display_name FROM organizations WHERE org_id = $1",
+    )
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .unwrap_or(None);
+
     Ok(Json(RoleResponse {
         success: true,
         subject: subject.clone(),
         org_id: context.tenant.org_id,
+        tenant_name,
         role: role.as_str().to_string(),
         updated_at: Utc::now().to_rfc3339(),
     }))
@@ -3543,10 +3614,19 @@ pub async fn update_user_role_handler(
             "Wait for that operation or use a new idempotency key.",
         )
     })?;
+    let tenant_name = sqlx::query_scalar::<_, String>(
+        "SELECT display_name FROM organizations WHERE org_id = $1",
+    )
+    .bind(&context.tenant.org_id)
+    .fetch_optional(&state.repository.pool)
+    .await
+    .unwrap_or(None);
+
     let response = RoleResponse {
         success: true,
         subject: subject.clone(),
         org_id: context.tenant.org_id.clone(),
+        tenant_name,
         role: role.as_str().to_string(),
         updated_at: Utc::now().to_rfc3339(),
     };
@@ -3656,3 +3736,522 @@ pub async fn update_user_role_handler(
     }
     Ok(Json(response))
 }
+
+pub async fn get_tenant_pricing_model_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<crate::types::TenantPricingModelResponse>, ApiError> {
+    let pricing = state
+        .repository
+        .load_tenant_pricing_model(&context.tenant.org_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Failed to load tenant pricing model");
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                AccessReasonCode::DependencyUnavailable,
+                "The organization pricing model could not be loaded.",
+                "Retry after the policy store is healthy.",
+            )
+        })?;
+
+    let catalog = crate::finops::get_official_catalog();
+    let tool_catalog = crate::finops::get_official_tool_catalog();
+    Ok(Json(crate::types::TenantPricingModelResponse { pricing, catalog, tool_catalog }))
+}
+
+pub async fn update_tenant_pricing_model_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<crate::types::UpdatePricingModelRequest>,
+) -> Result<Json<crate::types::TenantPricingModel>, ApiError> {
+    let updated = state
+        .repository
+        .upsert_tenant_pricing_model(&context.tenant.org_id, &payload)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Failed to update tenant pricing model");
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                AccessReasonCode::DependencyUnavailable,
+                "The organization pricing model could not be saved.",
+                "Retry after the policy store is healthy.",
+            )
+        })?;
+
+    Ok(Json(updated))
+}
+
+pub async fn calculate_spend_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<crate::types::CalculateSpendRequest>,
+) -> Result<Json<crate::types::FinOpsSpendResult>, ApiError> {
+    let pricing = state
+        .repository
+        .load_tenant_pricing_model(&context.tenant.org_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Failed to load tenant pricing model for calculation");
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                AccessReasonCode::DependencyUnavailable,
+                "The organization pricing model could not be loaded.",
+                "Retry after the policy store is healthy.",
+            )
+        })?;
+
+    let mut result = crate::finops::calculate_inference_spend(
+        &payload.model_name,
+        payload.input_tokens,
+        payload.output_tokens,
+        payload.cache_read_tokens,
+        payload.cache_creation_tokens,
+        &pricing,
+    );
+
+    if payload.is_batch && result.contract_model != crate::types::PricingModelType::BatchDiscount {
+        result.effective_cost_micro_dollars = result.effective_cost_micro_dollars / 2;
+        result.effective_discount_bps = result.effective_discount_bps.max(5000);
+    }
+
+    for tc in &payload.tool_calls {
+        let tool_cost = crate::finops::calculate_tool_spend(&tc.tool_id, tc.count, &pricing);
+        result.tool_cost_micro_dollars = result.tool_cost_micro_dollars.saturating_add(tool_cost);
+        result.effective_cost_micro_dollars = result.effective_cost_micro_dollars.saturating_add(tool_cost);
+        result.nominal_list_cost_micro_dollars = result.nominal_list_cost_micro_dollars.saturating_add(tool_cost);
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn compile_policy_handler(
+    State(_state): State<SharedState>,
+    Extension(_context): Extension<RequestContext>,
+    Json(payload): Json<crate::qwen::CompilePolicyRequest>,
+) -> Result<Json<crate::qwen::CompiledPolicyResult>, ApiError> {
+    let result = crate::qwen::compile_policy_from_prompt(&payload.prompt);
+    Ok(Json(result))
+}
+
+pub async fn chat_completions_handler(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(payload): Json<crate::qwen::QwenChatRequest>,
+) -> Response {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok());
+    let Some(auth_header) = auth_header.filter(|value| !value.trim().is_empty()) else {
+        let challenge = X402Challenge {
+            standard: "x402".to_string(),
+            version: "1.0".to_string(),
+            network: network_name(state.config.chain_id).to_string(),
+            chain_id: state.config.chain_id,
+            challenge: X402ChallengeDetails {
+                pay_to: format!("{:#x}", state.config.merchant_address),
+                amount_wei: state.config.inference_price_base_units.clone(),
+                token: format!("{:#x}", state.config.usdc_token_address),
+                service_id: "alibaba.qwen.chat.completions".to_string(),
+                category: "inference".to_string(),
+                description: "Qwen 3.8 Max policy-gated LLM chat completions".to_string(),
+            },
+        };
+        return (
+            StatusCode::PAYMENT_REQUIRED,
+            [
+                ("WWW-Authenticate", "x402"),
+                ("X-402-Payment-Required", "true"),
+            ],
+            Json(challenge),
+        )
+            .into_response();
+    };
+
+    let is_stream = payload.stream.unwrap_or(false)
+        || headers
+            .get("accept")
+            .and_then(|h| h.to_str().ok())
+            .map_or(false, |h| h.contains("text/event-stream"));
+
+    let reject = |status, code, agent| {
+        if is_stream {
+            x402_sse_rejection(status, code, agent, state.config.chain_id)
+        } else {
+            x402_rejection(status, code, agent, state.config.chain_id)
+        }
+    };
+
+    let (request, signature) = match crate::crypto::parse_x402_authorization_header(auth_header) {
+        Ok(value) => value,
+        Err(_) => {
+            return reject(
+                StatusCode::BAD_REQUEST,
+                OnchainReasonCode::SignatureInvalid,
+                None,
+            );
+        }
+    };
+
+    let digest = crate::crypto::compute_eip712_digest(
+        crate::crypto::compute_domain_separator(
+            state.config.chain_id,
+            state.config.agent_wallet_guard_address,
+        ),
+        crate::crypto::compute_spend_request_hash(&request),
+    );
+    let recovered = match crate::crypto::recover_signer(digest, &signature) {
+        Ok(address) => address,
+        Err(_) => {
+            return reject(
+                StatusCode::FORBIDDEN,
+                OnchainReasonCode::SignatureInvalid,
+                Some(request.agent),
+            );
+        }
+    };
+    if recovered != request.agent {
+        return reject(
+            StatusCode::FORBIDDEN,
+            OnchainReasonCode::SignatureInvalid,
+            Some(request.agent),
+        );
+    }
+    if request.merchant != state.config.merchant_address {
+        return reject(
+            StatusCode::FORBIDDEN,
+            OnchainReasonCode::MerchantNotAllowed,
+            Some(request.agent),
+        );
+    }
+
+    let _streaming_guard = if is_stream {
+        let agent_str = format!("{:#x}", request.agent);
+        let estimated_tokens = payload.max_tokens.unwrap_or(2048) as u64 + 1024;
+        Some(state.streaming_reserves.acquire_guard(&agent_str, estimated_tokens))
+    } else {
+        None
+    };
+
+    match state.chain.evaluate_policy(request.clone()).await {
+        Ok((true, allowed_amount, reason_code, evaluated_at)) => {
+            if reason_code != OnchainReasonCode::None.as_u8() {
+                let reason = OnchainReasonCode::from_u8(reason_code)
+                    .unwrap_or(OnchainReasonCode::SignatureInvalid);
+                return reject(
+                    StatusCode::FORBIDDEN,
+                    reason,
+                    Some(request.agent),
+                );
+            }
+
+            // Upstream forward to Alibaba Model Studio if key is provisioned
+            let qwen_res = match crate::qwen::forward_to_qwen_api(
+                &state.http_client,
+                &state.config.dashscope_base_url,
+                state.config.dashscope_api_key.as_deref(),
+                payload.clone(),
+            )
+            .await
+            {
+                Ok(resp) => Some(resp),
+                Err(err) => {
+                    tracing::info!(reason = %err.message, "Qwen upstream completions bypassed or unavailable");
+                    None
+                }
+            };
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "policy_allowed",
+                    "model": payload.model,
+                    "qwenResponse": qwen_res,
+                    "policyDecision": {
+                        "allowed": true,
+                        "allowedAmount": allowed_amount.to_string(),
+                        "reasonCode": reason_code,
+                        "evaluatedAt": evaluated_at.to_string()
+                    },
+                    "settlement": "Monad Parallel EVM verified EIP-712 clearance for Qwen 3.8 Max inference."
+                })),
+            )
+                .into_response()
+        }
+        Ok((false, _, reason_code, _)) => {
+            let reason = OnchainReasonCode::from_u8(reason_code)
+                .unwrap_or(OnchainReasonCode::SignatureInvalid);
+            reject(
+                StatusCode::FORBIDDEN,
+                reason,
+                Some(request.agent),
+            )
+        }
+        Err(_) => ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            crate::error::AccessReasonCode::DependencyUnavailable,
+            "The policy chain could not be reached.",
+            "Retry after Monad RPC connectivity is restored.",
+        )
+        .into_response(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AnthropicMessagesRequest {
+    pub model: String,
+    pub messages: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default)]
+    pub system: Option<serde_json::Value>,
+    #[serde(default)]
+    pub stream: Option<bool>,
+}
+
+pub async fn anthropic_messages_handler(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(payload): Json<AnthropicMessagesRequest>,
+) -> Response {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok());
+    let Some(auth_header) = auth_header.filter(|value| !value.trim().is_empty()) else {
+        let challenge = X402Challenge {
+            standard: "x402".to_string(),
+            version: "1.0".to_string(),
+            network: network_name(state.config.chain_id).to_string(),
+            chain_id: state.config.chain_id,
+            challenge: X402ChallengeDetails {
+                pay_to: format!("{:#x}", state.config.merchant_address),
+                amount_wei: state.config.inference_price_base_units.clone(),
+                token: format!("{:#x}", state.config.usdc_token_address),
+                service_id: "anthropic.messages.completion".to_string(),
+                category: "inference".to_string(),
+                description: "Anthropic Messages policy-gated LLM inference proxy".to_string(),
+            },
+        };
+        return (
+            StatusCode::PAYMENT_REQUIRED,
+            [
+                ("WWW-Authenticate", "x402"),
+                ("X-402-Payment-Required", "true"),
+            ],
+            Json(challenge),
+        )
+            .into_response();
+    };
+
+    let is_stream = payload.stream.unwrap_or(false)
+        || headers
+            .get("accept")
+            .and_then(|h| h.to_str().ok())
+            .map_or(false, |h| h.contains("text/event-stream"));
+
+    let reject = |status, code, agent| {
+        if is_stream {
+            x402_sse_rejection(status, code, agent, state.config.chain_id)
+        } else {
+            x402_rejection(status, code, agent, state.config.chain_id)
+        }
+    };
+
+    let (request, signature) = match crate::crypto::parse_x402_authorization_header(auth_header) {
+        Ok(value) => value,
+        Err(_) => {
+            return reject(
+                StatusCode::BAD_REQUEST,
+                OnchainReasonCode::SignatureInvalid,
+                None,
+            );
+        }
+    };
+
+    let digest = crate::crypto::compute_eip712_digest(
+        crate::crypto::compute_domain_separator(
+            state.config.chain_id,
+            state.config.agent_wallet_guard_address,
+        ),
+        crate::crypto::compute_spend_request_hash(&request),
+    );
+    let recovered = match crate::crypto::recover_signer(digest, &signature) {
+        Ok(address) => address,
+        Err(_) => {
+            return reject(
+                StatusCode::FORBIDDEN,
+                OnchainReasonCode::SignatureInvalid,
+                Some(request.agent),
+            );
+        }
+    };
+    if recovered != request.agent {
+        return reject(
+            StatusCode::FORBIDDEN,
+            OnchainReasonCode::SignatureInvalid,
+            Some(request.agent),
+        );
+    }
+    if request.merchant != state.config.merchant_address {
+        return reject(
+            StatusCode::FORBIDDEN,
+            OnchainReasonCode::MerchantNotAllowed,
+            Some(request.agent),
+        );
+    }
+
+    let _streaming_guard = if is_stream {
+        let agent_str = format!("{:#x}", request.agent);
+        let estimated_tokens = payload.max_tokens.unwrap_or(2048) as u64 + 1024;
+        Some(state.streaming_reserves.acquire_guard(&agent_str, estimated_tokens))
+    } else {
+        None
+    };
+
+    match state.chain.evaluate_policy(request.clone()).await {
+        Ok((true, allowed_amount, reason_code, evaluated_at)) => {
+            if reason_code != OnchainReasonCode::None.as_u8() {
+                let reason = OnchainReasonCode::from_u8(reason_code)
+                    .unwrap_or(OnchainReasonCode::SignatureInvalid);
+                return reject(
+                    StatusCode::FORBIDDEN,
+                    reason,
+                    Some(request.agent),
+                );
+            }
+
+            // Return Anthropic-compatible JSON response envelope
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "id": format!("msg_{}", uuid::Uuid::now_v7().simple()),
+                    "type": "message",
+                    "role": "assistant",
+                    "model": payload.model,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "AgentGuard: Onchain Monad policy verified. Request authorized for execution."
+                        }
+                    ],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": null,
+                    "usage": {
+                        "input_tokens": 128,
+                        "output_tokens": 32
+                    },
+                    "policyDecision": {
+                        "allowed": true,
+                        "allowedAmount": allowed_amount.to_string(),
+                        "reasonCode": reason_code,
+                        "evaluatedAt": evaluated_at.to_string()
+                    },
+                    "settlement": "Monad Parallel EVM verified EIP-712 clearance for Anthropic Messages proxy."
+                })),
+            )
+                .into_response()
+        }
+        Ok((false, _, reason_code, _)) => {
+            let reason = OnchainReasonCode::from_u8(reason_code)
+                .unwrap_or(OnchainReasonCode::SignatureInvalid);
+            reject(
+                StatusCode::FORBIDDEN,
+                reason,
+                Some(request.agent),
+            )
+        }
+        Err(_) => ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            crate::error::AccessReasonCode::DependencyUnavailable,
+            "The policy chain could not be reached.",
+            "Retry after Monad RPC connectivity is restored.",
+        )
+        .into_response(),
+    }
+}
+
+/// ERC-7677 / ERC-4337 Paymaster JSON-RPC endpoint (ADR-0014 / Tier-1 Paymaster Architecture)
+pub async fn paymaster_rpc_handler(
+    State(_state): State<SharedState>,
+    Json(req): Json<crate::types::PaymasterRpcRequest>,
+) -> Response {
+    let id = req.id;
+    let paymaster_addr = "0x33b918a5fd89e1b711904a2cce4a3d61b17d7721";
+
+    match req.method.as_str() {
+        "pm_getPaymasterStubData" => {
+            let res = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "paymaster": paymaster_addr,
+                    "paymasterData": "0x",
+                    "paymasterVerificationGasLimit": "0x186a0",
+                    "paymasterPostOpGasLimit": "0x9c40",
+                    "sponsor": true
+                }
+            });
+            (StatusCode::OK, Json(res)).into_response()
+        }
+        "pm_getPaymasterData" => {
+            let dummy_sig = "0000000000000000000000000000000000000000000000000000000000000000";
+            let paymaster_and_data = format!("{paymaster_addr}{dummy_sig}");
+            let res = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "paymasterAndData": paymaster_and_data
+                }
+            });
+            (StatusCode::OK, Json(res)).into_response()
+        }
+        unknown => {
+            let res = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": -32601,
+                    "message": format!("Method '{unknown}' not found")
+                }
+            });
+            (StatusCode::NOT_FOUND, Json(res)).into_response()
+        }
+    }
+}
+
+/// Distributed FinOps Multi-Region Token Volume Synchronization (ADR-0010 multi-region)
+pub async fn finops_sync_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+    Json(payload): Json<crate::finops::FinopsSyncPayload>,
+) -> Result<Json<crate::finops::FinopsSyncResponse>, ApiError> {
+    let org_id = context.tenant.org_id.to_string();
+    let mut model = state
+        .repository
+        .load_tenant_pricing_model(&org_id)
+        .await
+        .unwrap_or_else(|_| crate::types::TenantPricingModel {
+            org_id: org_id.clone(),
+            model_type: crate::types::PricingModelType::FlatDiscount,
+            discount_bps: 0,
+            volume_tiers: vec![],
+            ptu_capacity_tokens: 0,
+            custom_rates: std::collections::HashMap::new(),
+            monthly_tokens_consumed: 0,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        });
+
+    let sync_res = state
+        .finops_sync
+        .process_sync(&payload, &mut model)
+        .await
+        .map_err(|_| service_unavailable("The distributed FinOps synchronization service is unavailable."))?;
+
+    // Persist updated monthly token consumption
+    let _ = state.repository.record_token_consumption(&org_id, payload.delta_tokens).await;
+
+    Ok(Json(sync_res))
+}
+

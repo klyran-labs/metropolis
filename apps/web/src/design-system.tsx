@@ -220,8 +220,16 @@ export function Metric({
 
 export type BadgeTone = "success" | "warning" | "critical" | "neutral" | "info";
 
-export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>;
+export function Badge({
+  tone = "neutral",
+  className = "",
+  children,
+}: {
+  tone?: BadgeTone;
+  className?: string;
+  children: ReactNode;
+}) {
+  return <span className={clsx("badge", `badge-${tone}`, className)}>{children}</span>;
 }
 
 function titleCase(key: string) {

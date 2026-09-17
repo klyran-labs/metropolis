@@ -32,8 +32,31 @@ export function TopBar({
   const userRef = useRef<HTMLDivElement>(null);
 
   const isPlatformAdmin = pathname.startsWith("/admin");
-  const tenantLabel = identity.tenantId ? `Org ${identity.tenantId.slice(0, 8)}` : "Organization";
+  const tenantLabel = identity.tenantName || "Enterprise Workspace";
   const userLabel = identity.user?.email?.address ?? (identity.subject ? truncateMiddle(identity.subject, 10, 4) : "Operator");
+
+  const getSectionName = () => {
+    if (pathname.startsWith("/admin/tenants")) return "Tenants";
+    if (pathname.startsWith("/admin/plans")) return "Plans";
+    if (pathname.startsWith("/admin/subscriptions")) return "Subscriptions";
+    if (pathname.startsWith("/admin/billing")) return "Billing Ledger";
+    if (pathname.startsWith("/admin/reconciliation")) return "Reconciliation";
+    if (pathname.startsWith("/admin/revenue")) return "Revenue";
+    if (pathname.startsWith("/admin/access")) return "Access Governance";
+    if (pathname.startsWith("/admin")) return "Platform Administration";
+
+    if (pathname.startsWith("/app/fleet")) return "Fleet Orchestration";
+    if (pathname.startsWith("/app/policy")) return "Policy Studio";
+    if (pathname.startsWith("/app/simulator")) return "Policy Simulator";
+    if (pathname.startsWith("/app/activity")) return "Activity & Audit";
+    if (pathname.startsWith("/app/merchants")) return "Merchant Directory";
+    if (pathname.startsWith("/app/quorum")) return "Quorum Approvals";
+    if (pathname.startsWith("/app/treasury")) return "Treasury & Reserves";
+    if (pathname.startsWith("/app/billing")) return "Billing & Subscriptions";
+    if (pathname.startsWith("/app/settings")) return "Settings & Access";
+    return "Spend Operations";
+  };
+  const sectionName = getSectionName();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -52,40 +75,39 @@ export function TopBar({
     <header className="top-bar">
       {/* Left: Breadcrumbs and Workspace Context */}
       <div className="top-bar-left">
-        <div className="workspace-dropdown-container" ref={workspaceRef}>
-          <button
-            type="button"
-            className="workspace-dropdown-trigger"
-            onClick={() => setWorkspaceMenuOpen(!workspaceMenuOpen)}
-            aria-expanded={workspaceMenuOpen}
-          >
-            <span className="top-bar-tenant-name">{tenantLabel}</span>
-            <span className="top-bar-slash">/</span>
-            <span className="top-bar-section-name">
-              {isPlatformAdmin ? "Platform Admin" : "Spend Operations"}
-            </span>
-            <ChevronDown size={14} className={`dropdown-chevron ${workspaceMenuOpen ? "rotated" : ""}`} />
-          </button>
+        {identity.platformAccess ? (
+          <div className="workspace-dropdown-container" ref={workspaceRef}>
+            <button
+              type="button"
+              className="workspace-dropdown-trigger"
+              onClick={() => setWorkspaceMenuOpen(!workspaceMenuOpen)}
+              aria-expanded={workspaceMenuOpen}
+              title="Switch Workspace Context"
+            >
+              <span className="top-bar-tenant-name">{isPlatformAdmin ? "Platform Operations" : tenantLabel}</span>
+              <span className="top-bar-slash">/</span>
+              <span className="top-bar-section-name">{sectionName}</span>
+              <ChevronDown size={14} className={`dropdown-chevron ${workspaceMenuOpen ? "rotated" : ""}`} />
+            </button>
 
-          {workspaceMenuOpen && (
-            <div className="workspace-dropdown-menu">
-              <div className="dropdown-section-title">Switch Context</div>
-              <button
-                type="button"
-                className={`dropdown-menu-item ${!isPlatformAdmin ? "active" : ""}`}
-                onClick={() => {
-                  setWorkspaceMenuOpen(false);
-                  navigate({ to: "/app/overview" });
-                }}
-              >
-                <Bot size={15} />
-                <div className="dropdown-item-content">
-                  <strong>Tenant Workspace</strong>
-                  <small>Autonomous agent fleet & spend policy</small>
-                </div>
-              </button>
+            {workspaceMenuOpen && (
+              <div className="workspace-dropdown-menu">
+                <div className="dropdown-section-title">Switch Context</div>
+                <button
+                  type="button"
+                  className={`dropdown-menu-item ${!isPlatformAdmin ? "active" : ""}`}
+                  onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    navigate({ to: "/app/overview" });
+                  }}
+                >
+                  <Bot size={15} />
+                  <div className="dropdown-item-content">
+                    <strong>Tenant Workspace</strong>
+                    <small>{tenantLabel} · Autonomous fleet & policies</small>
+                  </div>
+                </button>
 
-              {identity.platformAccess && (
                 <button
                   type="button"
                   className={`dropdown-menu-item ${isPlatformAdmin ? "active" : ""}`}
@@ -100,10 +122,16 @@ export function TopBar({
                     <small>Multi-tenant registry & global ledger</small>
                   </div>
                 </button>
-              )}
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="top-bar-breadcrumbs" aria-label="Current Workspace Location">
+            <span className="top-bar-tenant-name">{tenantLabel}</span>
+            <span className="top-bar-slash">/</span>
+            <span className="top-bar-section-name">{sectionName}</span>
+          </div>
+        )}
       </div>
 
       {/* Right: Actions, Global Search, Copilot, Monad Beacon, Profile */}

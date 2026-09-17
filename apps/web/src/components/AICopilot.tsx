@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Sparkles,
   X,
@@ -9,7 +10,9 @@ import {
   ArrowRight,
   Sliders,
   Terminal,
+  AlertTriangle,
 } from "lucide-react";
+import { useCompilePolicy, type CompiledPolicyResult } from "../api";
 import { Badge, Button, Mono, TextField } from "../design-system";
 import { ONCHAIN_REASON_CODES } from "../hooks/usePolicyContracts";
 
@@ -20,14 +23,11 @@ export function AICopilot({
   open: boolean;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
+  const compilePolicy = useCompilePolicy();
   const [prompt, setPrompt] = useState("");
   const [activeTab, setActiveTab] = useState<"compiler" | "diagnostics">("compiler");
-  const [compiledResult, setCompiledResult] = useState<{
-    maxPerTx: number;
-    hourlyVelocity: number;
-    selectedTier: string;
-    explanation: string;
-  } | null>(null);
+  const [compiledResult, setCompiledResult] = useState<CompiledPolicyResult | null>(null);
   const [applied, setApplied] = useState(false);
   const [selectedReasonCode, setSelectedReasonCode] = useState<number | null>(null);
 
@@ -36,31 +36,37 @@ export function AICopilot({
   const handleCompile = () => {
     if (!prompt.trim()) return;
     setApplied(false);
-    const lower = prompt.toLowerCase();
-    let maxTx = 50;
-    let velocity = 500;
-    let tier = "tier2_standard";
+    compilePolicy.mutate(
+      { prompt },
+      {
+        onSuccess: (data) => {
+          setCompiledResult(data);
+        },
+      },
+    );
+  };
 
-    const txMatch = lower.match(/(\d+)\s*(usdc|dollars|\$)/);
-    if (txMatch) {
-      maxTx = parseInt(txMatch[1], 10);
+  const handleApplyToPolicyStudio = () => {
+    if (!compiledResult) return;
+    try {
+      sessionStorage.setItem(
+        "agentguard_staged_policy",
+        JSON.stringify({
+          maxPerTx: compiledResult.maxPerTx,
+          maxPerWindow: compiledResult.maxPerWindow,
+          windowSeconds: compiledResult.windowSeconds,
+          maxVelocity: compiledResult.maxVelocity,
+          whitelistEnabled: compiledResult.whitelistEnabled,
+        }),
+      );
+      setApplied(true);
+      setTimeout(() => {
+        onClose();
+        void navigate({ to: "/app/policy" });
+      }, 400);
+    } catch {
+      setApplied(true);
     }
-    const velMatch = lower.match(/(\d+)\s*(hourly|velocity|per hour)/);
-    if (velMatch) {
-      velocity = parseInt(velMatch[1], 10);
-    }
-    if (lower.includes("strict") || lower.includes("conservative") || lower.includes("low")) {
-      tier = "tier1_conservative";
-    } else if (lower.includes("high") || lower.includes("autonomous")) {
-      tier = "tier3_autonomous";
-    }
-
-    setCompiledResult({
-      maxPerTx: maxTx,
-      hourlyVelocity: velocity,
-      selectedTier: tier,
-      explanation: `Synthesized policy: Limit each autonomous spend action to ${maxTx} USDC with an hourly sliding window ceiling of ${velocity} USDC under ${tier}.`,
-    });
   };
 
   return (
@@ -149,9 +155,9 @@ export function AICopilot({
                 <div className="copilot-widget-card">
                   <div className="widget-header">
                     <span className="widget-badge">
-                      <Sparkles size={12} /> Synthesized Policy Widget
+                      <Sparkles size={12} /> Synthesized Policy (Alibaba Qwen 3.8 Max)
                     </span>
-                    <Badge tone="info">{compiledResult.selectedTier}</Badge>
+                    <Badge tone="info">{compiledResult.riskTier}</Badge>
                   </div>
                   <p className="widget-explanation">{compiledResult.explanation}</p>
 
@@ -159,18 +165,18 @@ export function AICopilot({
                     <div className="widget-slider-group">
                       <div className="widget-slider-label">
                         <span>Max per Transaction</span>
-                        <strong>{compiledResult.maxPerTx} USDC</strong>
+                        <strong>{(Number(compiledResult.maxPerTx) / 1_000_000).toFixed(2)} USDC</strong>
                       </div>
                       <input
                         type="range"
                         min="5"
                         max="500"
                         step="5"
-                        value={compiledResult.maxPerTx}
+                        value={Number(compiledResult.maxPerTx) / 1_000_000}
                         onChange={(e) =>
                           setCompiledResult({
                             ...compiledResult,
-                            maxPerTx: parseInt(e.target.value, 10),
+                            maxPerTx: (parseInt(e.target.value, 10) * 1_000_000).toString(),
                           })
                         }
                       />
@@ -178,37 +184,79 @@ export function AICopilot({
 
                     <div className="widget-slider-group">
                       <div className="widget-slider-label">
-                        <span>Hourly Velocity Ceiling</span>
-                        <strong>{compiledResult.hourlyVelocity} USDC</strong>
+                        <span>Hourly Window Ceiling</span>
+                        <strong>{(Number(compiledResult.maxPerWindow) / 1_000_000).toFixed(2)} USDC</strong>
                       </div>
                       <input
                         type="range"
                         min="50"
                         max="5000"
                         step="50"
-                        value={compiledResult.hourlyVelocity}
+                        value={Number(compiledResult.maxPerWindow) / 1_000_000}
                         onChange={(e) =>
                           setCompiledResult({
                             ...compiledResult,
-                            hourlyVelocity: parseInt(e.target.value, 10),
+                            maxPerWindow: (parseInt(e.target.value, 10) * 1_000_000).toString(),
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="widget-slider-group">
+                      <div className="widget-slider-label">
+                        <span>Velocity Limit</span>
+                        <strong>{compiledResult.maxVelocity} calls / window</strong>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="100"
+                        step="1"
+                        value={compiledResult.maxVelocity}
+                        onChange={(e) =>
+                          setCompiledResult({
+                            ...compiledResult,
+                            maxVelocity: parseInt(e.target.value, 10),
                           })
                         }
                       />
                     </div>
                   </div>
 
+                  {/* Mathematical invariant guard: maxPerTx must never exceed maxPerWindow.
+                      This mirrors the Qwen backend's bounds enforcement (ADR-0008). */}
+                  {(() => {
+                    const txVal = Number(compiledResult.maxPerTx);
+                    const windowVal = Number(compiledResult.maxPerWindow);
+                    const invariantViolated = txVal > windowVal;
+                    return invariantViolated ? (
+                      <div className="copilot-invariant-warning" role="alert">
+                        <AlertTriangle size={14} className="copilot-invariant-icon" />
+                        <span>
+                          <strong>Policy Invariant Violated</strong> — Max per Transaction (
+                          {(txVal / 1_000_000).toFixed(2)} USDC) exceeds the Hourly Window Ceiling (
+                          {(windowVal / 1_000_000).toFixed(2)} USDC). Reduce the transaction limit or raise the window ceiling before applying.
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
+
                   <div className="widget-actions">
                     <Button
-                      onClick={() => setApplied(true)}
-                      disabled={applied}
+                      variant="filled"
+                      onClick={handleApplyToPolicyStudio}
+                      disabled={
+                        applied ||
+                        Number(compiledResult.maxPerTx) > Number(compiledResult.maxPerWindow)
+                      }
                     >
                       {applied ? (
                         <>
-                          <CheckCircle2 size={15} /> Rule Staged for Policy Engine
+                          <CheckCircle2 size={15} /> Applying to Policy Studio…
                         </>
                       ) : (
                         <>
-                          Apply Configuration <ArrowRight size={15} />
+                          Apply to Policy Studio <ArrowRight size={15} />
                         </>
                       )}
                     </Button>

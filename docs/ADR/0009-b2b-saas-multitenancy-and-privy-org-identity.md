@@ -1,7 +1,7 @@
 # ADR 0009: B2B SaaS Multi-Tenancy, Single-Org Identity & Privy Organization Governance
 
 ## Status
-Accepted (Target: Hackathon Phase 2 Integration)
+**Implemented** (Supersedes Hackathon Phase 2 target — fully deployed)
 
 ## Context
 AgentGuard operates as an institutional agentic risk, spend control, and execution guardrail platform. In enterprise deployments, organizations run fleets of autonomous agents across internal departments and external client boundaries.

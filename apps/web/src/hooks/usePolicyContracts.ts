@@ -20,8 +20,17 @@ export const POLICY_ENGINE_ABI = parseAbi([
   "function getAgentPolicy(address agent) external view returns (SpendPolicy memory)",
   "function getAgentState(address agent) external view returns (uint128 spentInWindow, uint32 windowStart, uint32 txCountInWindow, uint64 nonce)",
   "function setKillSwitch(address agent, bool active) external",
+  "function tripCircuitBreaker(address agent) external",
+  "function resetCircuitBreaker(address agent) external",
+  "function isCircuitBroken(address agent) external view returns (bool)",
+  "function circuitBroken(address agent) external view returns (bool)",
+  "function agentAdmin(address agent) external view returns (address)",
+  "function setAgentAdmin(address agent, address admin) external",
   "function setMerchantWhitelist(address agent, address merchant, bool allowed) external",
   "function isMerchantWhitelisted(address agent, address merchant) external view returns (bool)",
+  "function setPolicy(address agent, SpendPolicy calldata policy) external",
+  "event CircuitBreakerTripped(address indexed agent, address indexed admin)",
+  "event CircuitBreakerReset(address indexed agent, address indexed admin)",
 ]);
 
 export const ERC20_ABI = parseAbi([
@@ -336,6 +345,136 @@ export function useTripKillSwitch(onSuccess?: () => void) {
       void queryClient.invalidateQueries({
         queryKey: ["agent-runtime-state", variables.agentAddress],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["circuit-broken", variables.agentAddress],
+      });
+      onSuccess?.();
+    },
+  });
+}
+
+export function useIsCircuitBroken(agentAddress: string, enabled = true) {
+  return useQuery({
+    queryKey: ["circuit-broken", agentAddress],
+    queryFn: async (): Promise<boolean> => {
+      const policyEngineAddress = configuration.contracts.policyEngine;
+      if (
+        !policyEngineAddress ||
+        !isAddress(policyEngineAddress) ||
+        !isAddress(agentAddress)
+      ) {
+        return false;
+      }
+      const client = getPublicClient();
+      return await client.readContract({
+        address: policyEngineAddress,
+        abi: POLICY_ENGINE_ABI,
+        functionName: "isCircuitBroken",
+        args: [agentAddress as Address],
+      });
+    },
+    enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress),
+    refetchInterval: 4000,
+  });
+}
+
+export function useTripCircuitBreaker(onSuccess?: () => void) {
+  const { wallets } = useWallets();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ agentAddress }: { agentAddress: string }) => {
+      const policyEngineAddress = configuration.contracts.policyEngine;
+      if (!policyEngineAddress || !isAddress(policyEngineAddress)) {
+        throw new Error("PolicyEngine contract address is not configured.");
+      }
+      const wallet = wallets[0];
+      if (!wallet) {
+        throw new Error("Connect your administrator Web3 wallet to manage the circuit breaker.");
+      }
+      const provider = await wallet.getEthereumProvider();
+      const callData = encodeFunctionData({
+        abi: POLICY_ENGINE_ABI,
+        functionName: "tripCircuitBreaker",
+        args: [agentAddress as Address],
+      });
+
+      const hash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: policyEngineAddress,
+            data: callData,
+          },
+        ],
+      })) as string;
+
+      await waitForReceipt(provider, hash);
+      return hash;
+    },
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-policy", variables.agentAddress],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-runtime-state", variables.agentAddress],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["circuit-broken", variables.agentAddress],
+      });
+      onSuccess?.();
+    },
+  });
+}
+
+export function useResetCircuitBreaker(onSuccess?: () => void) {
+  const { wallets } = useWallets();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ agentAddress }: { agentAddress: string }) => {
+      const policyEngineAddress = configuration.contracts.policyEngine;
+      if (!policyEngineAddress || !isAddress(policyEngineAddress)) {
+        throw new Error("PolicyEngine contract address is not configured.");
+      }
+      const wallet = wallets[0];
+      if (!wallet) {
+        throw new Error("Connect your administrator Web3 wallet to manage the circuit breaker.");
+      }
+      const provider = await wallet.getEthereumProvider();
+      const callData = encodeFunctionData({
+        abi: POLICY_ENGINE_ABI,
+        functionName: "resetCircuitBreaker",
+        args: [agentAddress as Address],
+      });
+
+      const hash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: policyEngineAddress,
+            data: callData,
+          },
+        ],
+      })) as string;
+
+      await waitForReceipt(provider, hash);
+      return hash;
+    },
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-policy", variables.agentAddress],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-runtime-state", variables.agentAddress],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["circuit-broken", variables.agentAddress],
+      });
       onSuccess?.();
     },
   });
@@ -500,3 +639,235 @@ export function useDevnetFaucet(onSuccess?: () => void) {
     },
   });
 }
+
+export function useLiveTokenBalance(accountAddress: string, enabled = true) {
+  return useQuery({
+    queryKey: ["live-token-balance", accountAddress],
+    queryFn: async (): Promise<bigint | null> => {
+      const tokenAddress = configuration.contracts.settlementToken;
+      if (!tokenAddress || !isAddress(tokenAddress) || !isAddress(accountAddress)) {
+        return null;
+      }
+      const client = getPublicClient();
+      return client.readContract({
+        address: tokenAddress as Address,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [accountAddress as Address],
+      });
+    },
+    enabled: enabled && Boolean(accountAddress) && isAddress(accountAddress),
+    refetchInterval: 5000,
+  });
+}
+
+export function useLiveNativeBalance(accountAddress: string, enabled = true) {
+  return useQuery({
+    queryKey: ["live-native-balance", accountAddress],
+    queryFn: async (): Promise<bigint | null> => {
+      if (!accountAddress || !isAddress(accountAddress)) return null;
+      const client = getPublicClient();
+      return client.getBalance({ address: accountAddress as Address });
+    },
+    enabled: enabled && Boolean(accountAddress) && isAddress(accountAddress),
+    refetchInterval: 5000,
+  });
+}
+
+export const CIRCUIT_PAYMASTER_ABI = parseAbi([
+  "function isSponsorshipEligible(address agent, uint256 maxCost) external view returns (bool eligible, uint8 reasonCode)",
+  "function treasuryBalances(address treasury) external view returns (uint256)",
+  "function agentToTreasury(address agent) external view returns (address)",
+  "function depositGas(address treasury) external payable",
+  "function withdrawGas(address treasury, uint256 amount) external",
+  "function setAgentTreasury(address agent, address treasury) external",
+  "event GasSponsored(address indexed agent, address indexed treasury, uint256 actualGasCost)",
+]);
+
+export const AGENT_PASSPORT_NFT_ABI = parseAbi([
+  "function ownerOf(uint256 tokenId) external view returns (address)",
+  "function tokenURI(uint256 tokenId) external view returns (string)",
+  "function agentToken(address agent) external view returns (uint256)",
+  "function tokenAgent(uint256 tokenId) external view returns (address)",
+  "function mintPassport(address to, address agentAddress, string calldata uri) external returns (uint256)",
+  "event PassportMinted(uint256 indexed tokenId, address indexed recipient, address indexed agentAddress, string uri)",
+]);
+
+export const ERC6551_REGISTRY_ABI = parseAbi([
+  "function account(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId) external view returns (address)",
+  "function createAccount(address implementation, bytes32 salt, uint256 chainId, address tokenContract, uint256 tokenId) external returns (address)",
+  "event ERC6551AccountCreated(address account, address indexed implementation, bytes32 salt, uint256 chainId, address indexed tokenContract, uint256 indexed tokenId)",
+]);
+
+export function usePaymasterEligibility(agentAddress?: string, maxCost = 10000000000000000n) {
+  return useQuery({
+    queryKey: ["paymaster-eligibility", agentAddress, maxCost.toString()],
+    queryFn: async () => {
+      const pmAddress = configuration.contracts.circuitPaymaster;
+      if (!pmAddress || !agentAddress || !isAddress(agentAddress)) return null;
+      const client = getPublicClient();
+      try {
+        const [eligible, reasonCode] = await client.readContract({
+          address: pmAddress,
+          abi: CIRCUIT_PAYMASTER_ABI,
+          functionName: "isSponsorshipEligible",
+          args: [agentAddress as Address, maxCost],
+        });
+        return { eligible, reasonCode };
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
+    refetchInterval: 5000,
+  });
+}
+
+export function usePaymasterTreasuryBalance(treasuryAddress?: string) {
+  return useQuery({
+    queryKey: ["paymaster-treasury-balance", treasuryAddress],
+    queryFn: async (): Promise<bigint> => {
+      const pmAddress = configuration.contracts.circuitPaymaster;
+      if (!pmAddress || !treasuryAddress || !isAddress(treasuryAddress)) return 0n;
+      const client = getPublicClient();
+      try {
+        const bal = await client.readContract({
+          address: pmAddress,
+          abi: CIRCUIT_PAYMASTER_ABI,
+          functionName: "treasuryBalances",
+          args: [treasuryAddress as Address],
+        });
+        return BigInt(bal);
+      } catch {
+        return 0n;
+      }
+    },
+    enabled: Boolean(treasuryAddress) && isAddress(treasuryAddress || ""),
+    refetchInterval: 5000,
+  });
+}
+
+export function useDepositPaymasterGas(onSuccess?: () => void) {
+  const { wallets } = useWallets();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      treasuryAddress,
+      amountWei,
+    }: {
+      treasuryAddress: string;
+      amountWei: bigint;
+    }) => {
+      const pmAddress = configuration.contracts.circuitPaymaster;
+      if (!pmAddress || !isAddress(pmAddress)) {
+        throw new Error("Paymaster contract address is not configured.");
+      }
+      const wallet = wallets[0];
+      if (!wallet) {
+        throw new Error("Connect your administrator Web3 wallet to deposit gas float.");
+      }
+      const provider = await wallet.getEthereumProvider();
+      const callData = encodeFunctionData({
+        abi: CIRCUIT_PAYMASTER_ABI,
+        functionName: "depositGas",
+        args: [treasuryAddress as Address],
+      });
+
+      const hash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet.address,
+            to: pmAddress,
+            data: callData,
+            value: `0x${amountWei.toString(16)}`,
+          },
+        ],
+      })) as string;
+
+      await waitForReceipt(provider, hash);
+      return hash;
+    },
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["paymaster-treasury-balance", variables.treasuryAddress],
+      });
+      onSuccess?.();
+    },
+  });
+}
+
+export function useAgentPassport(agentAddress?: string) {
+  return useQuery({
+    queryKey: ["agent-passport", agentAddress],
+    queryFn: async () => {
+      const nftAddress = configuration.contracts.agentPassportNFT;
+      if (!nftAddress || !agentAddress || !isAddress(agentAddress)) return null;
+      const client = getPublicClient();
+      try {
+        const tokenId = await client.readContract({
+          address: nftAddress,
+          abi: AGENT_PASSPORT_NFT_ABI,
+          functionName: "agentToken",
+          args: [agentAddress as Address],
+        });
+        if (tokenId === 0n) return null;
+        const owner = await client.readContract({
+          address: nftAddress,
+          abi: AGENT_PASSPORT_NFT_ABI,
+          functionName: "ownerOf",
+          args: [tokenId],
+        });
+        return { tokenId, owner };
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
+    refetchInterval: 5000,
+  });
+}
+
+export function useAgentTba(agentAddress?: string) {
+  return useQuery({
+    queryKey: ["agent-tba", agentAddress],
+    queryFn: async () => {
+      const registryAddress = configuration.contracts.agentIdentityRegistry;
+      const implAddress = configuration.contracts.agentAccountImplementation;
+      const nftAddress = configuration.contracts.agentPassportNFT;
+      if (!registryAddress || !implAddress || !nftAddress || !agentAddress || !isAddress(agentAddress)) {
+        return null;
+      }
+      const client = getPublicClient();
+      try {
+        const tokenId = await client.readContract({
+          address: nftAddress,
+          abi: AGENT_PASSPORT_NFT_ABI,
+          functionName: "agentToken",
+          args: [agentAddress as Address],
+        });
+        if (tokenId === 0n) return null;
+        const tbaAddress = await client.readContract({
+          address: registryAddress,
+          abi: ERC6551_REGISTRY_ABI,
+          functionName: "account",
+          args: [
+            implAddress,
+            "0x0000000000000000000000000000000000000000000000000000000000000000",
+            BigInt(configuration.chainId),
+            nftAddress,
+            tokenId,
+          ],
+        });
+        return { tokenId, tbaAddress };
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
+    refetchInterval: 5000,
+  });
+}
+
+export * from "./useCircuitVault";

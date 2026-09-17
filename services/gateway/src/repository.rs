@@ -276,6 +276,29 @@ impl PgRepository {
         .await
     }
 
+    /// Batch-resolves org_id for a set of agent addresses in a single SQL round-trip.
+    ///
+    /// Replaces the N+1 sequential `organization_for_agent` calls in the chain event
+    /// polling loop. A 1,000-block batch typically contains 10-50 distinct agent
+    /// addresses; resolving them individually adds 10-100ms of sequential DB latency
+    /// per poll cycle. This single `ANY($1)` query completes in 1-2ms regardless of N.
+    pub async fn organizations_for_agents(
+        &self,
+        agent_addresses: &[String],
+    ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+        if agent_addresses.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT agent_address, org_id FROM agents \
+             WHERE agent_address = ANY($1) AND status = 'active'",
+        )
+        .bind(agent_addresses)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().collect())
+    }
+
     pub async fn checkpoint(&self, chain_id: u64) -> Result<Option<(u64, String)>, sqlx::Error> {
         let row =
             sqlx::query("SELECT next_block, block_hash FROM event_checkpoints WHERE chain_id = $1")
@@ -327,5 +350,192 @@ impl PolicyRepository for PgRepository {
 
     async fn load_abac_policy(&self, org_id: &str) -> Result<Option<AbacPolicy>, sqlx::Error> {
         self.load_abac_policy(org_id).await
+    }
+}
+
+impl PgRepository {
+    pub async fn load_tenant_pricing_model(
+        &self,
+        org_id: &str,
+    ) -> Result<crate::types::TenantPricingModel, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT org_id, model_type, discount_bps, volume_tiers, ptu_capacity_tokens,
+                   COALESCE(token_cap_tokens, 0) as token_cap_tokens,
+                   COALESCE(per_call_fee_micro_dollars, 0) as per_call_fee_micro_dollars,
+                   custom_rates,
+                   COALESCE(tool_custom_rates, '{}'::jsonb) as tool_custom_rates,
+                   monthly_tokens_consumed, updated_at
+            FROM tenant_ai_pricing_models
+            WHERE org_id = $1
+            "#,
+        )
+        .bind(org_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            let model_type_str: String = row.try_get("model_type")?;
+            let model_type = match model_type_str.as_str() {
+                "tiered_volume" => crate::types::PricingModelType::TieredVolume,
+                "committed_ptu" => crate::types::PricingModelType::CommittedPtu,
+                "batch_discount" => crate::types::PricingModelType::BatchDiscount,
+                "per_unit_request" => crate::types::PricingModelType::PerUnitRequest,
+                "hybrid_commit_volume" => crate::types::PricingModelType::HybridCommitVolume,
+                _ => crate::types::PricingModelType::FlatDiscount,
+            };
+            let discount_bps: i32 = row.try_get("discount_bps")?;
+            let volume_tiers_val: serde_json::Value = row.try_get("volume_tiers")?;
+            let ptu_capacity_tokens: i64 = row.try_get("ptu_capacity_tokens")?;
+            let token_cap_tokens: i64 = row.try_get("token_cap_tokens").unwrap_or(0);
+            let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars").unwrap_or(0);
+            let custom_rates_val: serde_json::Value = row.try_get("custom_rates")?;
+            let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates").unwrap_or_else(|_| serde_json::json!({}));
+            let monthly_tokens_consumed: i64 = row.try_get("monthly_tokens_consumed")?;
+            let updated_at: chrono::DateTime<chrono::Utc> = row.try_get("updated_at")?;
+
+            let volume_tiers = serde_json::from_value(volume_tiers_val).unwrap_or_default();
+            let custom_rates = serde_json::from_value(custom_rates_val).unwrap_or_default();
+            let tool_custom_rates = serde_json::from_value(tool_custom_rates_val).unwrap_or_default();
+
+            Ok(crate::types::TenantPricingModel {
+                org_id: org_id.to_string(),
+                model_type,
+                discount_bps: discount_bps as u32,
+                volume_tiers,
+                ptu_capacity_tokens: ptu_capacity_tokens as u64,
+                token_cap_tokens: token_cap_tokens as u64,
+                per_call_fee_micro_dollars: per_call_fee_micro_dollars as u64,
+                custom_rates,
+                tool_custom_rates,
+                monthly_tokens_consumed: monthly_tokens_consumed as u64,
+                updated_at: updated_at.to_rfc3339(),
+            })
+        } else {
+            // Standard default: flat 0% discount, zero consumed
+            Ok(crate::types::TenantPricingModel {
+                org_id: org_id.to_string(),
+                model_type: crate::types::PricingModelType::FlatDiscount,
+                discount_bps: 0,
+                volume_tiers: vec![],
+                ptu_capacity_tokens: 0,
+                token_cap_tokens: 0,
+                per_call_fee_micro_dollars: 0,
+                custom_rates: std::collections::HashMap::new(),
+                tool_custom_rates: std::collections::HashMap::new(),
+                monthly_tokens_consumed: 0,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            })
+        }
+    }
+
+    pub async fn upsert_tenant_pricing_model(
+        &self,
+        org_id: &str,
+        req: &crate::types::UpdatePricingModelRequest,
+    ) -> Result<crate::types::TenantPricingModel, sqlx::Error> {
+        let model_type_str = match req.model_type {
+            crate::types::PricingModelType::FlatDiscount => "flat_discount",
+            crate::types::PricingModelType::TieredVolume => "tiered_volume",
+            crate::types::PricingModelType::CommittedPtu => "committed_ptu",
+            crate::types::PricingModelType::BatchDiscount => "batch_discount",
+            crate::types::PricingModelType::PerUnitRequest => "per_unit_request",
+            crate::types::PricingModelType::HybridCommitVolume => "hybrid_commit_volume",
+        };
+        let volume_tiers_val = serde_json::to_value(&req.volume_tiers).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let custom_rates_val = serde_json::to_value(&req.custom_rates).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let tool_custom_rates_val = serde_json::to_value(&req.tool_custom_rates).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO tenant_ai_pricing_models
+                (org_id, model_type, discount_bps, volume_tiers, ptu_capacity_tokens, token_cap_tokens, per_call_fee_micro_dollars, custom_rates, tool_custom_rates, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            ON CONFLICT (org_id) DO UPDATE SET
+                model_type = EXCLUDED.model_type,
+                discount_bps = EXCLUDED.discount_bps,
+                volume_tiers = EXCLUDED.volume_tiers,
+                ptu_capacity_tokens = EXCLUDED.ptu_capacity_tokens,
+                token_cap_tokens = EXCLUDED.token_cap_tokens,
+                per_call_fee_micro_dollars = EXCLUDED.per_call_fee_micro_dollars,
+                custom_rates = EXCLUDED.custom_rates,
+                tool_custom_rates = EXCLUDED.tool_custom_rates,
+                updated_at = NOW()
+            RETURNING org_id, model_type, discount_bps, volume_tiers, ptu_capacity_tokens, token_cap_tokens, per_call_fee_micro_dollars,
+                      custom_rates, tool_custom_rates, monthly_tokens_consumed, updated_at
+            "#,
+        )
+        .bind(org_id)
+        .bind(model_type_str)
+        .bind(req.discount_bps as i32)
+        .bind(volume_tiers_val)
+        .bind(req.ptu_capacity_tokens as i64)
+        .bind(req.token_cap_tokens as i64)
+        .bind(req.per_call_fee_micro_dollars as i64)
+        .bind(custom_rates_val)
+        .bind(tool_custom_rates_val)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let model_type_ret: String = row.try_get("model_type")?;
+        let model_type = match model_type_ret.as_str() {
+            "tiered_volume" => crate::types::PricingModelType::TieredVolume,
+            "committed_ptu" => crate::types::PricingModelType::CommittedPtu,
+            "batch_discount" => crate::types::PricingModelType::BatchDiscount,
+            "per_unit_request" => crate::types::PricingModelType::PerUnitRequest,
+            "hybrid_commit_volume" => crate::types::PricingModelType::HybridCommitVolume,
+            _ => crate::types::PricingModelType::FlatDiscount,
+        };
+        let discount_bps: i32 = row.try_get("discount_bps")?;
+        let volume_tiers_val: serde_json::Value = row.try_get("volume_tiers")?;
+        let ptu_capacity_tokens: i64 = row.try_get("ptu_capacity_tokens")?;
+        let token_cap_tokens: i64 = row.try_get("token_cap_tokens").unwrap_or(0);
+        let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars").unwrap_or(0);
+        let custom_rates_val: serde_json::Value = row.try_get("custom_rates")?;
+        let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates").unwrap_or_else(|_| serde_json::json!({}));
+        let monthly_tokens_consumed: i64 = row.try_get("monthly_tokens_consumed")?;
+        let updated_at: chrono::DateTime<chrono::Utc> = row.try_get("updated_at")?;
+
+        let volume_tiers = serde_json::from_value(volume_tiers_val).unwrap_or_default();
+        let custom_rates = serde_json::from_value(custom_rates_val).unwrap_or_default();
+        let tool_custom_rates = serde_json::from_value(tool_custom_rates_val).unwrap_or_default();
+
+        Ok(crate::types::TenantPricingModel {
+            org_id: org_id.to_string(),
+            model_type,
+            discount_bps: discount_bps as u32,
+            volume_tiers,
+            ptu_capacity_tokens: ptu_capacity_tokens as u64,
+            token_cap_tokens: token_cap_tokens as u64,
+            per_call_fee_micro_dollars: per_call_fee_micro_dollars as u64,
+            custom_rates,
+            tool_custom_rates,
+            monthly_tokens_consumed: monthly_tokens_consumed as u64,
+            updated_at: updated_at.to_rfc3339(),
+        })
+    }
+
+    pub async fn record_token_consumption(
+        &self,
+        org_id: &str,
+        tokens: u64,
+    ) -> Result<u64, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO tenant_ai_pricing_models (org_id, monthly_tokens_consumed, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (org_id) DO UPDATE SET
+                monthly_tokens_consumed = tenant_ai_pricing_models.monthly_tokens_consumed + EXCLUDED.monthly_tokens_consumed,
+                updated_at = NOW()
+            RETURNING monthly_tokens_consumed
+            "#,
+        )
+        .bind(org_id)
+        .bind(tokens as i64)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let consumed: i64 = row.try_get("monthly_tokens_consumed")?;
+        Ok(consumed as u64)
     }
 }

@@ -58,22 +58,31 @@ contract ReputationRegistry is IReputationRegistry {
 
         if (outcome == ReputationOutcome.SETTLED) {
             m.settledCount += 1;
-            // Incremental EWMA update: 95% previous + 5% target (1,000,000 bps)
-            // forge-lint: disable-next-line(unsafe-typecast)
-            currentScore = uint32((uint256(currentScore) * 95 + 1_000_000 * 5) / 100);
+            // EWMA: 95% previous + 5% target (1,000,000). Max intermediate: 1_000_000 × 100 = 10^8 ≪ 2^256.
+            // `unchecked` removes the Solidity overflow check overhead (~3 gas per op) with zero risk.
+            unchecked {
+                // forge-lint: disable-next-line(unsafe-typecast)
+                currentScore = uint32((uint256(currentScore) * 95 + 1_000_000 * 5) / 100);
+            }
             if (currentScore > 1_000_000) currentScore = 1_000_000;
         } else if (outcome == ReputationOutcome.DISPUTED) {
             m.disputedCount += 1;
-            // forge-lint: disable-next-line(unsafe-typecast)
-            currentScore = uint32((uint256(currentScore) * 90 + 200_000 * 10) / 100);
+            unchecked {
+                // forge-lint: disable-next-line(unsafe-typecast)
+                currentScore = uint32((uint256(currentScore) * 90 + 200_000 * 10) / 100);
+            }
         } else if (outcome == ReputationOutcome.SLASHED) {
             m.slashedCount += 1;
             // Heavy slashing penalty: 30% instant reduction
-            // forge-lint: disable-next-line(unsafe-typecast)
-            currentScore = uint32((uint256(currentScore) * 70) / 100);
+            unchecked {
+                // forge-lint: disable-next-line(unsafe-typecast)
+                currentScore = uint32((uint256(currentScore) * 70) / 100);
+            }
         } else if (outcome == ReputationOutcome.TIMEOUT) {
-            // forge-lint: disable-next-line(unsafe-typecast)
-            currentScore = uint32((uint256(currentScore) * 95 + 300_000 * 5) / 100);
+            unchecked {
+                // forge-lint: disable-next-line(unsafe-typecast)
+                currentScore = uint32((uint256(currentScore) * 95 + 300_000 * 5) / 100);
+            }
         }
 
         m.totalTransactions += 1;

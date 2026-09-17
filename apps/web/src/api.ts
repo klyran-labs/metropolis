@@ -186,6 +186,126 @@ export type ReconciliationReport = {
   }>;
 };
 
+export type PricingModelType =
+  | "flat_discount"
+  | "tiered_volume"
+  | "committed_ptu"
+  | "batch_discount"
+  | "per_unit_request"
+  | "hybrid_commit_volume";
+
+export type VolumeTier = {
+  minTokens: number;
+  discountBps: number;
+};
+
+export type ModelRateOverride = {
+  inputPerMMicroDollars: number;
+  outputPerMMicroDollars: number;
+  cacheReadPerMMicroDollars?: number;
+  cacheWritePerMMicroDollars?: number;
+};
+
+export type ToolRateOverride = {
+  costPerCallMicroDollars: number;
+};
+
+export type ToolCatalogEntry = {
+  toolId: string;
+  displayName: string;
+  provider: string;
+  category: string;
+  costPerCallMicroDollars: number;
+};
+
+export type TenantPricingModel = {
+  orgId: string;
+  modelType: PricingModelType;
+  discountBps: number;
+  volumeTiers: VolumeTier[];
+  ptuCapacityTokens: number;
+  tokenCapTokens?: number;
+  perCallFeeMicroDollars?: number;
+  customRates: Record<string, ModelRateOverride>;
+  toolCustomRates?: Record<string, ToolRateOverride>;
+  monthlyTokensConsumed: number;
+  updatedAt: string;
+};
+
+export type ModelCatalogEntry = {
+  provider: string;
+  modelId: string;
+  displayName: string;
+  inputPerMMicroDollars: number;
+  outputPerMMicroDollars: number;
+  cacheReadPerMMicroDollars: number;
+  cacheWritePerMMicroDollars: number;
+};
+
+export type TenantPricingModelResponse = {
+  pricing: TenantPricingModel;
+  catalog: ModelCatalogEntry[];
+  toolCatalog?: ToolCatalogEntry[];
+};
+
+export type UpdatePricingModelRequest = {
+  modelType: PricingModelType;
+  discountBps: number;
+  volumeTiers: VolumeTier[];
+  ptuCapacityTokens: number;
+  tokenCapTokens?: number;
+  perCallFeeMicroDollars?: number;
+  customRates: Record<string, ModelRateOverride>;
+  toolCustomRates?: Record<string, ToolRateOverride>;
+};
+
+export type CalculateToolCallRequest = {
+  toolId: string;
+  count: number;
+};
+
+export type FinOpsSpendResult = {
+  modelName: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  nominalListCostMicroDollars: number;
+  effectiveCostMicroDollars: number;
+  effectiveDiscountBps: number;
+  contractModel: PricingModelType;
+  ptuCapacityApplied: number;
+  ptuOverageTokens: number;
+  toolCostMicroDollars?: number;
+};
+
+export type CalculateSpendRequest = {
+  modelName: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  isBatch?: boolean;
+  toolCalls?: CalculateToolCallRequest[];
+};
+
+export type CompilePolicyRequest = {
+  prompt: string;
+  agentAddress?: string;
+};
+
+export type CompiledPolicyResult = {
+  maxPerTx: string;
+  maxPerWindow: string;
+  windowSeconds: number;
+  maxVelocity: number;
+  whitelistEnabled: boolean;
+  riskTier: string;
+  explanation: string;
+  suggestedMerchants: string[];
+};
+
 let accessTokenProvider: (() => Promise<string | null>) | null = null;
 
 export class RequestError extends Error {
@@ -607,4 +727,39 @@ export const usePutAbacPolicy = (onSuccess: () => void) =>
     mutationFn: (payload: AbacPolicy) =>
       request<AbacPolicy>("/policies/abac", { method: "PUT", body: JSON.stringify(payload) }),
     onSuccess,
+  });
+
+export const useTenantPricingModel = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["tenant-pricing-model"],
+    queryFn: ({ signal }) => request<TenantPricingModelResponse>("/tenant/pricing-model", { signal }),
+    enabled,
+  });
+
+export const useUpdateTenantPricingModel = (onSuccess: () => void) =>
+  useMutation({
+    mutationFn: (payload: UpdatePricingModelRequest) =>
+      request<TenantPricingModel>("/tenant/pricing-model", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess,
+  });
+
+export const useCalculateSpend = () =>
+  useMutation({
+    mutationFn: (payload: CalculateSpendRequest) =>
+      request<FinOpsSpendResult>("/finops/calculate-spend", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+  });
+
+export const useCompilePolicy = () =>
+  useMutation({
+    mutationFn: (payload: CompilePolicyRequest) =>
+      request<CompiledPolicyResult>("/copilot/compile-policy", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
   });

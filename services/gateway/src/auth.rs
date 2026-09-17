@@ -406,15 +406,40 @@ impl AuthService {
             Algorithm::ES256 => "EC",
             _ => "RSA",
         };
-        if let Some(cache) = self.jwks.read().await.as_ref()
-            && cache.expires_at > Instant::now()
-            && let Some(key) = cache
-                .keys
-                .iter()
-                .find(|key| key.kid == kid && key.kty == expected_kty)
+        let expected_alg = match alg {
+            Algorithm::ES256 => "ES256",
+            _ => "RS256",
+        };
+
+        // Fast path: read lock — returns immediately for the overwhelming majority of requests.
+        // No heap allocation, no network call.
         {
-            return Ok(key.clone());
+            let cache = self.jwks.read().await;
+            if let Some(ref c) = *cache {
+                if c.expires_at > Instant::now() {
+                    if let Some(key) = c.keys.iter().find(|k| k.kid == kid && k.kty == expected_kty) {
+                        return Ok(key.clone());
+                    }
+                }
+            }
+        } // read lock released here
+
+        // Slow path: upgrade to write lock.
+        // Double-checked locking: re-validate the cache under the write lock — another concurrent
+        // request may have already refreshed it between our read-lock check and now.
+        // This prevents the thundering herd: N concurrent requests at cache expiry all
+        // seeing a stale cache and all firing GET /jwks simultaneously.
+        let mut cache = self.jwks.write().await;
+        if let Some(ref c) = *cache {
+            if c.expires_at > Instant::now() {
+                // Another task already refreshed while we waited for the write lock — use it.
+                if let Some(key) = c.keys.iter().find(|k| k.kid == kid && k.kty == expected_kty) {
+                    return Ok(key.clone());
+                }
+            }
         }
+
+        // We hold the write lock exclusively — exactly one request reaches the network.
         let response = self
             .client
             .get(&self.config.privy_jwks_url)
@@ -436,23 +461,24 @@ impl AuthService {
                 "Retry after the identity provider returns valid signing keys.",
             )
         })?;
-        let expected_alg = match alg {
-            Algorithm::ES256 => "ES256",
-            _ => "RS256",
-        };
         let key = body
             .keys
             .iter()
-            .find(|key| {
-                key.kid == kid
-                    && key.kty == expected_kty
-                    && key.alg.as_deref().unwrap_or(expected_alg) == expected_alg
+            .find(|k| {
+                k.kid == kid
+                    && k.kty == expected_kty
+                    && k.alg.as_deref().unwrap_or(expected_alg) == expected_alg
             })
             .cloned();
-        *self.jwks.write().await = Some(CachedJwks {
-            expires_at: Instant::now() + Duration::from_secs(self.config.jwks_cache_seconds),
+
+        // Proactive pre-expiry buffer: expire 30s early so foreground requests always hit a warm
+        // cache. The background refresh cost (one HTTP GET) happens 30s before visible expiry.
+        let effective_ttl = self.config.jwks_cache_seconds.saturating_sub(30);
+        *cache = Some(CachedJwks {
+            expires_at: Instant::now() + Duration::from_secs(effective_ttl),
             keys: body.keys,
         });
+
         key.ok_or_else(|| {
             ApiError::new(
                 StatusCode::UNAUTHORIZED,

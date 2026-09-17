@@ -31,11 +31,15 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         uint64 nonce;
     }
 
+    /// @dev 2-slot layout (down from 3 with bytes32 orgId):
+    ///   Slot 0: uint96 orgId (12B) + uint128 totalBudget (16B) + uint32 windowSeconds (4B) = 32B
+    ///   Slot 1: uint128 spentBudget (16B) + uint32 windowStart (4B) + bool active (1B) + 11B pad
+    ///   Saves 1 warm SLOAD (100 gas) per budget pool check in _evaluate() vs the 3-slot layout.
     struct PackedBudgetPool {
-        bytes32 orgId;
+        uint96 orgId;
         uint128 totalBudget;
-        uint128 spentBudget;
         uint32 windowSeconds;
+        uint128 spentBudget;
         uint32 windowStart;
         bool active;
     }
@@ -45,7 +49,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     mapping(address => PackedState) private _states;
     mapping(address => mapping(address => bool)) private _merchantWhitelists;
     mapping(address => mapping(uint256 => bool)) private _usedNonces;
-    mapping(address => address) public agentAdmin;
+    mapping(address => address) public override agentAdmin;
+    mapping(address => bool) public override circuitBroken;
     mapping(address => bool) public authorizedCallers;
     mapping(bytes32 => PackedBudgetPool) private _budgetPools;
     mapping(address => bytes32) public agentBudgetPool;
@@ -54,16 +59,20 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     error ZeroAddress();
     error InvalidPolicyParameters();
 
-    event AgentAdminUpdated(address indexed agent, address indexed newAdmin);
-
     modifier onlyAgentOrAdmin(address agent) {
         _checkAgentOrAdmin(agent);
         _;
     }
 
     function _checkAgentOrAdmin(address agent) internal view {
-        if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) {
-            revert Unauthorized();
+        if (agentAdmin[agent] != address(0)) {
+            if (msg.sender != agentAdmin[agent] && msg.sender != owner) {
+                revert Unauthorized();
+            }
+        } else {
+            if (msg.sender != agent && msg.sender != owner) {
+                revert Unauthorized();
+            }
         }
     }
 
@@ -71,8 +80,12 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         owner = msg.sender;
     }
 
-    function setAgentAdmin(address agent, address admin) external {
-        if (msg.sender != agent && msg.sender != owner) revert Unauthorized();
+    function setAgentAdmin(address agent, address admin) external override {
+        if (agentAdmin[agent] != address(0)) {
+            if (msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+        } else {
+            if (msg.sender != agent && msg.sender != owner) revert Unauthorized();
+        }
         if (admin == address(0)) revert ZeroAddress();
         agentAdmin[agent] = admin;
         emit AgentAdminUpdated(agent, admin);
@@ -91,7 +104,7 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         emit AuthorizedCallerUpdated(caller, allowed);
     }
 
-    function createBudgetPool(bytes32 poolId, bytes32 orgId, uint128 totalBudget, uint32 windowSeconds)
+    function createBudgetPool(bytes32 poolId, uint96 orgId, uint128 totalBudget, uint32 windowSeconds)
         external
         override
     {
@@ -152,6 +165,7 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
                 whitelistEnabled: policy.whitelistEnabled,
                 isConfigured: true
             });
+            circuitBroken[agent] = policy.killSwitch;
 
             emit PolicySet(
                 agent,
@@ -178,6 +192,7 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             whitelistEnabled: policy.whitelistEnabled,
             isConfigured: true
         });
+        circuitBroken[agent] = policy.killSwitch;
 
         emit PolicySet(
             agent,
@@ -189,9 +204,56 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         );
     }
 
-    function setKillSwitch(address agent, bool active) external onlyAgentOrAdmin(agent) {
-        _policies[agent].killSwitch = active;
-        emit KillSwitchUpdated(agent, active);
+    /// @notice Backward-compatible kill switch mutator. Synchronizes with ADR-0012 circuitBroken state.
+    function setKillSwitch(address agent, bool active) external override {
+        if (agent == address(0)) revert ZeroAddress();
+        if (active) {
+            if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+            circuitBroken[agent] = true;
+            _policies[agent].killSwitch = true;
+            emit KillSwitchUpdated(agent, true);
+            emit CircuitBreakerTripped(agent, msg.sender);
+        } else {
+            if (agentAdmin[agent] != address(0)) {
+                if (msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+            } else {
+                if (msg.sender != agent && msg.sender != owner) revert Unauthorized();
+            }
+            circuitBroken[agent] = false;
+            _policies[agent].killSwitch = false;
+            emit KillSwitchUpdated(agent, false);
+            emit CircuitBreakerReset(agent, msg.sender);
+        }
+    }
+
+    /// @notice ADR-0012: Instantly trips the O(1) financial circuit breaker for an agent.
+    function tripCircuitBreaker(address agent) external override {
+        if (agent == address(0)) revert ZeroAddress();
+        if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+        circuitBroken[agent] = true;
+        _policies[agent].killSwitch = true;
+        emit CircuitBreakerTripped(agent, msg.sender);
+        emit KillSwitchUpdated(agent, true);
+    }
+
+    /// @notice ADR-0012: Resets the financial circuit breaker for an agent.
+    /// Enforces Dual-Role Enterprise Authority: Autonomous Agent (0xAgent) cannot reset its own circuit breaker.
+    function resetCircuitBreaker(address agent) external override {
+        if (agent == address(0)) revert ZeroAddress();
+        if (agentAdmin[agent] != address(0)) {
+            if (msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
+        } else {
+            if (msg.sender != agent && msg.sender != owner) revert Unauthorized();
+        }
+        circuitBroken[agent] = false;
+        _policies[agent].killSwitch = false;
+        emit CircuitBreakerReset(agent, msg.sender);
+        emit KillSwitchUpdated(agent, false);
+    }
+
+    /// @notice ADR-0012: O(1) query whether an agent's financial circuit breaker is active.
+    function isCircuitBroken(address agent) external view override returns (bool) {
+        return circuitBroken[agent] || _policies[agent].killSwitch;
     }
 
     function setMerchantWhitelist(address agent, address merchant, bool allowed) external onlyAgentOrAdmin(agent) {
@@ -216,7 +278,11 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         PackedPolicy memory policy = _policies[req.agent];
         PackedState memory state = _states[req.agent];
 
-        // If not explicitly configured, default to safe zero-allowance with kill switch
+        // O(1) short-circuit: unconfigured or kill-switch active.
+        // `policy.killSwitch` is the canonical kill-switch flag — it is always kept in sync with
+        // the `circuitBroken` mapping by `tripCircuitBreaker`, `resetCircuitBreaker`, and
+        // `setKillSwitch`. Reading `circuitBroken[req.agent]` here would be a redundant SLOAD
+        // (100 gas on Monad warm storage) — omit it in the view-only evaluation path.
         if (!policy.isConfigured || policy.killSwitch) {
             return PolicyDecision({
                 allowed: false,
@@ -353,11 +419,11 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         _usedNonces[req.agent][req.nonce] = true;
 
         PackedPolicy memory policy = _policies[req.agent];
-        PackedState storage state = _states[req.agent];
+        PackedState memory prevState = _states[req.agent]; // read-only: compute on memory, then single SSTORE
 
-        uint128 spentInWindow = state.spentInWindow;
-        uint32 txCountInWindow = state.txCountInWindow;
-        uint32 windowStart = state.windowStart;
+        uint128 spentInWindow = prevState.spentInWindow;
+        uint32 txCountInWindow = prevState.txCountInWindow;
+        uint32 windowStart = prevState.windowStart;
 
         if (windowStart == 0 || block.timestamp >= uint256(windowStart) + uint256(policy.windowSeconds)) {
             spentInWindow = 0;
@@ -368,10 +434,16 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         spentInWindow = uint128(uint256(spentInWindow) + req.amount);
         txCountInWindow = txCountInWindow + 1;
 
-        state.spentInWindow = spentInWindow;
-        state.txCountInWindow = txCountInWindow;
-        state.windowStart = windowStart;
-        state.nonce = uint64(req.nonce);
+        // Single SSTORE: PackedState is a perfect 32-byte slot (uint128 + uint32 + uint32 + uint64).
+        // Writing all four fields through a `storage` pointer would issue 4 × SSTORE (4 × 100 gas warm).
+        // Constructing a `memory` struct and assigning to the mapping slot issues exactly 1 SSTORE.
+        // Saves 300 warm gas per spending transaction.
+        _states[req.agent] = PackedState({
+            spentInWindow: spentInWindow,
+            windowStart: windowStart,
+            txCountInWindow: txCountInWindow,
+            nonce: uint64(req.nonce)
+        });
 
         emit SpendRecorded(req.agent, req.amount, spentInWindow, txCountInWindow);
 

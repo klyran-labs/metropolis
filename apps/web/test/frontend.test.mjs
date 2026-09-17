@@ -160,6 +160,13 @@ test("Modern UI/UX invariants: canonical brand mark, zero-mock overview, and add
   assert.match(globalsCss, /\.agent-cell-wrapper/);
   assert.match(globalsCss, /\.table-copy-btn/);
   assert.match(globalsCss, /\.agent-state-pill/);
+  assert.match(globalsCss, /\.top-bar-breadcrumbs/);
+
+  // Invariant: TopBar must never leak raw hexadecimal Org database UUID slices
+  const topBar = await readFile(new URL("../src/components/TopBar.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(topBar, /`Org \$\{identity\.tenantId/);
+  assert.match(topBar, /identity\.tenantName/);
+  assert.match(topBar, /top-bar-breadcrumbs/);
 });
 
 test("Phase 2 UI/UX Invariants: dynamic storage slots, Policy Studio presets, and merchant copying", async () => {
@@ -322,5 +329,144 @@ test("Modern fintech theme invariants: typography, glassmorphism, radar telemetr
 
 
 
+
+
+
+test("finops dual-denomination rate cards and enterprise pricing models are integrated", async () => {
+  const [settingsSrc, apiSrc] = await Promise.all([
+    readFile(new URL("../src/screens/tenant/Settings.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
+  ]);
+
+  // ADR 0010: Six enterprise contract models
+  assert.match(settingsSrc, /flat_discount/);
+  assert.match(settingsSrc, /tiered_volume/);
+  assert.match(settingsSrc, /committed_ptu/);
+  assert.match(settingsSrc, /batch_discount/);
+  assert.match(settingsSrc, /per_unit_request/);
+  assert.match(settingsSrc, /hybrid_commit_volume/);
+
+  // Settings UI contains AI Rate Cards tab, 4D matrix, Tool catalog, and FinOps controls
+  assert.match(settingsSrc, /AI Rate Cards/);
+  assert.match(settingsSrc, /Dual-Denomination Engine/);
+  assert.match(settingsSrc, /4-Dimension Matrix/);
+  assert.match(settingsSrc, /Cache Read/);
+  assert.match(settingsSrc, /Cache Write/);
+  assert.match(settingsSrc, /Per-Operation Tool & Service Rate Cards/);
+  assert.match(settingsSrc, /Monthly Compute Token Quota Cap/);
+  assert.match(settingsSrc, /Volume Discount Ladders/);
+  assert.match(settingsSrc, /Live Spend Simulator & FinOps Sandbox/);
+  assert.match(settingsSrc, /Async Batch API Mode/);
+
+  // API endpoints, types, and hooks wired
+  assert.match(apiSrc, /useTenantPricingModel/);
+  assert.match(apiSrc, /useUpdateTenantPricingModel/);
+  assert.match(apiSrc, /useCalculateSpend/);
+  assert.match(apiSrc, /ToolCatalogEntry/);
+  assert.match(apiSrc, /batch_discount/);
+  assert.match(apiSrc, /per_unit_request/);
+  assert.match(apiSrc, /hybrid_commit_volume/);
+  assert.match(apiSrc, /\/tenant\/pricing-model/);
+  assert.match(apiSrc, /\/finops\/calculate-spend/);
+});
+
+test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker are integrated", async () => {
+  const [copilotSrc, simulatorSrc, policySrc, apiSrc] = await Promise.all([
+    readFile(new URL("../src/components/AICopilot.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/PolicySimulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
+  ]);
+
+  // AI Copilot connects to /copilot/compile-policy and stages into Policy Studio
+  assert.match(copilotSrc, /useCompilePolicy/);
+  assert.match(copilotSrc, /agentguard_staged_policy/);
+  assert.match(copilotSrc, /Apply to Policy Studio/);
+  assert.match(policySrc, /agentguard_staged_policy/);
+  assert.match(apiSrc, /\/copilot\/compile-policy/);
+
+  // ADR-0008 Mathematical Invariant Guard: maxPerTx must never exceed maxPerWindow
+  // The UI blocks staging an invalid policy to Policy Studio (mirrors Qwen backend bounds clamping)
+  assert.match(copilotSrc, /AlertTriangle/, "AICopilot must import AlertTriangle for invariant warning");
+  assert.match(copilotSrc, /copilot-invariant-warning/, "AICopilot must render invariant violation banner class");
+  assert.match(copilotSrc, /Policy Invariant Violated/, "AICopilot must display a clear invariant violation message");
+  assert.match(copilotSrc, /maxPerTx.*maxPerWindow|maxPerWindow.*maxPerTx/, "AICopilot must compare maxPerTx and maxPerWindow values");
+
+  // PolicySimulator includes ADR-0008 Multi-Tier Circuit Breaker Testbench
+  assert.match(simulatorSrc, /Autonomous Multi-Tier Circuit Breaker Testbench/);
+  assert.match(simulatorSrc, /Simulate Runaway Qwen 3.8 Max Loop/);
+  assert.match(simulatorSrc, /CLOSED \(Armored\)/);
+  assert.match(simulatorSrc, /OPEN \(Quarantined\)/);
+  assert.match(simulatorSrc, /HALF_OPEN \(Trial Probe\)/);
+  assert.match(simulatorSrc, /useTripKillSwitch/);
+  assert.match(simulatorSrc, /runRunawayCircuitBreaker/);
+});
+
+test("ADR-0014: Agent Wallet Provisioning, Organization Treasury Wallets, and Load/Unload Flows are integrated", async () => {
+  const [treasurySrc, fleetSrc, apiSrc] = await Promise.all([
+    readFile(new URL("../src/screens/tenant/Treasury.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
+  ]);
+
+  // Treasury multi-wallet management & access control
+  assert.match(treasurySrc, /useOrganizationWallets/);
+  assert.match(treasurySrc, /useRegisterOrganizationWallet/);
+  assert.match(treasurySrc, /useGrantWalletAccess/);
+  assert.match(treasurySrc, /useRevokeWalletAccess/);
+  assert.match(treasurySrc, /useUpdateWalletThreshold/);
+  assert.match(treasurySrc, /treasuryOwnershipMessage/);
+
+  // Fleet agent registration supports sovereign and external modes
+  assert.match(fleetSrc, /walletSource === "sovereign"/);
+  assert.match(fleetSrc, /walletSource === "external"/);
+  assert.match(fleetSrc, /Managed wallets/);
+
+  // Fleet agent row Load and Unload modals
+  assert.match(fleetSrc, /useLoadAgentWallet/);
+  assert.match(fleetSrc, /useUnloadAgentWallet/);
+  assert.match(fleetSrc, /Load agent wallet/);
+  assert.match(fleetSrc, /Unload to treasury/);
+
+  // API endpoints wired for treasury and wallet transfers
+  assert.match(apiSrc, /\/organization\/wallets/);
+  assert.match(apiSrc, /\/agents\/.*\/load/);
+  assert.match(apiSrc, /\/agents\/.*\/unload/);
+  assert.match(apiSrc, /\/agents\/.*\/wallet-transfers/);
+});
+
+test("Tier-1 Recommendations: ERC-4337 Paymaster sponsorship and ERC-6551 Token Bound Accounts are integrated", async () => {
+  const [configSrc, hooksSrc, fleetSrc] = await Promise.all([
+    readFile(new URL("../src/configuration.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/hooks/usePolicyContracts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // Contract coordinates in configuration
+  assert.match(configSrc, /circuitPaymaster/);
+  assert.match(configSrc, /agentIdentityRegistry/);
+  assert.match(configSrc, /agentAccountImplementation/);
+  assert.match(configSrc, /agentPassportNFT/);
+
+  // Viem hooks and ABIs
+  assert.match(hooksSrc, /CIRCUIT_PAYMASTER_ABI/);
+  assert.match(hooksSrc, /ERC6551_REGISTRY_ABI/);
+  assert.match(hooksSrc, /AGENT_PASSPORT_NFT_ABI/);
+  assert.match(hooksSrc, /usePaymasterEligibility/);
+  assert.match(hooksSrc, /useAgentPassport/);
+  assert.match(hooksSrc, /useAgentTba/);
+
+  // Fleet screen UI integration
+  assert.match(fleetSrc, /Sovereign Passport \(ERC-6551 TBA\)/);
+  assert.match(fleetSrc, /Paymaster Sponsored Gas/);
+  assert.match(fleetSrc, /Token Bound Account/);
+
+  // Treasury screen Paymaster float replenishment integration
+  const treasurySrc = await readFile(new URL("../src/screens/tenant/Treasury.tsx", import.meta.url), "utf8");
+  assert.match(hooksSrc, /usePaymasterTreasuryBalance/);
+  assert.match(hooksSrc, /useDepositPaymasterGas/);
+  assert.match(treasurySrc, /Paymaster Gas Float/);
+  assert.match(treasurySrc, /Replenish Gas Float/);
+});
 
 

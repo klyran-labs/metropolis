@@ -11,7 +11,7 @@ use alloy::{
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
@@ -203,15 +203,41 @@ impl ChainClient {
         event_hub: &EventHub,
         next_block: u64,
     ) -> Result<Option<u64>, String> {
-        let latest = self.latest_block().await?;
+        let from_block = next_block;
+        // Single HTTP round-trip: eth_blockNumber + eth_getLogs fused into one JSON-RPC batch.
+        // Saves one complete RPC round-trip (5-30ms) per 400ms Monad poll cycle.
+        let (latest, all_logs) = self.rpc_batch_block_and_logs(from_block).await?;
         let safe_head = latest.saturating_sub(self.config.event_finality_blocks);
-        if next_block > safe_head {
+        if from_block > safe_head {
             return Ok(None);
         }
 
-        let from_block = next_block;
         let to_block = (from_block + 999).min(safe_head);
-        let logs = self.logs(from_block, to_block).await?;
+        // Clip logs to the safe finality window — discard anything beyond safe_head
+        let logs: Vec<_> = all_logs
+            .into_iter()
+            .filter(|log| {
+                parse_quantity(&log.block_number).map_or(false, |bn| bn <= to_block)
+            })
+            .collect();
+
+        // Batch-resolve org_ids: collect all unique agent addresses from the log batch
+        // first, then issue a single `WHERE agent_address = ANY($1)` query.
+        // This reduces N sequential DB round-trips (one per log) to exactly 1
+        // regardless of batch size — critical for low-latency 400ms Monad block ingestion.
+        let agent_addresses: Vec<String> = logs
+            .iter()
+            .filter_map(|log| log.topics.get(1).and_then(|topic| topic_address(topic)))
+            .map(|addr| addr.to_string())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let org_map = repository
+            .organizations_for_agents(&agent_addresses)
+            .await
+            .map_err(|error| error.to_string())?;
+
         for log in logs {
             let Some(block_number) = parse_quantity(&log.block_number) else {
                 continue;
@@ -223,13 +249,8 @@ impl ChainClient {
                 continue;
             };
             let agent = log.topics.get(1).and_then(|topic| topic_address(topic));
-            let org_id = match agent.as_deref() {
-                Some(agent) => repository
-                    .organization_for_agent(agent)
-                    .await
-                    .map_err(|error| error.to_string())?,
-                None => None,
-            };
+            // O(1) HashMap lookup — org_id was pre-fetched for the entire batch above
+            let org_id = agent.as_deref().and_then(|addr| org_map.get(addr)).cloned();
             let payload = json!({
                 "address": log.address,
                 "topics": log.topics,
@@ -273,9 +294,11 @@ impl ChainClient {
         Ok(Some(to_block + 1))
     }
 
-    async fn latest_block(&self) -> Result<u64, String> {
-        let value: String = self.rpc("eth_blockNumber", json!([])).await?;
-        parse_quantity(&value).ok_or_else(|| "Monad returned an invalid block number".to_string())
+    pub fn check_dispute_finalization_readiness(
+        current_block: u64,
+        challenge_block: u64,
+    ) -> bool {
+        current_block >= challenge_block.saturating_add(200)
     }
 
     async fn block_hash(&self, block: u64) -> Result<String, String> {
@@ -287,15 +310,73 @@ impl ChainClient {
             .ok_or_else(|| "Monad returned no block for checkpoint".to_string())
     }
 
-    async fn logs(&self, from_block: u64, to_block: u64) -> Result<Vec<RpcLog>, String> {
-        self.rpc(
-            "eth_getLogs",
-            json!([{
-                "fromBlock": quantity(from_block),
-                "toBlock": quantity(to_block),
-                "address": [format_address(self.config.policy_engine_address), format_address(self.config.agent_wallet_guard_address)]
-            }]),
-        ).await
+    /// JSON-RPC batch: fetches `eth_blockNumber` and `eth_getLogs` in a **single HTTP round-trip**.
+    ///
+    /// Standard JSON-RPC 2.0 batch (EIP-1474): sends an array of request objects and receives an
+    /// array of response objects. Eliminates the sequential `latest_block().await?` +
+    /// `logs().await?` pattern that cost 2 round-trips per poll cycle (5-30ms each on Monad RPC).
+    async fn rpc_batch_block_and_logs(
+        &self,
+        from_block: u64,
+        // We use "latest" as toBlock for the initial scan; caller clips to safe_head afterward.
+        // This avoids a chicken-and-egg dependency where we need block number to call eth_getLogs.
+    ) -> Result<(u64, Vec<RpcLog>), String> {
+        let batch = json!([
+            { "jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": [] },
+            {
+                "jsonrpc": "2.0", "id": 2, "method": "eth_getLogs",
+                "params": [{
+                    "fromBlock": quantity(from_block),
+                    "toBlock": "latest",
+                    "address": [
+                        format_address(self.config.policy_engine_address),
+                        format_address(self.config.agent_wallet_guard_address)
+                    ]
+                }]
+            }
+        ]);
+
+        let response = self
+            .http
+            .post(&self.config.rpc_url)
+            .json(&batch)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Batch responses are a JSON array — order is not guaranteed by spec; match by `id`.
+        let raw: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|e| format!("Monad batch RPC parse error: {e}"))?;
+
+        let mut block_number_hex: Option<String> = None;
+        let mut logs: Option<Vec<RpcLog>> = None;
+
+        for item in raw {
+            match item.get("id").and_then(|v| v.as_u64()) {
+                Some(1) => {
+                    block_number_hex = item
+                        .get("result")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                }
+                Some(2) => {
+                    if let Some(result) = item.get("result") {
+                        logs = serde_json::from_value(result.clone()).ok();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let latest = block_number_hex
+            .as_deref()
+            .and_then(parse_quantity)
+            .ok_or_else(|| "Monad batch RPC: missing eth_blockNumber result".to_string())?;
+        let logs = logs.ok_or_else(|| "Monad batch RPC: missing eth_getLogs result".to_string())?;
+
+        Ok((latest, logs))
     }
 
     async fn rpc<T: for<'de> Deserialize<'de>>(
@@ -511,6 +592,38 @@ fn event_name(topics: &[String]) -> Option<&'static str> {
         (
             "PaymentBlocked(address,address,uint256,uint256,uint8)",
             "PaymentBlocked",
+        ),
+        (
+            "CircuitBreakerTripped(address,address)",
+            "CircuitBreakerTripped",
+        ),
+        (
+            "CircuitBreakerReset(address,address)",
+            "CircuitBreakerReset",
+        ),
+        (
+            "EpochRolledOver(address,address,uint256,uint256,uint128,uint128)",
+            "EpochRolledOver",
+        ),
+        (
+            "EpochBucketAllocated(address,address,uint256,uint128,uint32)",
+            "EpochBucketAllocated",
+        ),
+        (
+            "VoucherDeltaSettled(address,address,uint256,uint128,uint128)",
+            "VoucherDeltaSettled",
+        ),
+        (
+            "TerminalClosed(address,address,uint256,uint128,uint128)",
+            "TerminalClosed",
+        ),
+        (
+            "UnilateralChallengeInitiated(address,bytes32,uint256,uint128)",
+            "UnilateralChallengeInitiated",
+        ),
+        (
+            "UnilateralCloseFinalized(address,address,bytes32,uint128,uint128)",
+            "UnilateralCloseFinalized",
         ),
     ];
     signatures.iter().find_map(|(signature, name)| {

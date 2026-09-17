@@ -41,11 +41,16 @@ export const configuration = {
   rpcUrl: read("VITE_RPC_URL"),
   apiBaseUrl: read("VITE_API_BASE_URL", "/api/v1"),
   privyAppId: read("VITE_PRIVY_APP_ID", "cmton65ao004l0cl11tgmwiah"),
-  contracts: {
+    contracts: {
     policyEngine: address("VITE_POLICY_ENGINE_ADDRESS"),
     reputationRegistry: address("VITE_REPUTATION_REGISTRY_ADDRESS"),
     agentWalletGuard: address("VITE_AGENT_WALLET_GUARD_ADDRESS"),
     settlementToken: address("VITE_USDC_TOKEN_ADDRESS"),
+    circuitVault: address("VITE_CIRCUIT_VAULT_ADDRESS"),
+    circuitPaymaster: address("VITE_CIRCUIT_PAYMASTER_ADDRESS"),
+    agentIdentityRegistry: address("VITE_AGENT_IDENTITY_REGISTRY_ADDRESS"),
+    agentAccountImplementation: address("VITE_AGENT_ACCOUNT_IMPLEMENTATION_ADDRESS"),
+    agentPassportNFT: address("VITE_AGENT_PASSPORT_NFT_ADDRESS"),
   },
 } as const;
 

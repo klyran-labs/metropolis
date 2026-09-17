@@ -1,7 +1,7 @@
 # ADR 0012: Circuit Protocol Rebrand & Financial Circuit Breaker Invariant Architecture
 
 ## Status
-Accepted (Target: Monad Metropolis Flagship Architecture)
+**Implemented** (Supersedes Monad Metropolis target — fully deployed)
 
 ## Context
 In ADR 0001 through ADR 0011, the protocol was established under the project name `AgentGuard` focusing on spend control, disjoint storage slots, x402 payment negotiation, and enterprise rate cards.

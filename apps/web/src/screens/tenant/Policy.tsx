@@ -12,8 +12,11 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
+import { encodeFunctionData, isAddress, type Address } from "viem";
 import { request, useAgentPolicy, useAgents, type PolicyUpdate } from "../../api";
+import { configuration } from "../../configuration";
 import { Badge, Button, EmptyState, Mono, RecordSummary, Surface, TextField } from "../../design-system";
+import { POLICY_ENGINE_ABI } from "../../hooks/usePolicyContracts";
 import { useIdentity } from "../../identity";
 
 async function waitForReceipt(
@@ -79,6 +82,14 @@ const POLICY_PRESETS: PolicyPreset[] = [
     windowSeconds: 3600,
     maxVelocity: 100,
   },
+  {
+    label: "Alibaba Qwen 3.8 Max Agent",
+    description: "ADR-0008 Autonomous Inference Workload ($0.10/tx, $1.50/hr, 10 tx/hr velocity)",
+    maxPerTx: "100000",
+    maxPerWindow: "1500000",
+    windowSeconds: 3600,
+    maxVelocity: 10,
+  },
 ];
 
 export function Policy() {
@@ -105,6 +116,28 @@ export function Policy() {
       setAgent(agents.data[0].address);
     }
   }, [agents.data, agent]);
+
+  // Check for policy staged from Qwen AI Copilot
+  useEffect(() => {
+    try {
+      const staged = sessionStorage.getItem("agentguard_staged_policy");
+      if (staged) {
+        const parsed = JSON.parse(staged);
+        sessionStorage.removeItem("agentguard_staged_policy");
+        setDraft((prev) => ({
+          ...prev,
+          maxPerTx: parsed.maxPerTx ?? prev.maxPerTx,
+          maxPerWindow: parsed.maxPerWindow ?? prev.maxPerWindow,
+          windowSeconds: parsed.windowSeconds ?? prev.windowSeconds,
+          maxVelocity: parsed.maxVelocity ?? prev.maxVelocity,
+          whitelistEnabled: parsed.whitelistEnabled ?? prev.whitelistEnabled,
+        }));
+        setMessage("Pre-filled policy parameters synthesized by Alibaba Qwen 3.8 Max Copilot.");
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (!policy.data) return;
@@ -141,14 +174,44 @@ export function Policy() {
     setIsPublishing(true);
     try {
       setMessage("Preparing the policy change…");
-      const prepared = await request<{ target: string; data: string }>(
-        `/agents/${encodeURIComponent(agent)}/policy`,
-        { method: "POST", body: JSON.stringify(draft) },
-      );
+      let target: string;
+      let data: string;
+
+      try {
+        const prepared = await request<{ target: string; data: string }>(
+          `/agents/${encodeURIComponent(agent)}/policy`,
+          { method: "POST", body: JSON.stringify(draft) },
+        );
+        target = prepared.target;
+        data = prepared.data;
+      } catch {
+        // Direct onchain fallback if gateway REST endpoint is unreachable
+        const engineAddress = configuration.contracts.policyEngine;
+        if (!engineAddress || !isAddress(engineAddress)) {
+          throw new Error("PolicyEngine contract address is not configured.");
+        }
+        target = engineAddress;
+        data = encodeFunctionData({
+          abi: POLICY_ENGINE_ABI,
+          functionName: "setPolicy",
+          args: [
+            agent as Address,
+            {
+              maxPerTx: BigInt(draft.maxPerTx || "0"),
+              maxPerWindow: BigInt(draft.maxPerWindow || "0"),
+              windowSeconds: draft.windowSeconds,
+              maxVelocity: draft.maxVelocity,
+              killSwitch: draft.killSwitch,
+              whitelistEnabled: draft.whitelistEnabled,
+            },
+          ],
+        });
+      }
+
       const provider = await wallet.getEthereumProvider();
       const hash = (await provider.request({
         method: "eth_sendTransaction",
-        params: [{ from: wallet.address, to: prepared.target, data: prepared.data }],
+        params: [{ from: wallet.address, to: target, data }],
       })) as string;
       await waitForReceipt(provider, hash);
       setMessage("Policy change confirmed on the settlement network.");
