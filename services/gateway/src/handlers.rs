@@ -4,6 +4,7 @@ use crate::{
     chain::ChainClient,
     config::Config,
     error::{AccessReasonCode, ApiError},
+    limits::TenantConcurrency,
     pbac::{self, PbacInput, PbacPolicy, PolicyEffect},
     rbac::{self, Capability, PlatformCapability, Role},
     repository::PgRepository,
@@ -35,6 +36,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::{convert::Infallible, str::FromStr, sync::Arc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -45,8 +47,9 @@ pub struct AppState {
     pub auth: AuthService,
     pub chain: ChainClient,
     pub events: EventHub,
-    pub finops_sync: crate::finops::DistributedFinopsSync,
     pub streaming_reserves: crate::finops::StreamingReserveHold,
+    pub tenant_concurrency: TenantConcurrency,
+    pub provider_bulkhead: Arc<Semaphore>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -83,6 +86,49 @@ pub async fn onboarding_authentication_middleware(
     next.run(request).await
 }
 
+async fn run_with_tenant_concurrency(
+    state: &SharedState,
+    context: &RequestContext,
+    mut request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let Some(permit) = state.tenant_concurrency.try_acquire(&context.tenant.org_id) else {
+        return ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            AccessReasonCode::DependencyUnavailable,
+            "Organization request capacity is temporarily exhausted.",
+            "Retry after active organization requests complete.",
+        )
+        .into_response();
+    };
+    request.extensions_mut().insert(Arc::new(permit));
+    next.run(request).await
+}
+
+fn try_provider_permit(state: &SharedState) -> Option<OwnedSemaphorePermit> {
+    state.provider_bulkhead.clone().try_acquire_owned().ok()
+}
+
+fn provider_capacity_error() -> Response {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        AccessReasonCode::DependencyUnavailable,
+        "The inference provider is at capacity.",
+        "Retry after provider capacity becomes available.",
+    )
+    .into_response()
+}
+
+fn tenant_capacity_error() -> Response {
+    ApiError::new(
+        StatusCode::TOO_MANY_REQUESTS,
+        AccessReasonCode::RateLimited,
+        "The agent request capacity is currently exhausted.",
+        "Retry with bounded concurrency after in-flight requests complete.",
+    )
+    .into_response()
+}
+
 pub async fn authorization_middleware(
     State(state): State<SharedState>,
     request: axum::extract::Request,
@@ -111,7 +157,7 @@ pub async fn authorization_middleware(
             )
             .into_response();
         }
-        return next.run(request).await;
+        return run_with_tenant_concurrency(&state, &context, request, next).await;
     }
     let (capability, action) = required_capability(request.method(), path);
     let authorized = match context.identity_kind {
@@ -185,7 +231,7 @@ pub async fn authorization_middleware(
                     )
                     .into_response();
                 }
-                return next.run(request).await;
+                return run_with_tenant_concurrency(&state, &context, request, next).await;
             };
             let environment = match state.config.environment.as_str() {
                 "production" => AgentEnvironment::Production,
@@ -227,7 +273,7 @@ pub async fn authorization_middleware(
         }
     }
 
-    next.run(request).await
+    run_with_tenant_concurrency(&state, &context, request, next).await
 }
 
 fn required_capability(method: &http::Method, path: &str) -> (Capability, &'static str) {
@@ -294,7 +340,10 @@ fn required_capability(method: &http::Method, path: &str) -> (Capability, &'stat
         if method == http::Method::GET {
             return (Capability::ReadFleet, Capability::ReadFleet.action());
         }
-        return (Capability::ManageTreasury, Capability::ManageTreasury.action());
+        return (
+            Capability::ManageTreasury,
+            Capability::ManageTreasury.action(),
+        );
     }
     if path.starts_with("/api/v1/finops/calculate-spend") {
         return (Capability::ReadFleet, Capability::ReadFleet.action());
@@ -1627,7 +1676,7 @@ async fn execute_load(
     let submission = state
         .http_client
         .post(format!(
-            "{}/api/v1/execute-transfer",
+            "{}/api/v1/execute-treasury-load",
             state.config.opensigner_url.trim_end_matches('/')
         ))
         .bearer_auth(&state.config.opensigner_api_token)
@@ -3237,6 +3286,13 @@ pub async fn inference_handler(
         );
     }
 
+    let Some(_tenant_permit) = state
+        .tenant_concurrency
+        .try_acquire(&format!("{:#x}", request.agent))
+    else {
+        return tenant_capacity_error();
+    };
+
     match state.chain.evaluate_policy(request.clone()).await {
         Ok((true, allowed_amount, reason_code, evaluated_at)) => {
             if reason_code != OnchainReasonCode::None.as_u8() {
@@ -3363,7 +3419,6 @@ fn x402_sse_rejection(
         .into_response()
 }
 
-
 pub async fn telemetry_stream(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
@@ -3448,13 +3503,12 @@ pub async fn get_user_role_handler(
             )
         })?
     };
-    let tenant_name = sqlx::query_scalar::<_, String>(
-        "SELECT display_name FROM organizations WHERE org_id = $1",
-    )
-    .bind(&context.tenant.org_id)
-    .fetch_optional(&state.repository.pool)
-    .await
-    .unwrap_or(None);
+    let tenant_name =
+        sqlx::query_scalar::<_, String>("SELECT display_name FROM organizations WHERE org_id = $1")
+            .bind(&context.tenant.org_id)
+            .fetch_optional(&state.repository.pool)
+            .await
+            .unwrap_or(None);
 
     Ok(Json(RoleResponse {
         success: true,
@@ -3614,13 +3668,12 @@ pub async fn update_user_role_handler(
             "Wait for that operation or use a new idempotency key.",
         )
     })?;
-    let tenant_name = sqlx::query_scalar::<_, String>(
-        "SELECT display_name FROM organizations WHERE org_id = $1",
-    )
-    .bind(&context.tenant.org_id)
-    .fetch_optional(&state.repository.pool)
-    .await
-    .unwrap_or(None);
+    let tenant_name =
+        sqlx::query_scalar::<_, String>("SELECT display_name FROM organizations WHERE org_id = $1")
+            .bind(&context.tenant.org_id)
+            .fetch_optional(&state.repository.pool)
+            .await
+            .unwrap_or(None);
 
     let response = RoleResponse {
         success: true,
@@ -3757,7 +3810,11 @@ pub async fn get_tenant_pricing_model_handler(
 
     let catalog = crate::finops::get_official_catalog();
     let tool_catalog = crate::finops::get_official_tool_catalog();
-    Ok(Json(crate::types::TenantPricingModelResponse { pricing, catalog, tool_catalog }))
+    Ok(Json(crate::types::TenantPricingModelResponse {
+        pricing,
+        catalog,
+        tool_catalog,
+    }))
 }
 
 pub async fn update_tenant_pricing_model_handler(
@@ -3765,6 +3822,7 @@ pub async fn update_tenant_pricing_model_handler(
     Extension(context): Extension<RequestContext>,
     Json(payload): Json<crate::types::UpdatePricingModelRequest>,
 ) -> Result<Json<crate::types::TenantPricingModel>, ApiError> {
+    crate::finops::validate_pricing_model(&payload).map_err(invalid_request)?;
     let updated = state
         .repository
         .upsert_tenant_pricing_model(&context.tenant.org_id, &payload)
@@ -3808,18 +3866,23 @@ pub async fn calculate_spend_handler(
         payload.cache_read_tokens,
         payload.cache_creation_tokens,
         &pricing,
-    );
+    )
+    .map_err(|_| invalid_request("The requested model has no configured pricing rate."))?;
 
     if payload.is_batch && result.contract_model != crate::types::PricingModelType::BatchDiscount {
-        result.effective_cost_micro_dollars = result.effective_cost_micro_dollars / 2;
+        result.effective_cost_micro_dollars /= 2;
         result.effective_discount_bps = result.effective_discount_bps.max(5000);
     }
 
     for tc in &payload.tool_calls {
         let tool_cost = crate::finops::calculate_tool_spend(&tc.tool_id, tc.count, &pricing);
         result.tool_cost_micro_dollars = result.tool_cost_micro_dollars.saturating_add(tool_cost);
-        result.effective_cost_micro_dollars = result.effective_cost_micro_dollars.saturating_add(tool_cost);
-        result.nominal_list_cost_micro_dollars = result.nominal_list_cost_micro_dollars.saturating_add(tool_cost);
+        result.effective_cost_micro_dollars = result
+            .effective_cost_micro_dollars
+            .saturating_add(tool_cost);
+        result.nominal_list_cost_micro_dollars = result
+            .nominal_list_cost_micro_dollars
+            .saturating_add(tool_cost);
     }
 
     Ok(Json(result))
@@ -3872,7 +3935,7 @@ pub async fn chat_completions_handler(
         || headers
             .get("accept")
             .and_then(|h| h.to_str().ok())
-            .map_or(false, |h| h.contains("text/event-stream"));
+            .is_some_and(|h| h.contains("text/event-stream"));
 
     let reject = |status, code, agent| {
         if is_stream {
@@ -3925,10 +3988,21 @@ pub async fn chat_completions_handler(
         );
     }
 
+    let Some(_tenant_permit) = state
+        .tenant_concurrency
+        .try_acquire(&format!("{:#x}", request.agent))
+    else {
+        return tenant_capacity_error();
+    };
+
     let _streaming_guard = if is_stream {
         let agent_str = format!("{:#x}", request.agent);
         let estimated_tokens = payload.max_tokens.unwrap_or(2048) as u64 + 1024;
-        Some(state.streaming_reserves.acquire_guard(&agent_str, estimated_tokens))
+        Some(
+            state
+                .streaming_reserves
+                .acquire_guard(&agent_str, estimated_tokens),
+        )
     } else {
         None
     };
@@ -3938,14 +4012,24 @@ pub async fn chat_completions_handler(
             if reason_code != OnchainReasonCode::None.as_u8() {
                 let reason = OnchainReasonCode::from_u8(reason_code)
                     .unwrap_or(OnchainReasonCode::SignatureInvalid);
-                return reject(
-                    StatusCode::FORBIDDEN,
-                    reason,
-                    Some(request.agent),
-                );
+                return reject(StatusCode::FORBIDDEN, reason, Some(request.agent));
             }
 
             // Upstream forward to Alibaba Model Studio if key is provisioned
+            if is_stream {
+                return ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    AccessReasonCode::DependencyUnavailable,
+                    "Streaming Qwen responses are not configured on this gateway.",
+                    "Use a non-streaming request or configure the streaming provider adapter.",
+                )
+                .into_response();
+            }
+
+            let Some(_provider_permit) = try_provider_permit(&state) else {
+                return provider_capacity_error();
+            };
+
             let qwen_res = match crate::qwen::forward_to_qwen_api(
                 &state.http_client,
                 &state.config.dashscope_base_url,
@@ -3954,11 +4038,8 @@ pub async fn chat_completions_handler(
             )
             .await
             {
-                Ok(resp) => Some(resp),
-                Err(err) => {
-                    tracing::info!(reason = %err.message, "Qwen upstream completions bypassed or unavailable");
-                    None
-                }
+                Ok(resp) => resp,
+                Err(err) => return err.into_response(),
             };
 
             (
@@ -3973,7 +4054,7 @@ pub async fn chat_completions_handler(
                         "reasonCode": reason_code,
                         "evaluatedAt": evaluated_at.to_string()
                     },
-                    "settlement": "Monad Parallel EVM verified EIP-712 clearance for Qwen 3.8 Max inference."
+                    "settlement": "Policy authorization completed; provider response verified by the configured upstream adapter."
                 })),
             )
                 .into_response()
@@ -3981,11 +4062,7 @@ pub async fn chat_completions_handler(
         Ok((false, _, reason_code, _)) => {
             let reason = OnchainReasonCode::from_u8(reason_code)
                 .unwrap_or(OnchainReasonCode::SignatureInvalid);
-            reject(
-                StatusCode::FORBIDDEN,
-                reason,
-                Some(request.agent),
-            )
+            reject(StatusCode::FORBIDDEN, reason, Some(request.agent))
         }
         Err(_) => ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -4049,7 +4126,7 @@ pub async fn anthropic_messages_handler(
         || headers
             .get("accept")
             .and_then(|h| h.to_str().ok())
-            .map_or(false, |h| h.contains("text/event-stream"));
+            .is_some_and(|h| h.contains("text/event-stream"));
 
     let reject = |status, code, agent| {
         if is_stream {
@@ -4102,10 +4179,21 @@ pub async fn anthropic_messages_handler(
         );
     }
 
+    let Some(_tenant_permit) = state
+        .tenant_concurrency
+        .try_acquire(&format!("{:#x}", request.agent))
+    else {
+        return tenant_capacity_error();
+    };
+
     let _streaming_guard = if is_stream {
         let agent_str = format!("{:#x}", request.agent);
         let estimated_tokens = payload.max_tokens.unwrap_or(2048) as u64 + 1024;
-        Some(state.streaming_reserves.acquire_guard(&agent_str, estimated_tokens))
+        Some(
+            state
+                .streaming_reserves
+                .acquire_guard(&agent_str, estimated_tokens),
+        )
     } else {
         None
     };
@@ -4115,52 +4203,56 @@ pub async fn anthropic_messages_handler(
             if reason_code != OnchainReasonCode::None.as_u8() {
                 let reason = OnchainReasonCode::from_u8(reason_code)
                     .unwrap_or(OnchainReasonCode::SignatureInvalid);
-                return reject(
-                    StatusCode::FORBIDDEN,
-                    reason,
-                    Some(request.agent),
-                );
+                return reject(StatusCode::FORBIDDEN, reason, Some(request.agent));
             }
 
-            // Return Anthropic-compatible JSON response envelope
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "id": format!("msg_{}", uuid::Uuid::now_v7().simple()),
-                    "type": "message",
-                    "role": "assistant",
-                    "model": payload.model,
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "AgentGuard: Onchain Monad policy verified. Request authorized for execution."
-                        }
-                    ],
-                    "stop_reason": "end_turn",
-                    "stop_sequence": null,
-                    "usage": {
-                        "input_tokens": 128,
-                        "output_tokens": 32
-                    },
-                    "policyDecision": {
+            if is_stream {
+                return ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    AccessReasonCode::DependencyUnavailable,
+                    "Streaming Anthropic responses are not configured on this gateway.",
+                    "Use a non-streaming request or configure the streaming provider adapter.",
+                )
+                .into_response();
+            }
+
+            let Some(_provider_permit) = try_provider_permit(&state) else {
+                return provider_capacity_error();
+            };
+
+            let mut provider_response = match forward_to_anthropic_api(
+                &state.http_client,
+                &state.config.anthropic_base_url,
+                state.config.anthropic_api_key.as_deref(),
+                &payload,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => return error.into_response(),
+            };
+            if let Some(object) = provider_response.as_object_mut() {
+                object.insert(
+                    "policyDecision".to_string(),
+                    serde_json::json!({
                         "allowed": true,
                         "allowedAmount": allowed_amount.to_string(),
                         "reasonCode": reason_code,
                         "evaluatedAt": evaluated_at.to_string()
-                    },
-                    "settlement": "Monad Parallel EVM verified EIP-712 clearance for Anthropic Messages proxy."
-                })),
-            )
-                .into_response()
+                    }),
+                );
+                object.insert(
+                    "settlement".to_string(),
+                    serde_json::json!("Policy authorization completed; provider response verified by the configured upstream adapter."),
+                );
+            }
+
+            (StatusCode::OK, Json(provider_response)).into_response()
         }
         Ok((false, _, reason_code, _)) => {
             let reason = OnchainReasonCode::from_u8(reason_code)
                 .unwrap_or(OnchainReasonCode::SignatureInvalid);
-            reject(
-                StatusCode::FORBIDDEN,
-                reason,
-                Some(request.agent),
-            )
+            reject(StatusCode::FORBIDDEN, reason, Some(request.agent))
         }
         Err(_) => ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -4172,13 +4264,135 @@ pub async fn anthropic_messages_handler(
     }
 }
 
+async fn forward_to_anthropic_api(
+    http_client: &reqwest::Client,
+    base_url: &str,
+    api_key: Option<&str>,
+    request: &AnthropicMessagesRequest,
+) -> Result<Value, ApiError> {
+    let Some(key) = api_key else {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            AccessReasonCode::DependencyUnavailable,
+            "Anthropic API credentials are not provisioned on this gateway instance.",
+            "Configure ANTHROPIC_API_KEY to enable real Anthropic Messages responses.",
+        ));
+    };
+
+    let mut body = serde_json::json!({
+        "model": request.model,
+        "messages": request.messages,
+        "max_tokens": request.max_tokens.unwrap_or(1024),
+        "stream": false
+    });
+    if let Some(temperature) = request.temperature {
+        body["temperature"] = serde_json::json!(temperature);
+    }
+    if let Some(system) = &request.system {
+        body["system"] = system.clone();
+    }
+
+    let response = http_client
+        .post(format!("{}/messages", base_url.trim_end_matches('/')))
+        .header("x-api-key", key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Anthropic upstream request failed");
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                AccessReasonCode::DependencyUnavailable,
+                "Unable to connect to the Anthropic provider.",
+                "Retry after Anthropic provider connectivity is restored.",
+            )
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let _ = response.bytes().await;
+        tracing::warn!(%status, "Anthropic upstream returned an error");
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The Anthropic provider rejected the request.",
+            "Verify provider credentials, model access, and quota.",
+        ));
+    }
+
+    response.json::<Value>().await.map_err(|error| {
+        tracing::warn!(%error, "Invalid Anthropic response payload");
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            AccessReasonCode::DependencyUnavailable,
+            "The Anthropic provider returned an invalid response.",
+            "Retry after the provider returns a valid Messages response.",
+        )
+    })
+}
+
 /// ERC-7677 / ERC-4337 Paymaster JSON-RPC endpoint (ADR-0014 / Tier-1 Paymaster Architecture)
 pub async fn paymaster_rpc_handler(
-    State(_state): State<SharedState>,
+    State(state): State<SharedState>,
     Json(req): Json<crate::types::PaymasterRpcRequest>,
 ) -> Response {
     let id = req.id;
-    let paymaster_addr = "0x33b918a5fd89e1b711904a2cce4a3d61b17d7721";
+    if !matches!(
+        req.method.as_str(),
+        "pm_getPaymasterStubData" | "pm_getPaymasterData"
+    ) {
+        return paymaster_rpc_error(id, -32601, &format!("Method '{}' not found", req.method));
+    }
+    let paymaster_addr = format!("{:#x}", state.config.circuit_paymaster_address);
+
+    let params = req.params.as_ref().and_then(Value::as_array);
+    let user_operation = params
+        .and_then(|values| values.first())
+        .and_then(Value::as_object);
+    let Some(user_operation) = user_operation else {
+        return paymaster_rpc_error(
+            id,
+            -32602,
+            "Paymaster requests must include a UserOperation object.",
+        );
+    };
+    let Some(sender) = user_operation
+        .get("sender")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<Address>().ok())
+    else {
+        return paymaster_rpc_error(id, -32602, "UserOperation.sender is invalid.");
+    };
+
+    let max_cost = match paymaster_max_cost(user_operation) {
+        Ok(value) => value,
+        Err(message) => return paymaster_rpc_error(id, -32602, &message),
+    };
+
+    let (eligible, reason_code) = match state
+        .chain
+        .paymaster_sponsorship_eligibility(sender, max_cost)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%error, "Paymaster eligibility RPC failed");
+            return paymaster_rpc_error(
+                id,
+                -32000,
+                "Paymaster eligibility could not be verified onchain.",
+            );
+        }
+    };
+    if !eligible {
+        return paymaster_rpc_error(
+            id,
+            -32000,
+            &format!("Paymaster sponsorship rejected with reason code {reason_code}."),
+        );
+    }
 
     match req.method.as_str() {
         "pm_getPaymasterStubData" => {
@@ -4188,37 +4402,60 @@ pub async fn paymaster_rpc_handler(
                 "result": {
                     "paymaster": paymaster_addr,
                     "paymasterData": "0x",
-                    "paymasterVerificationGasLimit": "0x186a0",
-                    "paymasterPostOpGasLimit": "0x9c40",
+                    "paymasterVerificationGasLimit": format!(
+                        "{:#x}",
+                        state.config.paymaster_verification_gas_limit
+                    ),
+                    "paymasterPostOpGasLimit": format!(
+                        "{:#x}",
+                        state.config.paymaster_post_op_gas_limit
+                    ),
                     "sponsor": true
                 }
             });
             (StatusCode::OK, Json(res)).into_response()
         }
         "pm_getPaymasterData" => {
-            let dummy_sig = "0000000000000000000000000000000000000000000000000000000000000000";
-            let paymaster_and_data = format!("{paymaster_addr}{dummy_sig}");
             let res = serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
-                    "paymasterAndData": paymaster_and_data
+                    "paymasterAndData": paymaster_addr
                 }
             });
             (StatusCode::OK, Json(res)).into_response()
         }
-        unknown => {
-            let res = serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "error": {
-                    "code": -32601,
-                    "message": format!("Method '{unknown}' not found")
-                }
-            });
-            (StatusCode::NOT_FOUND, Json(res)).into_response()
-        }
+        _ => unreachable!("unsupported paymaster method was rejected above"),
     }
+}
+
+fn paymaster_rpc_error(id: Value, code: i32, message: &str) -> Response {
+    let res = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message }
+    });
+    (StatusCode::OK, Json(res)).into_response()
+}
+
+fn paymaster_max_cost(operation: &serde_json::Map<String, Value>) -> Result<U256, String> {
+    let quantity = |name: &str| -> Result<U256, String> {
+        let value = operation
+            .get(name)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("UserOperation.{name} is required."))?;
+        let normalized = value.strip_prefix("0x").unwrap_or(value);
+        U256::from_str_radix(normalized, 16)
+            .map_err(|_| format!("UserOperation.{name} is invalid."))
+    };
+    let gas = quantity("callGasLimit")?
+        .checked_add(quantity("verificationGasLimit")?)
+        .ok_or_else(|| "UserOperation gas limits overflow.".to_string())?;
+    let gas = gas
+        .checked_add(quantity("preVerificationGas")?)
+        .ok_or_else(|| "UserOperation gas limits overflow.".to_string())?;
+    gas.checked_mul(quantity("maxFeePerGas")?)
+        .ok_or_else(|| "UserOperation max cost overflows.".to_string())
 }
 
 /// Distributed FinOps Multi-Region Token Volume Synchronization (ADR-0010 multi-region)
@@ -4228,30 +4465,42 @@ pub async fn finops_sync_handler(
     Json(payload): Json<crate::finops::FinopsSyncPayload>,
 ) -> Result<Json<crate::finops::FinopsSyncResponse>, ApiError> {
     let org_id = context.tenant.org_id.to_string();
-    let mut model = state
+    if payload.org_id != org_id {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            AccessReasonCode::TenantScope,
+            "The synchronization payload does not belong to the authenticated organization.",
+            "Submit the payload within its organization scope.",
+        ));
+    }
+    if payload.sequence_number == 0 {
+        return Err(invalid_request(
+            "The synchronization sequence number must be positive.",
+        ));
+    }
+
+    let (synced, model) = state
         .repository
-        .load_tenant_pricing_model(&org_id)
+        .apply_finops_sync(
+            &org_id,
+            &payload.node_id,
+            payload.sequence_number,
+            payload.delta_tokens,
+        )
         .await
-        .unwrap_or_else(|_| crate::types::TenantPricingModel {
-            org_id: org_id.clone(),
-            model_type: crate::types::PricingModelType::FlatDiscount,
-            discount_bps: 0,
-            volume_tiers: vec![],
-            ptu_capacity_tokens: 0,
-            custom_rates: std::collections::HashMap::new(),
-            monthly_tokens_consumed: 0,
-            updated_at: chrono::Utc::now().to_rfc3339(),
-        });
+        .map_err(|error| {
+            tracing::warn!(%error, "Durable FinOps synchronization failed");
+            service_unavailable(
+                "The distributed FinOps synchronization could not be durably recorded.",
+            )
+        })?;
+    let (tier_idx, discount) = crate::finops::compute_active_tier_and_discount(&model);
 
-    let sync_res = state
-        .finops_sync
-        .process_sync(&payload, &mut model)
-        .await
-        .map_err(|_| service_unavailable("The distributed FinOps synchronization service is unavailable."))?;
-
-    // Persist updated monthly token consumption
-    let _ = state.repository.record_token_consumption(&org_id, payload.delta_tokens).await;
-
-    Ok(Json(sync_res))
+    Ok(Json(crate::finops::FinopsSyncResponse {
+        synced,
+        org_id,
+        reconciled_monthly_tokens: model.monthly_tokens_consumed,
+        active_discount_bps: discount,
+        current_tier_index: tier_idx,
+    }))
 }
-

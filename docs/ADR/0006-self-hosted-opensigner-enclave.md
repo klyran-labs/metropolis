@@ -1,7 +1,7 @@
 # ADR 0006: Self-Hosted OpenSigner Sovereign Enclave & EIP-712 Signer
 
 ## Status
-Accepted — backend capability; control-plane provisioning remains a follow-up integration.
+Accepted — control-plane provisioning and health-aware workflows are implemented; live deployment validation remains pending.
 
 ## Context
 In autonomous AI agent environments, agents must continuously sign EIP-712 transactions and HTTP 402 micro-payments in automated machine loops. However, traditional key management introduces severe security trade-offs:
@@ -29,7 +29,7 @@ We introduce **Self-Hosted OpenSigner** (`services/opensigner`) as a sovereign, 
 
 4. **Control Plane Boundary**:
    - The current control plane uses the connected tenant wallet for administrative transaction submission and does not expose sealed key material.
-   - OpenSigner remains an optional backend signing capability until its provisioning and health workflow is added to the control plane.
+   - The tenant control plane provisions and lists OpenSigner-backed agent and treasury wallets through the gateway. Private key material remains confined to the sealed service; live health/deployment validation is still environment-dependent.
 
 5. **Docker Profile Orchestration**:
    - Containerized in `docker/Dockerfile.opensigner` (Node 22 Alpine, non-root user).

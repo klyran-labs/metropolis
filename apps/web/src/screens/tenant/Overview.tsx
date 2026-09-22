@@ -26,6 +26,7 @@ import {
   useSubscription,
   useTelemetryEvents,
   useOrganizationWallets,
+  toUserFacingError,
   type Subscription,
   type Agent,
 } from "../../api";
@@ -106,7 +107,7 @@ export function Overview() {
       setEmergencyAddress("");
       void agents.refetch();
     } catch (err) {
-      setEmergencyMessage(err instanceof Error ? err.message : "Kill-switch transaction failed.");
+      setEmergencyMessage(toUserFacingError(err, "Kill-switch transaction failed."));
     }
     setTimeout(() => setEmergencyMessage(""), 6000);
   };
@@ -115,6 +116,27 @@ export function Overview() {
   const subscriptionStatus = hasSubscription
     ? String((subscription.data as Subscription).subscription?.status ?? "recorded")
     : "not configured";
+  const readinessSteps = [
+    {
+      label: "Connect a treasury wallet",
+      detail: "Fund and recover agent balances from an organization-controlled wallet.",
+      done: (wallets.data?.length ?? 0) > 0,
+      to: "/app/treasury" as const,
+    },
+    {
+      label: "Register your first agent",
+      detail: "Create a managed vault or link an existing wallet to your fleet.",
+      done: total > 0,
+      to: "/app/fleet" as const,
+    },
+    {
+      label: "Verify chain activity",
+      detail: "Run a policy simulation or wait for your first finalized event.",
+      done: (telemetry.data?.length ?? 0) > 0,
+      to: "/app/activity" as const,
+    },
+  ];
+  const showReadiness = readinessSteps.some((step) => !step.done);
 
   return (
     <div className="dashboard-stack">
@@ -140,6 +162,33 @@ export function Overview() {
         <StatTile label="Circuit Paused" value={String(paused)} icon={<PauseCircle size={18} />} accent={1} />
         <StatTile label="Verified Telemetry" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
       </div>
+
+      {showReadiness && (
+        <Surface className="readiness-card">
+          <div className="readiness-heading">
+            <div>
+              <span className="eyebrow">Workspace readiness</span>
+              <h2>Complete the operating path</h2>
+              <p>Use real organization and chain state to take the workspace from setup to governed execution.</p>
+            </div>
+            <Badge tone="info">{readinessSteps.filter((step) => step.done).length}/{readinessSteps.length} complete</Badge>
+          </div>
+          <div className="readiness-steps">
+            {readinessSteps.map((step) => (
+              <Link to={step.to} className={`readiness-step ${step.done ? "is-complete" : ""}`} key={step.label}>
+                <span className="readiness-step-icon" aria-hidden="true">
+                  {step.done ? <Check size={14} /> : <span />}
+                </span>
+                <span>
+                  <strong>{step.label}</strong>
+                  <small>{step.detail}</small>
+                </span>
+                <ArrowRight size={15} aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        </Surface>
+      )}
 
       {/* Reference Image Style Upper Grid: Hero + Highlights */}
       <div className="saas-reference-grid">
@@ -170,7 +219,7 @@ export function Overview() {
         <Surface className="saas-highlights-card">
           <div className="highlights-header">
             <h3>Fleet Posture & Highlights</h3>
-            <span className="status-dot status-dot-success" title="Live Monad Feed" />
+            <span className="status-dot status-dot-success" title="Monad activity available" />
           </div>
 
           <div className="highlights-headline">
@@ -248,7 +297,7 @@ export function Overview() {
               <div className="channel-metrics">
                 <strong>{agents.data?.filter((a) => a.walletSource === "sovereign").length ?? 0} active</strong>
                 <span className="channel-delta positive">
-                  <ShieldCheck size={12} /> Hardware Sealed
+                  <ShieldCheck size={12} /> Sovereign Vault
                 </span>
               </div>
             </div>
@@ -287,7 +336,7 @@ export function Overview() {
               <div className="channel-metrics">
                 <strong>{telemetry.data?.length ?? 0} events</strong>
                 <span className="channel-delta positive">
-                  <Radio size={12} /> 400ms Cadence
+                  <Radio size={12} /> Chain-derived
                 </span>
               </div>
             </div>
@@ -489,7 +538,7 @@ export function Overview() {
               setEmergencyMessage(`Agent ${addr.slice(0, 10)}… ${trip ? "frozen onchain" : "resumed onchain"}.`);
               void agents.refetch();
             } catch (err) {
-              setEmergencyMessage(err instanceof Error ? err.message : "Circuit update failed.");
+              setEmergencyMessage(toUserFacingError(err, "Circuit update failed."));
             }
             setTimeout(() => setEmergencyMessage(""), 5000);
           }}

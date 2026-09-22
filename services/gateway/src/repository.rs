@@ -9,6 +9,17 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{Row, postgres::PgPool};
 
+fn pricing_decode_error(message: impl Into<String>) -> sqlx::Error {
+    sqlx::Error::Decode(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        message.into(),
+    )))
+}
+
+fn nonnegative_u64(value: i64, field: &str) -> Result<u64, sqlx::Error> {
+    u64::try_from(value).map_err(|_| pricing_decode_error(format!("{field} must be non-negative")))
+}
+
 pub struct ChainEventRecord<'a> {
     pub chain_id: u64,
     pub block_number: u64,
@@ -307,7 +318,7 @@ impl PgRepository {
                 .await?;
         row.map(|row| {
             Ok((
-                row.try_get::<i64, _>("next_block")? as u64,
+                nonnegative_u64(row.try_get::<i64, _>("next_block")?, "next_block")?,
                 row.try_get("block_hash")?,
             ))
         })
@@ -354,6 +365,57 @@ impl PolicyRepository for PgRepository {
 }
 
 impl PgRepository {
+    pub async fn apply_finops_sync(
+        &self,
+        org_id: &str,
+        node_id: &str,
+        sequence_number: u64,
+        delta_tokens: u64,
+    ) -> Result<(bool, crate::types::TenantPricingModel), sqlx::Error> {
+        let sequence_number = i64::try_from(sequence_number).map_err(|_| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "FinOps sequence number exceeds PostgreSQL bigint",
+            )))
+        })?;
+        let delta_tokens = i64::try_from(delta_tokens).map_err(|_| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "FinOps token delta exceeds PostgreSQL bigint",
+            )))
+        })?;
+
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query(
+            "INSERT INTO finops_sync_ledger (org_id, node_id, sequence_number, delta_tokens) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, node_id, sequence_number) DO NOTHING",
+        )
+        .bind(org_id)
+        .bind(node_id)
+        .bind(sequence_number)
+        .bind(delta_tokens)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+
+        if inserted {
+            let updated = sqlx::query(
+                "UPDATE tenant_ai_pricing_models SET monthly_tokens_consumed = monthly_tokens_consumed + $2, updated_at = NOW() WHERE org_id = $1",
+            )
+            .bind(org_id)
+            .bind(delta_tokens)
+            .execute(&mut *tx)
+            .await?;
+            if updated.rows_affected() != 1 {
+                return Err(sqlx::Error::RowNotFound);
+            }
+        }
+        tx.commit().await?;
+
+        let model = self.load_tenant_pricing_model(org_id).await?;
+        Ok((inserted, model))
+    }
+
     pub async fn load_tenant_pricing_model(
         &self,
         org_id: &str,
@@ -382,50 +444,51 @@ impl PgRepository {
                 "batch_discount" => crate::types::PricingModelType::BatchDiscount,
                 "per_unit_request" => crate::types::PricingModelType::PerUnitRequest,
                 "hybrid_commit_volume" => crate::types::PricingModelType::HybridCommitVolume,
-                _ => crate::types::PricingModelType::FlatDiscount,
+                _ => {
+                    return Err(pricing_decode_error(
+                        "tenant pricing model contains an unknown model_type",
+                    ));
+                }
             };
             let discount_bps: i32 = row.try_get("discount_bps")?;
             let volume_tiers_val: serde_json::Value = row.try_get("volume_tiers")?;
             let ptu_capacity_tokens: i64 = row.try_get("ptu_capacity_tokens")?;
-            let token_cap_tokens: i64 = row.try_get("token_cap_tokens").unwrap_or(0);
-            let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars").unwrap_or(0);
+            let token_cap_tokens: i64 = row.try_get("token_cap_tokens")?;
+            let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars")?;
             let custom_rates_val: serde_json::Value = row.try_get("custom_rates")?;
-            let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates").unwrap_or_else(|_| serde_json::json!({}));
+            let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates")?;
             let monthly_tokens_consumed: i64 = row.try_get("monthly_tokens_consumed")?;
             let updated_at: chrono::DateTime<chrono::Utc> = row.try_get("updated_at")?;
 
-            let volume_tiers = serde_json::from_value(volume_tiers_val).unwrap_or_default();
-            let custom_rates = serde_json::from_value(custom_rates_val).unwrap_or_default();
-            let tool_custom_rates = serde_json::from_value(tool_custom_rates_val).unwrap_or_default();
+            let volume_tiers = serde_json::from_value(volume_tiers_val)
+                .map_err(|error| pricing_decode_error(format!("Invalid volume tiers: {error}")))?;
+            let custom_rates = serde_json::from_value(custom_rates_val)
+                .map_err(|error| pricing_decode_error(format!("Invalid custom rates: {error}")))?;
+            let tool_custom_rates = serde_json::from_value(tool_custom_rates_val)
+                .map_err(|error| pricing_decode_error(format!("Invalid tool rates: {error}")))?;
 
             Ok(crate::types::TenantPricingModel {
                 org_id: org_id.to_string(),
                 model_type,
-                discount_bps: discount_bps as u32,
+                discount_bps: u32::try_from(discount_bps)
+                    .map_err(|_| pricing_decode_error("discount_bps is outside the u32 range"))?,
                 volume_tiers,
-                ptu_capacity_tokens: ptu_capacity_tokens as u64,
-                token_cap_tokens: token_cap_tokens as u64,
-                per_call_fee_micro_dollars: per_call_fee_micro_dollars as u64,
+                ptu_capacity_tokens: nonnegative_u64(ptu_capacity_tokens, "ptu_capacity_tokens")?,
+                token_cap_tokens: nonnegative_u64(token_cap_tokens, "token_cap_tokens")?,
+                per_call_fee_micro_dollars: nonnegative_u64(
+                    per_call_fee_micro_dollars,
+                    "per_call_fee_micro_dollars",
+                )?,
                 custom_rates,
                 tool_custom_rates,
-                monthly_tokens_consumed: monthly_tokens_consumed as u64,
+                monthly_tokens_consumed: nonnegative_u64(
+                    monthly_tokens_consumed,
+                    "monthly_tokens_consumed",
+                )?,
                 updated_at: updated_at.to_rfc3339(),
             })
         } else {
-            // Standard default: flat 0% discount, zero consumed
-            Ok(crate::types::TenantPricingModel {
-                org_id: org_id.to_string(),
-                model_type: crate::types::PricingModelType::FlatDiscount,
-                discount_bps: 0,
-                volume_tiers: vec![],
-                ptu_capacity_tokens: 0,
-                token_cap_tokens: 0,
-                per_call_fee_micro_dollars: 0,
-                custom_rates: std::collections::HashMap::new(),
-                tool_custom_rates: std::collections::HashMap::new(),
-                monthly_tokens_consumed: 0,
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
+            Err(sqlx::Error::RowNotFound)
         }
     }
 
@@ -434,6 +497,18 @@ impl PgRepository {
         org_id: &str,
         req: &crate::types::UpdatePricingModelRequest,
     ) -> Result<crate::types::TenantPricingModel, sqlx::Error> {
+        let discount_bps = i32::try_from(req.discount_bps)
+            .map_err(|_| pricing_decode_error("discount_bps exceeds PostgreSQL integer range"))?;
+        let ptu_capacity_tokens = i64::try_from(req.ptu_capacity_tokens).map_err(|_| {
+            pricing_decode_error("ptu_capacity_tokens exceeds PostgreSQL bigint range")
+        })?;
+        let token_cap_tokens = i64::try_from(req.token_cap_tokens).map_err(|_| {
+            pricing_decode_error("token_cap_tokens exceeds PostgreSQL bigint range")
+        })?;
+        let per_call_fee_micro_dollars =
+            i64::try_from(req.per_call_fee_micro_dollars).map_err(|_| {
+                pricing_decode_error("per_call_fee_micro_dollars exceeds PostgreSQL bigint range")
+            })?;
         let model_type_str = match req.model_type {
             crate::types::PricingModelType::FlatDiscount => "flat_discount",
             crate::types::PricingModelType::TieredVolume => "tiered_volume",
@@ -442,9 +517,12 @@ impl PgRepository {
             crate::types::PricingModelType::PerUnitRequest => "per_unit_request",
             crate::types::PricingModelType::HybridCommitVolume => "hybrid_commit_volume",
         };
-        let volume_tiers_val = serde_json::to_value(&req.volume_tiers).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let custom_rates_val = serde_json::to_value(&req.custom_rates).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let tool_custom_rates_val = serde_json::to_value(&req.tool_custom_rates).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let volume_tiers_val = serde_json::to_value(&req.volume_tiers)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let custom_rates_val = serde_json::to_value(&req.custom_rates)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let tool_custom_rates_val = serde_json::to_value(&req.tool_custom_rates)
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
         let row = sqlx::query(
             r#"
@@ -467,11 +545,11 @@ impl PgRepository {
         )
         .bind(org_id)
         .bind(model_type_str)
-        .bind(req.discount_bps as i32)
+        .bind(discount_bps)
         .bind(volume_tiers_val)
-        .bind(req.ptu_capacity_tokens as i64)
-        .bind(req.token_cap_tokens as i64)
-        .bind(req.per_call_fee_micro_dollars as i64)
+        .bind(ptu_capacity_tokens)
+        .bind(token_cap_tokens)
+        .bind(per_call_fee_micro_dollars)
         .bind(custom_rates_val)
         .bind(tool_custom_rates_val)
         .fetch_one(&self.pool)
@@ -484,33 +562,47 @@ impl PgRepository {
             "batch_discount" => crate::types::PricingModelType::BatchDiscount,
             "per_unit_request" => crate::types::PricingModelType::PerUnitRequest,
             "hybrid_commit_volume" => crate::types::PricingModelType::HybridCommitVolume,
-            _ => crate::types::PricingModelType::FlatDiscount,
+            _ => {
+                return Err(pricing_decode_error(
+                    "tenant pricing model contains an unknown model_type",
+                ));
+            }
         };
         let discount_bps: i32 = row.try_get("discount_bps")?;
         let volume_tiers_val: serde_json::Value = row.try_get("volume_tiers")?;
         let ptu_capacity_tokens: i64 = row.try_get("ptu_capacity_tokens")?;
-        let token_cap_tokens: i64 = row.try_get("token_cap_tokens").unwrap_or(0);
-        let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars").unwrap_or(0);
+        let token_cap_tokens: i64 = row.try_get("token_cap_tokens")?;
+        let per_call_fee_micro_dollars: i64 = row.try_get("per_call_fee_micro_dollars")?;
         let custom_rates_val: serde_json::Value = row.try_get("custom_rates")?;
-        let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates").unwrap_or_else(|_| serde_json::json!({}));
+        let tool_custom_rates_val: serde_json::Value = row.try_get("tool_custom_rates")?;
         let monthly_tokens_consumed: i64 = row.try_get("monthly_tokens_consumed")?;
         let updated_at: chrono::DateTime<chrono::Utc> = row.try_get("updated_at")?;
 
-        let volume_tiers = serde_json::from_value(volume_tiers_val).unwrap_or_default();
-        let custom_rates = serde_json::from_value(custom_rates_val).unwrap_or_default();
-        let tool_custom_rates = serde_json::from_value(tool_custom_rates_val).unwrap_or_default();
+        let volume_tiers = serde_json::from_value(volume_tiers_val)
+            .map_err(|error| pricing_decode_error(format!("Invalid volume tiers: {error}")))?;
+        let custom_rates = serde_json::from_value(custom_rates_val)
+            .map_err(|error| pricing_decode_error(format!("Invalid custom rates: {error}")))?;
+        let tool_custom_rates = serde_json::from_value(tool_custom_rates_val)
+            .map_err(|error| pricing_decode_error(format!("Invalid tool rates: {error}")))?;
 
         Ok(crate::types::TenantPricingModel {
             org_id: org_id.to_string(),
             model_type,
-            discount_bps: discount_bps as u32,
+            discount_bps: u32::try_from(discount_bps)
+                .map_err(|_| pricing_decode_error("discount_bps is outside the u32 range"))?,
             volume_tiers,
-            ptu_capacity_tokens: ptu_capacity_tokens as u64,
-            token_cap_tokens: token_cap_tokens as u64,
-            per_call_fee_micro_dollars: per_call_fee_micro_dollars as u64,
+            ptu_capacity_tokens: nonnegative_u64(ptu_capacity_tokens, "ptu_capacity_tokens")?,
+            token_cap_tokens: nonnegative_u64(token_cap_tokens, "token_cap_tokens")?,
+            per_call_fee_micro_dollars: nonnegative_u64(
+                per_call_fee_micro_dollars,
+                "per_call_fee_micro_dollars",
+            )?,
             custom_rates,
             tool_custom_rates,
-            monthly_tokens_consumed: monthly_tokens_consumed as u64,
+            monthly_tokens_consumed: nonnegative_u64(
+                monthly_tokens_consumed,
+                "monthly_tokens_consumed",
+            )?,
             updated_at: updated_at.to_rfc3339(),
         })
     }
@@ -520,6 +612,9 @@ impl PgRepository {
         org_id: &str,
         tokens: u64,
     ) -> Result<u64, sqlx::Error> {
+        let tokens = i64::try_from(tokens).map_err(|_| {
+            pricing_decode_error("token consumption exceeds PostgreSQL bigint range")
+        })?;
         let row = sqlx::query(
             r#"
             INSERT INTO tenant_ai_pricing_models (org_id, monthly_tokens_consumed, updated_at)
@@ -531,11 +626,11 @@ impl PgRepository {
             "#,
         )
         .bind(org_id)
-        .bind(tokens as i64)
+        .bind(tokens)
         .fetch_one(&self.pool)
         .await?;
 
         let consumed: i64 = row.try_get("monthly_tokens_consumed")?;
-        Ok(consumed as u64)
+        nonnegative_u64(consumed, "monthly_tokens_consumed")
     }
 }

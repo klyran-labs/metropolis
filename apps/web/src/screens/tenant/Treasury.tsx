@@ -11,6 +11,7 @@ import {
   useRevokeWalletAccess,
   useUpdateWalletThreshold,
   useWalletAccess,
+  toUserFacingError,
   type OrganizationWallet,
 } from "../../api";
 import { StatTile } from "../../charts";
@@ -208,7 +209,7 @@ export function Treasury() {
       })) as string;
       register.mutate({ kind: "external", label: label.trim(), address: wallet.address, signature });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "We couldn't confirm you own that wallet.");
+      setMessage(toUserFacingError(error, "We couldn't confirm you own that wallet."));
     } finally {
       setWorking(false);
     }
@@ -261,7 +262,7 @@ export function Treasury() {
         amountWei,
       });
     } catch (err) {
-      setPaymasterMessage(err instanceof Error ? err.message : "Paymaster deposit failed.");
+      setPaymasterMessage(toUserFacingError(err, "Paymaster deposit failed."));
       setPaymasterWorking(false);
     }
   };
@@ -333,7 +334,7 @@ export function Treasury() {
             setTransferWorking(false);
             setTransferFeedback({
               type: "error",
-              message: err instanceof Error ? err.message : "The sovereign transfer could not be dispatched.",
+              message: toUserFacingError(err, "The sovereign transfer could not be dispatched."),
             });
           },
         },
@@ -411,7 +412,7 @@ export function Treasury() {
     } catch (err) {
       setTransferFeedback({
         type: "error",
-        message: err instanceof Error ? err.message : "The transaction failed onchain.",
+        message: toUserFacingError(err, "The transaction failed onchain."),
       });
     } finally {
       setTransferWorking(false);
@@ -492,7 +493,7 @@ export function Treasury() {
                     setMessage(`Funded ${target.slice(0, 8)}… with 10 MON + 500 USDC on local Monad devnet!`);
                     void wallets.refetch();
                   } catch (err) {
-                    setMessage(err instanceof Error ? err.message : "Funding failed.");
+                    setMessage(toUserFacingError(err, "Funding failed."));
                   }
                 }}
                 disabled={devnetFaucet.isPending}

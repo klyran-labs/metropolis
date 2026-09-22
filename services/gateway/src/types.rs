@@ -57,6 +57,11 @@ sol! {
             bytes calldata data
         ) external;
     }
+
+    #[sol(rpc)]
+    interface ICircuitPaymaster {
+        function isSponsorshipEligible(address agent, uint256 maxCost) external view returns (bool eligible, uint8 reasonCode);
+    }
 }
 
 /// Canonical onchain reason codes from contracts/src/interfaces/IPolicyEngine.sol.
@@ -413,21 +418,16 @@ pub struct AbacPolicyRequest {
     pub policy: AbacPolicy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PricingModelType {
+    #[default]
     FlatDiscount,
     TieredVolume,
     CommittedPtu,
     BatchDiscount,
     PerUnitRequest,
     HybridCommitVolume,
-}
-
-impl Default for PricingModelType {
-    fn default() -> Self {
-        Self::FlatDiscount
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -444,9 +444,15 @@ pub struct ModelRateOverride {
     pub input_per_m_micro_dollars: u64,
     #[serde(rename = "outputPerMMicroDollars")]
     pub output_per_m_micro_dollars: u64,
-    #[serde(rename = "cacheReadPerMMicroDollars", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "cacheReadPerMMicroDollars",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cache_read_per_m_micro_dollars: Option<u64>,
-    #[serde(rename = "cacheWritePerMMicroDollars", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "cacheWritePerMMicroDollars",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cache_write_per_m_micro_dollars: Option<u64>,
 }
 
@@ -492,6 +498,24 @@ pub struct TenantPricingModel {
     pub monthly_tokens_consumed: u64,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+}
+
+impl Default for TenantPricingModel {
+    fn default() -> Self {
+        Self {
+            org_id: String::new(),
+            model_type: PricingModelType::FlatDiscount,
+            discount_bps: 0,
+            volume_tiers: vec![],
+            ptu_capacity_tokens: 0,
+            token_cap_tokens: 0,
+            per_call_fee_micro_dollars: 0,
+            custom_rates: std::collections::HashMap::new(),
+            tool_custom_rates: std::collections::HashMap::new(),
+            monthly_tokens_consumed: 0,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

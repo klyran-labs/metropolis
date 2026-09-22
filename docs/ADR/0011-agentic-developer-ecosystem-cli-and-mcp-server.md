@@ -1,7 +1,7 @@
 # ADR 0011: Agentic Developer Ecosystem, CLI & Model Context Protocol (MCP) Architecture
 
 ## Status
-**Implemented** (Supersedes Hackathon Phase 3 target — fully deployed)
+**Accepted; code implemented, live deployment validation pending**
 
 ## Context
 For AgentGuard to achieve widespread adoption across autonomous agent teams, it must integrate frictionlessly into developers' existing toolchains:
@@ -140,5 +140,4 @@ We implement a native MCP server conforming to the Model Context Protocol specif
 * The MCP tool `circuit_trip_emergency_breaker` mirrors the `tripCircuitBreaker` onchain function — both resolve on Monad in ≤400ms.
 * The MCP tool `agentguard_check_budget` queries active epoch allocations (`agentEpochAllocation`) directly from `CircuitVault.sol` (**ADR 0013**), giving autonomous reasoning loops direct visibility into their onchain financial limits.
 * The `circuit_inspect_tba_passport` tool surfaces ERC-6551 TBA data per **ADR 0007**.
-
 

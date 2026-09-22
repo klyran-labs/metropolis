@@ -1,6 +1,6 @@
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useState } from "react";
-import { request, usePlatformTenants, type PlatformTenant } from "../../api";
+import { request, toUserFacingError, usePlatformTenants, type PlatformTenant } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField } from "../../design-system";
 import { useIdentity } from "../../identity";
 
@@ -35,7 +35,7 @@ export function AdminTenants() {
       setTenantMessage("Organization created and assigned to its first operator.");
       void tenants.refetch();
     } catch (error) {
-      setTenantMessage(error instanceof Error ? error.message : "The organization could not be created.");
+      setTenantMessage(toUserFacingError(error, "The organization could not be created."));
     }
   };
   return (

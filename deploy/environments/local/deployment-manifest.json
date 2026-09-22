@@ -8,16 +8,16 @@
   ],
   "contracts": {
     "policyEngine": {
-      "address": "0xe3d77a9f2bed54f99ca17b16f3388d9a843de151"
+      "address": "0xa176ef462d1ee0c456e9cf0e88dbf9152be024fd"
     },
     "reputationRegistry": {
-      "address": "0x99b4c63f72235bf43d99da3cec3189adbc2873bf"
+      "address": "0xc325430ce3c733da1adc09a3f7f02de41f67969e"
     },
     "agentWalletGuard": {
-      "address": "0x2491d39989c0ace8bef0f2fdc9f806f58ec25ab8"
+      "address": "0xd3e38ac749bddda8a2aa228d4550fab8b77fd0b5"
     },
     "settlementToken": {
-      "address": "0x6857842a99e3512e86b327a01fe707c1312100d3"
+      "address": "0x68fa026ca23bea4156f579cb6a66c5ed11c6ed02"
     },
     "circuitVault": {
       "address": "0x44c015b6caae81d9f8e02d6bdf3b5e43a18a9942"

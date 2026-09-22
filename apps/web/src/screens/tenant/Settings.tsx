@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Calculator, Cpu, Database, Layers, ShieldCheck, Sparkles, Wrench, Zap } from "lucide-react";
 import {
   type AbacPolicy,
   type ApiKey,
@@ -27,6 +27,7 @@ import {
   useTenantPricingModel,
   useUpdateTenantPricingModel,
   useUpsertPbacPolicy,
+  toUserFacingError,
 } from "../../api";
 import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
 import { useIdentity, type Identity } from "../../identity";
@@ -294,7 +295,7 @@ function CredentialsTab({ identity }: { identity: Identity }) {
                   if (capabilities.length === 0) return setFormError("Select at least one capability.");
                   create.mutate(
                     { agentAddress, subject: subject.trim(), capabilities, expiresAt: new Date(expiresAt).toISOString() },
-                    { onError: (error) => setFormError(error instanceof Error ? error.message : "The credential could not be issued.") },
+                    { onError: (error) => setFormError(toUserFacingError(error, "The credential could not be issued.")) },
                   );
                 }}
                 disabled={create.isPending}
@@ -363,7 +364,7 @@ function CredentialsTab({ identity }: { identity: Identity }) {
                   setFormError("");
                   rotate.mutate(
                     { id: rotateTarget.id, expiresAt: new Date(rotateExpiresAt).toISOString() },
-                    { onError: (error) => setFormError(error instanceof Error ? error.message : "The credential could not be rotated.") },
+                    { onError: (error) => setFormError(toUserFacingError(error, "The credential could not be rotated.")) },
                   );
                 }}
                 disabled={rotate.isPending}
@@ -554,7 +555,7 @@ function PolicyTab({ identity }: { identity: Identity }) {
                 setAbacMessage("");
                 putAbac.mutate(abacForm, {
                   onError: (error) =>
-                    setAbacError(error instanceof Error ? error.message : "Organization controls could not be saved."),
+                    setAbacError(toUserFacingError(error, "Organization controls could not be saved.")),
                 });
               }}
               disabled={putAbac.isPending}
@@ -595,7 +596,7 @@ function PolicyTab({ identity }: { identity: Identity }) {
                       eligibleApproverRoles: [],
                     },
                   },
-                  { onError: (error) => setPbacError(error instanceof Error ? error.message : "The access rule could not be saved.") },
+                  { onError: (error) => setPbacError(toUserFacingError(error, "The access rule could not be saved.")) },
                 );
               }}
               disabled={upsertPolicy.isPending}
@@ -739,7 +740,7 @@ function PricingTab({ identity }: { identity: Identity }) {
         toolCustomRates: processedToolRates,
       },
       {
-        onError: (err) => setSaveError(err instanceof Error ? err.message : "Failed to update pricing model."),
+        onError: (err) => setSaveError(toUserFacingError(err, "Failed to update pricing model.")),
       },
     );
   };
@@ -784,94 +785,185 @@ function PricingTab({ identity }: { identity: Identity }) {
           <p className="subtle">Loading active organization rate card…</p>
         ) : (
           <div className="stack" style={{ gap: "var(--space-md)" }}>
-            <div className="form-grid">
-              <div>
-                <label className="field-label" htmlFor="model-type-select">Contract Pricing Model</label>
-                <select
-                  id="model-type-select"
-                  value={modelType}
-                  disabled={!isEditable}
-                  onChange={(e) => setModelType(e.target.value as PricingModelType)}
-                  style={{ width: "100%", padding: "var(--space-xs)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit" }}
-                >
-                  <option value="flat_discount">Flat Custom Discount (Rate Card Override)</option>
-                  <option value="tiered_volume">Tiered Volume Ladders (Graduated Monthly Brackets)</option>
-                  <option value="committed_ptu">Committed Capacity / PTUs (Sunk Reservation + Overage)</option>
-                  <option value="batch_discount">Batch Inference Discount (50% Off-Peak SLA)</option>
-                  <option value="per_unit_request">Per-Unit Request Toll (Base Invocations + Compute Pass-Through)</option>
-                  <option value="hybrid_commit_volume">Hybrid PTU Reservation + Tiered Volume Ladders</option>
-                </select>
-              </div>
-
-              {(modelType === "flat_discount" || modelType === "batch_discount") && (
-                <div>
-                  <TextField
-                    label="Negotiated Base Discount Percentage (%)"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    disabled={!isEditable}
-                    value={discountPercent}
-                    onChange={(e) => setDiscountPercent(e.target.value)}
-                  />
-                  {modelType === "batch_discount" && (
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block", marginTop: "var(--space-2xs)" }}>
-                      Guaranteed 50% discount automatically applies to all batch compute; this negotiated discount stacks additionally.
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {(modelType === "committed_ptu" || modelType === "hybrid_commit_volume") && (
-                <TextField
-                  label="Monthly Committed PTU Quota (Millions of Tokens)"
-                  type="number"
-                  min="0"
-                  step="1"
-                  disabled={!isEditable}
-                  value={ptuCapacityM}
-                  onChange={(e) => setPtuCapacityM(e.target.value)}
-                />
-              )}
-
-              {modelType === "per_unit_request" && (
-                <div>
-                  <TextField
-                    label="Fixed Per-Invocation Toll Fee ($)"
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    disabled={!isEditable}
-                    value={perCallFeeDollars}
-                    onChange={(e) => setPerCallFeeDollars(e.target.value)}
-                  />
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block", marginTop: "var(--space-2xs)" }}>
-                    Fixed toll fee billed per inference request before compute pass-through.
-                  </span>
-                </div>
-              )}
-
-              <div>
-                <TextField
-                  label="Monthly Compute Token Quota Cap (Millions of Tokens, 0 = Unlimited)"
-                  type="number"
-                  min="0"
-                  step="1"
-                  disabled={!isEditable}
-                  value={tokenCapM}
-                  onChange={(e) => setTokenCapM(e.target.value)}
-                />
-                <span className="subtle" style={{ fontSize: "0.8rem", display: "block", marginTop: "var(--space-2xs)" }}>
-                  Dual-denomination hard token quota enforced in parallel with financial max spend limits.
+            {/* Real-Time Status Metric Strip */}
+            <div className="finops-stat-grid">
+              <div className="finops-stat-card">
+                <span className="finops-stat-label">Monthly Metered Compute</span>
+                <span className="finops-stat-value">
+                  {(currentPricing?.monthlyTokensConsumed ?? 0).toLocaleString()} <small style={{ fontSize: "0.75rem", fontWeight: 400 }}>tokens</small>
                 </span>
+                <span className="finops-stat-sub">Cumulative tokens metered</span>
+              </div>
+              <div className="finops-stat-card">
+                <span className="finops-stat-label">Active Contract Model</span>
+                <div style={{ marginTop: "2px" }}>
+                  <Badge tone="info">
+                    {currentPricing ? currentPricing.modelType.replace(/_/g, " ").toUpperCase() : "FLAT DISCOUNT"}
+                  </Badge>
+                </div>
+                <span className="finops-stat-sub">Active liability formula</span>
+              </div>
+              <div className="finops-stat-card">
+                <span className="finops-stat-label">Monthly Compute Token Quota Cap</span>
+                <span className="finops-stat-value">
+                  {currentPricing?.tokenCapTokens != null && currentPricing.tokenCapTokens > 0
+                    ? `${(currentPricing.tokenCapTokens / 1_000_000).toLocaleString()}M`
+                    : "Unlimited"}
+                </span>
+                <span className="finops-stat-sub">Dual-denomination ceiling</span>
+              </div>
+              <div className="finops-stat-card">
+                <span className="finops-stat-label">Contract Rate Terms</span>
+                <span className="finops-stat-value" style={{ fontSize: "1rem" }}>
+                  {modelType === "flat_discount" && `${discountPercent}% Off List`}
+                  {modelType === "batch_discount" && `50% Batch + ${discountPercent}%`}
+                  {modelType === "committed_ptu" && `${ptuCapacityM}M Sunk PTUs`}
+                  {modelType === "per_unit_request" && `$${perCallFeeDollars} / Request`}
+                  {modelType === "hybrid_commit_volume" && `${ptuCapacityM}M PTU + Ladders`}
+                  {modelType === "tiered_volume" && `${volumeTiers.length} Volume Ladders`}
+                </span>
+                <span className="finops-stat-sub">Active contract terms</span>
               </div>
             </div>
 
+            {/* Contract Model Configuration Layout */}
+            <div className="finops-config-layout">
+              {/* Left Column: Contract Pricing Model */}
+              <div className="finops-config-box">
+                <div className="finops-field-group">
+                  <label className="finops-label" htmlFor="model-type-select">
+                    <span>Contract Pricing Model</span>
+                    <span className="finops-label-hint">Enterprise billing mode</span>
+                  </label>
+                  <select
+                    id="model-type-select"
+                    className="finops-select"
+                    value={modelType}
+                    disabled={!isEditable}
+                    onChange={(e) => setModelType(e.target.value as PricingModelType)}
+                  >
+                    <option value="flat_discount">Flat Custom Discount (Rate Card Override)</option>
+                    <option value="tiered_volume">Tiered Volume Ladders (Graduated Monthly Brackets)</option>
+                    <option value="committed_ptu">Committed Capacity / PTUs (Sunk Reservation + Overage)</option>
+                    <option value="batch_discount">Batch Inference Discount (50% Off-Peak SLA)</option>
+                    <option value="per_unit_request">Per-Unit Request Toll (Base Invocations + Compute Pass-Through)</option>
+                    <option value="hybrid_commit_volume">Hybrid PTU Reservation + Tiered Volume Ladders</option>
+                  </select>
+                </div>
+
+                {(modelType === "flat_discount" || modelType === "batch_discount") && (
+                  <div className="finops-field-group">
+                    <label className="finops-label" htmlFor="discount-input">
+                      <span>Negotiated Base Discount</span>
+                      <span className="finops-label-hint">Percentage off catalog list</span>
+                    </label>
+                    <div className="finops-input-wrapper">
+                      <input
+                        id="discount-input"
+                        className="finops-input has-suffix"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        disabled={!isEditable}
+                        value={discountPercent}
+                        onChange={(e) => setDiscountPercent(e.target.value)}
+                      />
+                      <span className="finops-input-suffix">%</span>
+                    </div>
+                    {modelType === "batch_discount" && (
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center", padding: "8px 12px", borderRadius: "8px", background: "var(--primary-soft)", border: "1px solid var(--primary)", marginTop: "4px" }}>
+                        <Zap size={15} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                        <span style={{ fontSize: "0.75rem", color: "var(--on-surface)" }}>
+                          Guaranteed 50% discount automatically applies to all batch compute; this negotiated discount stacks additionally.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(modelType === "committed_ptu" || modelType === "hybrid_commit_volume") && (
+                  <div className="finops-field-group">
+                    <label className="finops-label" htmlFor="ptu-input">
+                      <span>Monthly Committed PTU Quota</span>
+                      <span className="finops-label-hint">Sunk reserve ($0 marginal)</span>
+                    </label>
+                    <div className="finops-input-wrapper">
+                      <input
+                        id="ptu-input"
+                        className="finops-input has-suffix"
+                        type="number"
+                        min="0"
+                        step="1"
+                        disabled={!isEditable}
+                        value={ptuCapacityM}
+                        onChange={(e) => setPtuCapacityM(e.target.value)}
+                      />
+                      <span className="finops-input-suffix">M Tokens</span>
+                    </div>
+                  </div>
+                )}
+
+                {modelType === "per_unit_request" && (
+                  <div className="finops-field-group">
+                    <label className="finops-label" htmlFor="toll-input">
+                      <span>Fixed Per-Invocation Toll Fee</span>
+                      <span className="finops-label-hint">Billed per inference request</span>
+                    </label>
+                    <div className="finops-input-wrapper">
+                      <span className="finops-input-prefix">$</span>
+                      <input
+                        id="toll-input"
+                        className="finops-input has-prefix"
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        disabled={!isEditable}
+                        value={perCallFeeDollars}
+                        onChange={(e) => setPerCallFeeDollars(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Dual-Denomination Token Quota Cap */}
+              <div className="finops-config-box">
+                <div className="finops-field-group">
+                  <label className="finops-label" htmlFor="token-cap-input">
+                    <span>Monthly Compute Token Quota Cap</span>
+                    <span className="finops-label-hint">0 = Unlimited</span>
+                  </label>
+                  <div className="finops-input-wrapper">
+                    <input
+                      id="token-cap-input"
+                      className="finops-input has-suffix"
+                      type="number"
+                      min="0"
+                      step="1"
+                      disabled={!isEditable}
+                      value={tokenCapM}
+                      onChange={(e) => setTokenCapM(e.target.value)}
+                    />
+                    <span className="finops-input-suffix">M Tokens</span>
+                  </div>
+                  <span className="finops-stat-sub" style={{ marginTop: "4px" }}>
+                    Dual-denomination hard token quota enforced in parallel with financial max spend limits across prompt, completion, and cache tokens.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Volume Tiers Ladder Builder */}
             {(modelType === "tiered_volume" || modelType === "hybrid_commit_volume") && (
-              <div className="stack" style={{ gap: "var(--space-xs)", border: "1px solid var(--border)", padding: "var(--space-sm)", borderRadius: "var(--radius-md)" }}>
+              <div className="finops-config-box">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>Volume Discount Ladders</span>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>Volume Discount Ladders</span>
+                    <p className="subtle" style={{ margin: "2px 0 0", fontSize: "0.78rem" }}>
+                      Configure graduated monthly volume brackets applied dynamically as compute scales.
+                    </p>
+                  </div>
                   {isEditable && (
                     <Button
                       variant="tonal"
@@ -881,71 +973,58 @@ function PricingTab({ identity }: { identity: Identity }) {
                     </Button>
                   )}
                 </div>
+
                 {volumeTiers.length === 0 ? (
-                  <p className="subtle">No tiered brackets configured. Base rate card applies to all usage.</p>
+                  <p className="subtle" style={{ fontSize: "0.82rem" }}>No tiered brackets configured. Base rate card applies to all usage.</p>
                 ) : (
-                  <div className="stack" style={{ gap: "var(--space-xs)" }}>
+                  <div className="stack" style={{ gap: "8px" }}>
                     {volumeTiers.map((tier, idx) => (
-                      <div key={idx} style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
-                        <TextField
-                          label="Min Monthly Tokens"
-                          type="number"
-                          disabled={!isEditable}
-                          value={tier.minTokens.toString()}
-                          onChange={(e) => {
-                            const updated = [...volumeTiers];
-                            updated[idx] = { ...tier, minTokens: parseInt(e.target.value || "0", 10) };
-                            setVolumeTiers(updated);
-                          }}
-                        />
-                        <TextField
-                          label="Discount (%)"
-                          type="number"
-                          min="0"
-                          max="100"
-                          disabled={!isEditable}
-                          value={(tier.discountBps / 100).toString()}
-                          onChange={(e) => {
-                            const updated = [...volumeTiers];
-                            updated[idx] = { ...tier, discountBps: Math.round(parseFloat(e.target.value || "0") * 100) };
-                            setVolumeTiers(updated);
-                          }}
-                        />
+                      <div key={idx} style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+                        <div style={{ flex: "1 1 180px" }}>
+                          <span className="finops-label" style={{ fontSize: "0.72rem", marginBottom: "4px" }}>Min Monthly Tokens</span>
+                          <input
+                            className="finops-input"
+                            type="number"
+                            disabled={!isEditable}
+                            value={tier.minTokens.toString()}
+                            onChange={(e) => {
+                              const updated = [...volumeTiers];
+                              updated[idx] = { ...tier, minTokens: parseInt(e.target.value || "0", 10) };
+                              setVolumeTiers(updated);
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: "1 1 140px" }}>
+                          <span className="finops-label" style={{ fontSize: "0.72rem", marginBottom: "4px" }}>Discount (%)</span>
+                          <div className="finops-input-wrapper">
+                            <input
+                              className="finops-input has-suffix"
+                              type="number"
+                              min="0"
+                              max="100"
+                              disabled={!isEditable}
+                              value={(tier.discountBps / 100).toString()}
+                              onChange={(e) => {
+                                const updated = [...volumeTiers];
+                                updated[idx] = { ...tier, discountBps: Math.round(parseFloat(e.target.value || "0") * 100) };
+                                setVolumeTiers(updated);
+                              }}
+                            />
+                            <span className="finops-input-suffix">%</span>
+                          </div>
+                        </div>
                         {isEditable && (
-                          <Button
-                            variant="text"
-                            onClick={() => setVolumeTiers(volumeTiers.filter((_, i) => i !== idx))}
-                          >
-                            Remove
-                          </Button>
+                          <div style={{ paddingTop: "20px" }}>
+                            <Button
+                              variant="text"
+                              onClick={() => setVolumeTiers(volumeTiers.filter((_, i) => i !== idx))}
+                            >
+                              Remove
+                            </Button>
+                          </div>
                         )}
                       </div>
                     ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {currentPricing && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-md)", padding: "var(--space-sm)", background: "var(--surface-muted)", borderRadius: "var(--radius-md)" }}>
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Monthly Tokens Metered</span>
-                  <Mono>{(currentPricing.monthlyTokensConsumed).toLocaleString()} tokens</Mono>
-                </div>
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Active Model Mode</span>
-                  <Badge tone="info">{currentPricing.modelType.replace(/_/g, " ").toUpperCase()}</Badge>
-                </div>
-                {currentPricing.tokenCapTokens != null && currentPricing.tokenCapTokens > 0 && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Monthly Token Quota</span>
-                    <Mono>{(currentPricing.tokenCapTokens / 1_000_000).toLocaleString()}M tokens</Mono>
-                  </div>
-                )}
-                {currentPricing.perCallFeeMicroDollars != null && currentPricing.perCallFeeMicroDollars > 0 && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Base Invocation Fee</span>
-                    <Mono>${(currentPricing.perCallFeeMicroDollars / 1_000_000).toFixed(4)}</Mono>
                   </div>
                 )}
               </div>
@@ -956,14 +1035,15 @@ function PricingTab({ identity }: { identity: Identity }) {
                 <Button variant="filled" onClick={handleSave} disabled={updatePricing.isPending}>
                   {updatePricing.isPending ? "Saving Rate Card…" : "Save Pricing Configuration"}
                 </Button>
-                {saveSuccess && <span style={{ color: "var(--success)" }}>Pricing model updated successfully.</span>}
-                {saveError && <span style={{ color: "var(--destructive)" }}>{saveError}</span>}
+                {saveSuccess && <span style={{ color: "var(--status-good)", fontSize: "0.85rem" }}>Pricing model updated successfully.</span>}
+                {saveError && <span style={{ color: "var(--error)", fontSize: "0.85rem" }}>{saveError}</span>}
               </div>
             )}
           </div>
         )}
       </Surface>
 
+      {/* Surface 2: Official Foundation Model Catalog Table */}
       <Surface>
         <div className="section-heading">
           <div>
@@ -973,71 +1053,113 @@ function PricingTab({ identity }: { identity: Identity }) {
           <Badge tone="info">4-Dimension Matrix</Badge>
         </div>
 
-        <div className="stack" style={{ gap: "var(--space-sm)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.9fr 0.9fr 2.6fr", gap: "var(--space-sm)", fontWeight: 600, fontSize: "0.85rem", borderBottom: "1px solid var(--border)", paddingBottom: "var(--space-xs)" }}>
-            <span>Model / Provider</span>
-            <span>Input / 1M</span>
-            <span>Output / 1M</span>
-            <span>Cache Read</span>
-            <span>Cache Write</span>
-            <span>Custom Rate Overrides ($/1M: In | Out | Read | Write)</span>
-          </div>
-          {catalog.map((entry) => {
-            const override = customRates[entry.modelId] || { input: "", output: "", cacheRead: "", cacheWrite: "" };
-            return (
-              <div key={entry.modelId} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.9fr 0.9fr 2.6fr", gap: "var(--space-sm)", alignItems: "center", fontSize: "0.9rem" }}>
-                <div>
-                  <strong>{entry.displayName}</strong>
-                  <span className="subtle" style={{ display: "block", fontSize: "0.75rem" }}>{entry.provider.toUpperCase()} &bull; <Mono>{entry.modelId}</Mono></span>
-                </div>
-                <Mono>${(entry.inputPerMMicroDollars / 1_000_000).toFixed(2)}</Mono>
-                <Mono>${(entry.outputPerMMicroDollars / 1_000_000).toFixed(2)}</Mono>
-                <Mono>${(entry.cacheReadPerMMicroDollars / 1_000_000).toFixed(2)}</Mono>
-                <Mono>${(entry.cacheWritePerMMicroDollars / 1_000_000).toFixed(2)}</Mono>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-2xs)" }}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="In $"
-                    disabled={!isEditable}
-                    value={override.input}
-                    onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, input: e.target.value } })}
-                    style={{ width: "100%", padding: "4px 6px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit", fontSize: "0.8rem" }}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Out $"
-                    disabled={!isEditable}
-                    value={override.output}
-                    onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, output: e.target.value } })}
-                    style={{ width: "100%", padding: "4px 6px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit", fontSize: "0.8rem" }}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Read $"
-                    disabled={!isEditable}
-                    value={override.cacheRead}
-                    onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, cacheRead: e.target.value } })}
-                    style={{ width: "100%", padding: "4px 6px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit", fontSize: "0.8rem" }}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Write $"
-                    disabled={!isEditable}
-                    value={override.cacheWrite}
-                    onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, cacheWrite: e.target.value } })}
-                    style={{ width: "100%", padding: "4px 6px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit", fontSize: "0.8rem" }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        <div className="finops-table-container">
+          <table className="finops-table">
+            <thead>
+              <tr>
+                <th>Model / Provider</th>
+                <th className="text-right">Input / 1M</th>
+                <th className="text-right">Output / 1M</th>
+                <th className="text-right">Cache Read</th>
+                <th className="text-right">Cache Write</th>
+                <th className="text-center" style={{ minWidth: "340px" }}>Custom Rate Overrides ($/1M: In | Out | Read | Write)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalog.map((entry) => {
+                const override = customRates[entry.modelId] || { input: "", output: "", cacheRead: "", cacheWrite: "" };
+                return (
+                  <tr key={entry.modelId}>
+                    <td>
+                      <div className="finops-model-name">{entry.displayName}</div>
+                      <div className="finops-model-meta">
+                        <span className="finops-provider-tag">{entry.provider.toUpperCase()}</span>
+                        <Mono>{entry.modelId}</Mono>
+                      </div>
+                    </td>
+                    <td className="text-right">
+                      <span className="finops-rate-pill">${(entry.inputPerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                    </td>
+                    <td className="text-right">
+                      <span className="finops-rate-pill">${(entry.outputPerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                    </td>
+                    <td className="text-right">
+                      <span className="finops-rate-pill" style={{ color: "var(--status-good)" }}>
+                        ${(entry.cacheReadPerMMicroDollars / 1_000_000).toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <span className="finops-rate-pill">${(entry.cacheWritePerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                    </td>
+                    <td>
+                      <div className="finops-override-grid">
+                        <div className="finops-override-chip">
+                          <span className="finops-override-tag">IN</span>
+                          <div className="finops-override-field">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={(entry.inputPerMMicroDollars / 1_000_000).toFixed(2)}
+                              disabled={!isEditable}
+                              value={override.input}
+                              onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, input: e.target.value } })}
+                            />
+                          </div>
+                        </div>
+                        <div className="finops-override-chip">
+                          <span className="finops-override-tag">OUT</span>
+                          <div className="finops-override-field">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={(entry.outputPerMMicroDollars / 1_000_000).toFixed(2)}
+                              disabled={!isEditable}
+                              value={override.output}
+                              onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, output: e.target.value } })}
+                            />
+                          </div>
+                        </div>
+                        <div className="finops-override-chip">
+                          <span className="finops-override-tag">READ</span>
+                          <div className="finops-override-field">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={(entry.cacheReadPerMMicroDollars / 1_000_000).toFixed(2)}
+                              disabled={!isEditable}
+                              value={override.cacheRead}
+                              onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, cacheRead: e.target.value } })}
+                            />
+                          </div>
+                        </div>
+                        <div className="finops-override-chip">
+                          <span className="finops-override-tag">WRITE</span>
+                          <div className="finops-override-field">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={(entry.cacheWritePerMMicroDollars / 1_000_000).toFixed(2)}
+                              disabled={!isEditable}
+                              value={override.cacheWrite}
+                              onChange={(e) => setCustomRates({ ...customRates, [entry.modelId]: { ...override, cacheWrite: e.target.value } })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </Surface>
 
+      {/* Surface 3: Per-Operation Tool & Service Rate Cards Table */}
       <Surface>
         <div className="section-heading">
           <div>
@@ -1047,42 +1169,59 @@ function PricingTab({ identity }: { identity: Identity }) {
           <Badge tone="neutral">Per-Operation Pricing</Badge>
         </div>
 
-        <div className="stack" style={{ gap: "var(--space-sm)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.2fr 1.5fr", gap: "var(--space-sm)", fontWeight: 600, fontSize: "0.85rem", borderBottom: "1px solid var(--border)", paddingBottom: "var(--space-xs)" }}>
-            <span>Tool / Service & Provider</span>
-            <span>Category</span>
-            <span>Official Base Rate</span>
-            <span>Custom Rate Override ($ / call)</span>
-          </div>
-          {toolCatalog.map((tool) => {
-            const override = toolCustomRates[tool.toolId] || { costPerCall: "" };
-            return (
-              <div key={tool.toolId} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.2fr 1.5fr", gap: "var(--space-sm)", alignItems: "center", fontSize: "0.9rem" }}>
-                <div>
-                  <strong>{tool.displayName}</strong>
-                  <span className="subtle" style={{ display: "block", fontSize: "0.75rem" }}>{tool.provider} &bull; <Mono>{tool.toolId}</Mono></span>
-                </div>
-                <div>
-                  <Badge tone="neutral">{tool.category.toUpperCase()}</Badge>
-                </div>
-                <Mono>${(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)} / call</Mono>
-                <div>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    placeholder="Override $/call"
-                    disabled={!isEditable}
-                    value={override.costPerCall}
-                    onChange={(e) => setToolCustomRates({ ...toolCustomRates, [tool.toolId]: { costPerCall: e.target.value } })}
-                    style={{ width: "100%", maxWidth: "180px", padding: "4px 8px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit", fontSize: "0.85rem" }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        <div className="finops-table-container">
+          <table className="finops-table">
+            <thead>
+              <tr>
+                <th>Tool / Service & Provider</th>
+                <th>Category</th>
+                <th className="text-right">Official Base Rate</th>
+                <th className="text-center" style={{ width: "240px" }}>Custom Negotiated Override ($ / call)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {toolCatalog.map((tool) => {
+                const override = toolCustomRates[tool.toolId] || { costPerCall: "" };
+                return (
+                  <tr key={tool.toolId}>
+                    <td>
+                      <div className="finops-model-name">{tool.displayName}</div>
+                      <div className="finops-model-meta">
+                        <span className="finops-provider-tag">{tool.provider}</span>
+                        <Mono>{tool.toolId}</Mono>
+                      </div>
+                    </td>
+                    <td>
+                      <Badge tone={tool.category === "search" ? "info" : tool.category === "scraping" ? "warning" : "neutral"}>
+                        {tool.category.toUpperCase()}
+                      </Badge>
+                    </td>
+                    <td className="text-right">
+                      <span className="finops-rate-pill">${(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)} / call</span>
+                    </td>
+                    <td>
+                      <div className="finops-input-wrapper" style={{ maxWidth: "200px", margin: "0 auto" }}>
+                        <span className="finops-input-prefix">$</span>
+                        <input
+                          className="finops-input has-prefix"
+                          type="number"
+                          step="0.0001"
+                          placeholder={(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)}
+                          disabled={!isEditable}
+                          value={override.costPerCall}
+                          onChange={(e) => setToolCustomRates({ ...toolCustomRates, [tool.toolId]: { costPerCall: e.target.value } })}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </Surface>
 
+      {/* Surface 4: Live Spend Simulator & FinOps Sandbox */}
       <Surface>
         <div className="section-heading">
           <div>
@@ -1093,73 +1232,120 @@ function PricingTab({ identity }: { identity: Identity }) {
         </div>
 
         <div className="stack" style={{ gap: "var(--space-md)" }}>
-          <div className="form-grid">
-            <div>
-              <label className="field-label" htmlFor="sim-model-select">Target Model</label>
+          {/* Workload Target & Execution Mode */}
+          <div className="finops-config-layout">
+            <div className="finops-field-group">
+              <label className="finops-label" htmlFor="sim-model-select">
+                <span>Target Model</span>
+                <span className="finops-label-hint">Foundation provider</span>
+              </label>
               <select
                 id="sim-model-select"
+                className="finops-select"
                 value={simModel}
                 onChange={(e) => setSimModel(e.target.value)}
-                style={{ width: "100%", padding: "var(--space-xs)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "transparent", color: "inherit" }}
               >
                 {catalog.map((m) => (
                   <option key={m.modelId} value={m.modelId}>{m.displayName} ({m.modelId})</option>
                 ))}
               </select>
             </div>
-            <TextField
-              label="Prompt Input Tokens"
-              type="number"
-              value={simInputTokens}
-              onChange={(e) => setSimInputTokens(e.target.value)}
-            />
-            <TextField
-              label="Completion Output Tokens"
-              type="number"
-              value={simOutputTokens}
-              onChange={(e) => setSimOutputTokens(e.target.value)}
-            />
-            <TextField
-              label="Cache Read Tokens"
-              type="number"
-              value={simCacheReadTokens}
-              onChange={(e) => setSimCacheReadTokens(e.target.value)}
-            />
-            <TextField
-              label="Cache Creation / Write Tokens"
-              type="number"
-              value={simCacheWriteTokens}
-              onChange={(e) => setSimCacheWriteTokens(e.target.value)}
-            />
-          </div>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-md)", alignItems: "center", padding: "var(--space-xs) 0" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", cursor: "pointer", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 14px", borderRadius: "10px", background: simIsBatch ? "var(--primary-soft)" : "var(--surface-sunken)", border: simIsBatch ? "1px solid var(--primary)" : "1px solid var(--outline-soft)", cursor: "pointer", transition: "all 0.15s ease" }}>
               <input
                 type="checkbox"
                 id="sim-batch-toggle"
                 checked={simIsBatch}
                 onChange={(e) => setSimIsBatch(e.target.checked)}
+                style={{ width: "16px", height: "16px", accentColor: "var(--primary)", marginTop: "3px", cursor: "pointer" }}
               />
-              <span style={{ fontWeight: 500 }}>Async Batch API Mode (50% Off-Peak Compute Discount)</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--on-surface)" }}>
+                  Async Batch API Mode (50% Off-Peak Compute Discount)
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "2px" }}>
+                  Enables 50% discount across prompt, completion, and cache tokens with 24-hour asynchronous processing SLA.
+                </div>
+              </div>
             </label>
           </div>
 
+          {/* 4-Dimensional Token Compute Inputs */}
+          <div>
+            <span style={{ fontWeight: 600, fontSize: "0.88rem", display: "block", marginBottom: "8px" }}>
+              Compute Token Dimensions
+            </span>
+            <div className="finops-sim-grid">
+              <div className="finops-sim-box">
+                <label className="finops-label" htmlFor="sim-input">Prompt Input Tokens</label>
+                <input
+                  id="sim-input"
+                  className="finops-input"
+                  type="number"
+                  min="0"
+                  value={simInputTokens}
+                  onChange={(e) => setSimInputTokens(e.target.value)}
+                />
+                <span className="finops-stat-sub">User & system prompt tokens</span>
+              </div>
+              <div className="finops-sim-box">
+                <label className="finops-label" htmlFor="sim-output">Completion Output Tokens</label>
+                <input
+                  id="sim-output"
+                  className="finops-input"
+                  type="number"
+                  min="0"
+                  value={simOutputTokens}
+                  onChange={(e) => setSimOutputTokens(e.target.value)}
+                />
+                <span className="finops-stat-sub">Generated output tokens</span>
+              </div>
+              <div className="finops-sim-box">
+                <label className="finops-label" htmlFor="sim-cache-read">Cache Read Tokens</label>
+                <input
+                  id="sim-cache-read"
+                  className="finops-input"
+                  type="number"
+                  min="0"
+                  value={simCacheReadTokens}
+                  onChange={(e) => setSimCacheReadTokens(e.target.value)}
+                />
+                <span className="finops-stat-sub" style={{ color: "var(--status-good)" }}>Prompt cache hit tokens</span>
+              </div>
+              <div className="finops-sim-box">
+                <label className="finops-label" htmlFor="sim-cache-write">Cache Creation / Write Tokens</label>
+                <input
+                  id="sim-cache-write"
+                  className="finops-input"
+                  type="number"
+                  min="0"
+                  value={simCacheWriteTokens}
+                  onChange={(e) => setSimCacheWriteTokens(e.target.value)}
+                />
+                <span className="finops-stat-sub">Cache creation tokens</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tool Invocations Section */}
           {toolCatalog.length > 0 && (
-            <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "var(--space-sm)" }}>
-              <span style={{ fontWeight: 600, fontSize: "0.85rem", display: "block", marginBottom: "var(--space-xs)" }}>
+            <div>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", display: "block", marginBottom: "8px" }}>
                 Simulate Tool Invocations (Non-Token Add-ons)
               </span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-sm)" }}>
+              <div className="finops-sim-grid">
                 {toolCatalog.map((tool) => (
-                  <div key={tool.toolId}>
-                    <TextField
-                      label={`${tool.displayName} Calls`}
+                  <div key={tool.toolId} className="finops-sim-box">
+                    <label className="finops-label" htmlFor={`tool-sim-${tool.toolId}`}>{tool.displayName}</label>
+                    <input
+                      id={`tool-sim-${tool.toolId}`}
+                      className="finops-input"
                       type="number"
                       min="0"
                       value={simToolCounts[tool.toolId] || "0"}
                       onChange={(e) => setSimToolCounts({ ...simToolCounts, [tool.toolId]: e.target.value })}
                     />
+                    <span className="finops-stat-sub">${(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)} / call</span>
                   </div>
                 ))}
               </div>
@@ -1168,63 +1354,67 @@ function PricingTab({ identity }: { identity: Identity }) {
 
           <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
             <Button variant="filled" onClick={handleRunSimulation} disabled={calculateSpend.isPending}>
-              {calculateSpend.isPending ? "Calculating…" : "Calculate Spend"}
+              {calculateSpend.isPending ? "Evaluating Spend Matrix…" : "Calculate Spend"}
             </Button>
           </div>
 
           {calculateSpend.data && (
-            <div style={{ padding: "var(--space-md)", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface-muted)" }}>
-              <h3 style={{ fontSize: "1rem", marginBottom: "var(--space-xs)" }}>Simulated Spend Evaluation Result</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--space-sm)" }}>
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Total Compute Tokens</span>
-                  <Mono>{calculateSpend.data.totalTokens.toLocaleString()}</Mono>
+            <div style={{ padding: "16px", border: "1px solid var(--outline-soft)", borderRadius: "12px", background: "var(--surface-container)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <h3 style={{ fontSize: "0.95rem", margin: 0 }}>Simulated Spend Evaluation Result</h3>
+                <Badge tone={calculateSpend.data.effectiveDiscountBps > 0 ? "success" : "neutral"}>
+                  {(calculateSpend.data.effectiveDiscountBps / 100).toFixed(1)}% OFF
+                </Badge>
+              </div>
+
+              <div className="finops-stat-grid" style={{ marginBottom: 0 }}>
+                <div className="finops-stat-card">
+                  <span className="finops-stat-label">Total Compute Tokens</span>
+                  <span className="finops-stat-value">{calculateSpend.data.totalTokens.toLocaleString()}</span>
+                  <span className="finops-stat-sub">Prompt + Completion + Cache</span>
                 </div>
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Nominal List Price</span>
-                  <Mono>${(calculateSpend.data.nominalListCostMicroDollars / 1_000_000).toFixed(4)}</Mono>
+                <div className="finops-stat-card">
+                  <span className="finops-stat-label">Nominal List Price</span>
+                  <span className="finops-stat-value">${(calculateSpend.data.nominalListCostMicroDollars / 1_000_000).toFixed(4)}</span>
+                  <span className="finops-stat-sub">Standard catalog rate</span>
                 </div>
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Effective Compute Liability (USDC)</span>
-                  <Mono style={{ fontWeight: 700, color: "var(--primary)" }}>
+                <div className="finops-stat-card">
+                  <span className="finops-stat-label">Effective Compute Liability</span>
+                  <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
                     ${(calculateSpend.data.effectiveCostMicroDollars / 1_000_000).toFixed(4)}
-                  </Mono>
+                  </span>
+                  <span className="finops-stat-sub">Under active contract terms</span>
                 </div>
                 {calculateSpend.data.toolCostMicroDollars != null && calculateSpend.data.toolCostMicroDollars > 0 && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Tool Execution Surcharge</span>
-                    <Mono style={{ fontWeight: 600 }}>
+                  <div className="finops-stat-card">
+                    <span className="finops-stat-label">Tool Surcharge</span>
+                    <span className="finops-stat-value">
                       ${(calculateSpend.data.toolCostMicroDollars / 1_000_000).toFixed(4)}
-                    </Mono>
+                    </span>
+                    <span className="finops-stat-sub">Non-token operations</span>
                   </div>
                 )}
                 {calculateSpend.data.toolCostMicroDollars != null && calculateSpend.data.toolCostMicroDollars > 0 && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Total Gross Liability</span>
-                    <Mono style={{ fontWeight: 700, color: "var(--primary)" }}>
+                  <div className="finops-stat-card">
+                    <span className="finops-stat-label">Total Gross Liability</span>
+                    <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
                       ${((calculateSpend.data.effectiveCostMicroDollars + calculateSpend.data.toolCostMicroDollars) / 1_000_000).toFixed(4)}
-                    </Mono>
-                  </div>
-                )}
-                <div>
-                  <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Effective Discount</span>
-                  <Badge tone={calculateSpend.data.effectiveDiscountBps > 0 ? "success" : "neutral"}>
-                    {(calculateSpend.data.effectiveDiscountBps / 100).toFixed(1)}% OFF
-                  </Badge>
-                </div>
-                {calculateSpend.data.contractModel === "committed_ptu" && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>PTU Absorption</span>
-                    <Mono>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens ($0 marginal)</Mono>
-                  </div>
-                )}
-                {calculateSpend.data.contractModel === "hybrid_commit_volume" && (
-                  <div>
-                    <span className="subtle" style={{ fontSize: "0.8rem", display: "block" }}>Hybrid PTU Applied</span>
-                    <Mono>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens absorbed</Mono>
+                    </span>
+                    <span className="finops-stat-sub">Compute + Tool total</span>
                   </div>
                 )}
               </div>
+
+              {calculateSpend.data.contractModel === "committed_ptu" && (
+                <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
+                  PTU Absorption: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> absorbed at $0 marginal cost.
+                </div>
+              )}
+              {calculateSpend.data.contractModel === "hybrid_commit_volume" && (
+                <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
+                  Hybrid PTU Applied: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> absorbed before volume ladders.
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -26,16 +26,18 @@ interface ICircuitVault {
     }
 
     struct EpochBucket {
-        uint128 allocatedCap;       // Total credit allocated for (agent, provider, epoch)
-        uint128 cumulativeSettled;  // Total claimed by provider so far
+        uint128 allocatedCap; // Total credit allocated for (agent, provider, epoch)
+        uint128 cumulativeSettled; // Total claimed by provider so far
         uint32 epochStart;
         uint32 epochDuration;
         bool isClosed;
     }
 
     struct UnilateralChallenge {
-        uint256 challengeBlock;     // Block number when challenge initiated
+        uint256 challengeBlock; // Block number when challenge initiated
         uint128 proposedSettlement; // What agent claims was spent
+        address provider; // Provider and epoch are part of the challenged state
+        uint256 epoch;
         bool active;
     }
 
@@ -49,18 +51,10 @@ interface ICircuitVault {
     event WithdrawalRequested(address indexed agent, uint128 amount, uint64 unlockTimestamp);
     event WithdrawalFinalized(address indexed agent, address indexed recipient, uint128 amount);
     event EpochBucketAllocated(
-        address indexed agent,
-        address indexed provider,
-        uint256 indexed epoch,
-        uint128 cap,
-        uint32 duration
+        address indexed agent, address indexed provider, uint256 indexed epoch, uint128 cap, uint32 duration
     );
     event VoucherDeltaSettled(
-        address indexed agent,
-        address indexed provider,
-        uint256 indexed epoch,
-        uint128 delta,
-        uint128 cumulativeSettled
+        address indexed agent, address indexed provider, uint256 indexed epoch, uint128 delta, uint128 cumulativeSettled
     );
     event TerminalClosed(
         address indexed agent,
@@ -71,14 +65,14 @@ interface ICircuitVault {
     );
     event UnilateralChallengeInitiated(
         address indexed agent,
+        address indexed provider,
+        uint256 epoch,
         bytes32 indexed sessionId,
         uint256 challengeBlock,
         uint128 proposedSettlement
     );
     event MerchantVoucherSubmitted(
-        address indexed provider,
-        bytes32 indexed sessionId,
-        uint128 voucherAmount
+        address indexed agent, address indexed provider, bytes32 indexed sessionId, uint128 voucherAmount
     );
     event UnilateralCloseFinalized(
         address indexed agent,
@@ -103,13 +97,8 @@ interface ICircuitVault {
     function deposit(address agent, uint256 amount) external returns (uint256 actualAmount);
     function requestWithdrawal(address agent, uint128 amount) external;
     function finalizeWithdrawal(address agent, address recipient) external returns (uint128 amount);
-    function allocateEpochBucket(
-        address agent,
-        address provider,
-        uint256 epoch,
-        uint128 amount,
-        uint32 duration
-    ) external;
+    function allocateEpochBucket(address agent, address provider, uint256 epoch, uint128 amount, uint32 duration)
+        external;
     function settleVoucherDelta(
         address agent,
         address provider,
@@ -142,36 +131,21 @@ interface ICircuitVault {
         uint128 claimedSpent
     ) external;
     function submitMerchantVoucher(
+        address agent,
         address provider,
         bytes32 sessionId,
         uint128 voucherAmount,
         bytes calldata signature
     ) external;
-    function finalizeUnilateralClose(
-        address agent,
-        address provider,
-        uint256 epoch,
-        bytes32 sessionId
-    ) external returns (uint128 providerPayout, uint128 agentRefund);
+    function finalizeUnilateralClose(address agent, address provider, uint256 epoch, bytes32 sessionId)
+        external
+        returns (uint128 providerPayout, uint128 agentRefund);
     function creditRelayerFee(address relayer, uint256 shardId, uint128 amount) external;
     function claimRelayerCredits(uint256[] calldata shardIds) external returns (uint128 totalPayout);
 
     function getVaultBalance(address agent) external view returns (uint128);
-    function getEpochBucket(
-        address agent,
-        address provider,
-        uint256 epoch
-    ) external view returns (EpochBucket memory);
-    function getAgentChallenge(
-        address agent,
-        bytes32 sessionId
-    ) external view returns (UnilateralChallenge memory);
-    function getMerchantSettlement(
-        address provider,
-        bytes32 sessionId
-    ) external view returns (uint128);
-    function getRelayerGasCredits(
-        address relayer,
-        uint256 shardId
-    ) external view returns (uint128);
+    function getEpochBucket(address agent, address provider, uint256 epoch) external view returns (EpochBucket memory);
+    function getAgentChallenge(address agent, bytes32 sessionId) external view returns (UnilateralChallenge memory);
+    function getMerchantSettlement(address agent, address provider, bytes32 sessionId) external view returns (uint128);
+    function getRelayerGasCredits(address relayer, uint256 shardId) external view returns (uint128);
 }

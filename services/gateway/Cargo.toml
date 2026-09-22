@@ -4,6 +4,10 @@ version = "1.0.0"
 edition = "2024"
 authors = ["AgentGuard Principal Systems Architects"]
 
+[[bench]]
+name = "gateway_latency"
+harness = false
+
 [dependencies]
 tokio = { version = "1.53", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }

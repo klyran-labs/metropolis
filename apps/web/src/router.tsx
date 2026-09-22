@@ -1,6 +1,6 @@
 import { Outlet, createRootRoute, createRoute, createRouter, redirect, useNavigate } from "@tanstack/react-router";
 import { Layers, Radio, ShieldCheck, Wallet, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { configuration, isAdminTarget, isTenantTarget, networkLabel } from "./configuration";
 import { useIdentity } from "./identity";
 import { AdminNav, TenantNav } from "./navigation";
@@ -10,24 +10,25 @@ import { AICopilot } from "./components/AICopilot";
 import { UndoToastContainer, type ToastAction } from "./components/UndoToast";
 import { TenantOnboarding } from "./onboarding";
 import { InlineSignIn } from "./signin";
-import { AdminAccess } from "./screens/admin/Access";
-import { AdminLedger } from "./screens/admin/Ledger";
-import { AdminOverview } from "./screens/admin/Overview";
-import { AdminPlans } from "./screens/admin/Plans";
-import { AdminReconciliation } from "./screens/admin/Reconciliation";
-import { AdminRevenue } from "./screens/admin/Revenue";
-import { AdminSubscriptions } from "./screens/admin/Subscriptions";
-import { AdminTenants } from "./screens/admin/Tenants";
-import { Billing } from "./screens/tenant/Billing";
-import { Fleet } from "./screens/tenant/Fleet";
-import { Overview } from "./screens/tenant/Overview";
-import { Policy } from "./screens/tenant/Policy";
-import { Settings } from "./screens/tenant/Settings";
-import { Treasury } from "./screens/tenant/Treasury";
-import { PolicySimulator } from "./screens/tenant/PolicySimulator";
-import { ActivityTrace } from "./screens/tenant/ActivityTrace";
-import { MerchantDirectory } from "./screens/tenant/MerchantDirectory";
-import { QuorumApprovals } from "./screens/tenant/QuorumApprovals";
+
+const AdminAccess = lazy(() => import("./screens/admin/Access").then(({ AdminAccess }) => ({ default: AdminAccess })));
+const AdminLedger = lazy(() => import("./screens/admin/Ledger").then(({ AdminLedger }) => ({ default: AdminLedger })));
+const AdminOverview = lazy(() => import("./screens/admin/Overview").then(({ AdminOverview }) => ({ default: AdminOverview })));
+const AdminPlans = lazy(() => import("./screens/admin/Plans").then(({ AdminPlans }) => ({ default: AdminPlans })));
+const AdminReconciliation = lazy(() => import("./screens/admin/Reconciliation").then(({ AdminReconciliation }) => ({ default: AdminReconciliation })));
+const AdminRevenue = lazy(() => import("./screens/admin/Revenue").then(({ AdminRevenue }) => ({ default: AdminRevenue })));
+const AdminSubscriptions = lazy(() => import("./screens/admin/Subscriptions").then(({ AdminSubscriptions }) => ({ default: AdminSubscriptions })));
+const AdminTenants = lazy(() => import("./screens/admin/Tenants").then(({ AdminTenants }) => ({ default: AdminTenants })));
+const Billing = lazy(() => import("./screens/tenant/Billing").then(({ Billing }) => ({ default: Billing })));
+const Fleet = lazy(() => import("./screens/tenant/Fleet").then(({ Fleet }) => ({ default: Fleet })));
+const Overview = lazy(() => import("./screens/tenant/Overview").then(({ Overview }) => ({ default: Overview })));
+const Policy = lazy(() => import("./screens/tenant/Policy").then(({ Policy }) => ({ default: Policy })));
+const Settings = lazy(() => import("./screens/tenant/Settings").then(({ Settings }) => ({ default: Settings })));
+const Treasury = lazy(() => import("./screens/tenant/Treasury").then(({ Treasury }) => ({ default: Treasury })));
+const PolicySimulator = lazy(() => import("./screens/tenant/PolicySimulator").then(({ PolicySimulator }) => ({ default: PolicySimulator })));
+const ActivityTrace = lazy(() => import("./screens/tenant/ActivityTrace").then(({ ActivityTrace }) => ({ default: ActivityTrace })));
+const MerchantDirectory = lazy(() => import("./screens/tenant/MerchantDirectory").then(({ MerchantDirectory }) => ({ default: MerchantDirectory })));
+const QuorumApprovals = lazy(() => import("./screens/tenant/QuorumApprovals").then(({ QuorumApprovals }) => ({ default: QuorumApprovals })));
 
 function Landing() {
   const identity = useIdentity();
@@ -289,7 +290,9 @@ function AppLayout() {
           onOpenCopilot={() => setCopilotOpen(true)}
         />
         <main className="content">
-          <Outlet />
+          <Suspense fallback={<div className="app-loading">Loading workspace…</div>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
       <CommandPalette
@@ -371,7 +374,9 @@ function AdminLayout() {
           onOpenCopilot={() => setCopilotOpen(true)}
         />
         <main className="content">
-          <Outlet />
+          <Suspense fallback={<div className="app-loading">Loading administration…</div>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
       <CommandPalette

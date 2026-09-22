@@ -72,7 +72,7 @@ export function ActivityTrace() {
             disabled={telemetryQuery.isFetching}
           >
             <RefreshCw size={14} className={telemetryQuery.isFetching ? "spin" : ""} />
-            <span>{telemetryQuery.isFetching ? "Refreshing…" : "Live Feed"}</span>
+            <span>{telemetryQuery.isFetching ? "Refreshing…" : "Refresh Feed"}</span>
           </Button>
           <Link to="/app/simulator" className="control control-filled">
             <Sparkles size={14} />
@@ -172,6 +172,14 @@ export function ActivityTrace() {
                       key={`${ev.transactionHash}-${ev.blockNumber}-${idx}`}
                       className={`clickable-row ${isSelected ? "row-selected" : ""}`}
                       onClick={() => setSelectedEvent(ev)}
+                      tabIndex={0}
+                      aria-label={`Inspect ${ev.eventName} event`}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedEvent(ev);
+                        }
+                      }}
                     >
                       <td>
                         <small className="timestamp-cell" title={ev.observedAt}>
@@ -202,7 +210,7 @@ export function ActivityTrace() {
                       </td>
                       <td>
                         <Badge tone="success">
-                          Finalized (400ms)
+                          Finalized onchain
                         </Badge>
                       </td>
                       <td>

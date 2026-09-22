@@ -19,7 +19,7 @@ import {
   Activity,
 } from "lucide-react";
 import { isAddress, parseUnits } from "viem";
-import { useAgents, useAgentPolicy, type Agent } from "../../api";
+import { toUserFacingError, useAgents, useAgentPolicy, type Agent } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
@@ -56,9 +56,7 @@ export function PolicySimulator() {
   const policyQuery = useAgentPolicy(selectedAgentAddress, Boolean(identity.authenticated && selectedAgentAddress));
 
   const [testAmount, setTestAmount] = useState("45.00");
-  const [testMerchant, setTestMerchant] = useState<string>(
-    configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001",
-  );
+  const [testMerchant, setTestMerchant] = useState<string>("");
   const [simulateDeadlined, setSimulateDeadlined] = useState(false);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -96,6 +94,7 @@ export function PolicySimulator() {
     ];
 
     const logs: RunawayStep[] = [];
+    let deniedCount = 0;
 
     for (const item of attempts) {
       await new Promise((r) => setTimeout(r, 600));
@@ -123,16 +122,16 @@ export function PolicySimulator() {
           status: decision.allowed ? "allowed" : "denied",
           timestamp: new Date().toLocaleTimeString(),
         };
+        if (!decision.allowed) deniedCount += 1;
         logs.push(stepLog);
         setRunawayLogs([...logs]);
       } catch {
-        // Fallback simulation representation for invariant breach
         const stepLog: RunawayStep = {
           attempt: item.num,
           amount: item.amt,
-          reasonCode: 2,
-          reasonTitle: "ERR_MAX_PER_TX",
-          status: "denied",
+          reasonCode: 0,
+          reasonTitle: "DEPENDENCY_UNAVAILABLE",
+          status: "pending",
           timestamp: new Date().toLocaleTimeString(),
         };
         logs.push(stepLog);
@@ -140,18 +139,24 @@ export function PolicySimulator() {
       }
     }
 
-    // 3 consecutive rejections trigger the onchain O(1) kill switch auto-trip
-    setCircuitState("OPEN");
-    setCircuitMessage("Auto-trip threshold reached (3 consecutive invariant breaches). Halting agent spending.");
+    // Only three real onchain denials may trigger the onchain kill switch. An RPC or gateway
+    // failure is not a policy verdict and must never be presented as one.
+    if (deniedCount !== attempts.length) {
+      setCircuitMessage("The circuit was not changed because one or more policy evaluations were unavailable.");
+      setRunawayRunning(false);
+      return;
+    }
+    setCircuitMessage("Auto-trip threshold reached (3 consecutive onchain denials). Requesting the agent pause.");
 
     try {
       await tripKillSwitchMutation.mutateAsync({
         agentAddress: activeAgent.address,
         active: true,
       });
+      setCircuitState("OPEN");
       setCircuitMessage("Monad O(1) Kill-Switch active onchain. Agent quarantined with zero parallel EVM lock contention.");
     } catch {
-      setCircuitMessage("Circuit tripped in simulation mode (3 consecutive breaches confirmed). Monad O(1) quarantine enforced.");
+      setCircuitMessage("The kill-switch transaction could not be confirmed onchain; the circuit state is unchanged.");
     } finally {
       setRunawayRunning(false);
     }
@@ -174,12 +179,7 @@ export function PolicySimulator() {
           : "Circuit breaker shifted to HALF_OPEN (Trial Probe). 1 low-velocity test probe allowed."
       );
     } catch {
-      setCircuitState(targetState);
-      setCircuitMessage(
-        targetState === "CLOSED"
-          ? "Circuit breaker reset to CLOSED."
-          : "Circuit breaker configured to HALF_OPEN (Trial Probe)."
-      );
+      setCircuitMessage("The circuit state change could not be confirmed onchain; the current state is unchanged.");
     } finally {
       setRunawayRunning(false);
     }
@@ -228,7 +228,7 @@ export function PolicySimulator() {
         success: false,
         reasonCode: 9,
         reasonTitle: "EVM Call Execution Note",
-        reasonDescription: err instanceof Error ? err.message : "Static call to PolicyEngine.evaluate returned an error.",
+        reasonDescription: toUserFacingError(err, "The policy evaluation could not be completed."),
         remediationAdvice: "Verify Monad node connectivity and ensure agent policy is initialized.",
         estimatedGas: 0,
         executionLatencyMs: 0,
@@ -268,7 +268,7 @@ export function PolicySimulator() {
               </div>
               <span className="epoch-pill">
                 <span className="epoch-dot" />
-                Monad 400ms Physics
+                Monad execution model
               </span>
             </div>
 
@@ -338,13 +338,6 @@ export function PolicySimulator() {
                       Settlement Token Contract
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="preset-chip"
-                    onClick={() => setTestMerchant("0x0000000000000000000000000000000000000001")}
-                  >
-                    Unlisted Merchant
-                  </button>
                 </div>
               </div>
 
@@ -363,7 +356,7 @@ export function PolicySimulator() {
                 variant="filled"
                 className="simulator-run-btn"
                 onClick={runSimulation}
-                disabled={simulating || !testAmount}
+                disabled={simulating || !testAmount || !isAddress(testMerchant)}
               >
                 <PlayCircle size={16} />
                 <span>{simulating ? "Evaluating EVM Invariants…" : "Run Dry-Run Simulation"}</span>
@@ -429,7 +422,7 @@ export function PolicySimulator() {
                   </div>
                   <div className="metric-box">
                     <small>Settlement SLA</small>
-                    <strong>400ms finality</strong>
+                    <strong>Network finality</strong>
                   </div>
                 </div>
 
@@ -572,8 +565,8 @@ export function PolicySimulator() {
                     <span className="log-attempt">#{log.attempt}</span>
                     <span className="log-amount">${log.amount} USDC</span>
                     <span className="log-verdict">
-                      <Badge tone={log.status === "allowed" ? "success" : "critical"}>
-                        {log.status === "allowed" ? "APPROVED" : "BLOCKED"}
+                      <Badge tone={log.status === "allowed" ? "success" : log.status === "pending" ? "info" : "critical"}>
+                        {log.status === "allowed" ? "APPROVED" : log.status === "pending" ? "UNAVAILABLE" : "BLOCKED"}
                       </Badge>
                     </span>
                     <Mono className="log-code">{log.reasonTitle}</Mono>

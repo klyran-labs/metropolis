@@ -5,6 +5,7 @@ import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, PauseCirc
 import { useRef, useState } from "react";
 import {
   request,
+  toUserFacingError,
   useAgents,
   useLoadAgentWallet,
   useOrganizationWallets,
@@ -362,7 +363,7 @@ export function Fleet() {
       setLabel("");
       void client.invalidateQueries({ queryKey: ["agents"] });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The agent could not be registered.");
+      setMessage(toUserFacingError(error, "The agent could not be registered."));
     }
   };
   const selectedAgent = rows.find((agent) => agent.address === selected) ?? null;
@@ -480,6 +481,14 @@ export function Fleet() {
                       className={row.original.address === selected ? "row-selected" : undefined}
                       style={{ height: item.size, cursor: "pointer" }}
                       onClick={() => setSelected(row.original.address === selected ? null : row.original.address)}
+                      tabIndex={0}
+                      aria-label={`Inspect agent ${row.original.address}`}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelected(row.original.address === selected ? null : row.original.address);
+                        }
+                      }}
                     >
                       {row.getAllCells().map((cell) => (
                         <td key={cell.id}>

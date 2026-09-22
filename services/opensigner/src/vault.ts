@@ -142,39 +142,6 @@ export class EncryptedVault {
     return decrypted as `0x${string}`;
   }
 
-  public getEnclaveQuote(walletIdOrAddress: string) {
-    const id = this.addressToId.get(walletIdOrAddress.toLowerCase()) || walletIdOrAddress;
-    const record = this.wallets.get(id);
-    if (!record) {
-      throw new Error(`Wallet not found: ${walletIdOrAddress}`);
-    }
-
-    // Hardware enclave measurement: SHA-256 over enclave firmware identity
-    const enclaveIdentity = `AGENTGUARD_ENCLAVE_NITRO_V1_HASH_${this.salt.toString('hex')}`;
-    const mrenclave = `0x${Buffer.from(scryptSync(enclaveIdentity, 'agentguard-sgx-seed', 32)).toString('hex')}` as `0x${string}`;
-
-    // Report data binds the agent address and salt
-    const reportData = `0x${Buffer.from(scryptSync(record.address.toLowerCase(), this.salt, 32)).toString('hex')}` as `0x${string}`;
-
-    const issuedAt = Date.now();
-    const expiresAt = issuedAt + 86400 * 1000 * 30; // 30 days
-
-    return {
-      agent: record.address,
-      walletId: record.walletId,
-      enclaveType: 'AWS_NITRO' as const,
-      mrenclave,
-      reportData,
-      pcr0: mrenclave,
-      pcr1: `0x${'1'.repeat(64)}` as `0x${string}`,
-      pcr2: `0x${'2'.repeat(64)}` as `0x${string}`,
-      issuedAt,
-      expiresAt,
-      signature: `0x${'a'.repeat(128)}` as `0x${string}`,
-      status: 'VERIFIED_ENCLAVE_ISOLATED',
-    };
-  }
-
   public count(): number {
     return this.wallets.size;
   }

@@ -22,12 +22,12 @@ export const CIRCUIT_VAULT_ABI = parseAbi([
   "function terminalClose(address agent, address provider, uint256 epoch, uint128 cumulativeSpent, bytes calldata signature) external returns (uint128, uint128)",
   "function rolloverEpochBucket(address agent, address provider, uint256 oldEpoch, uint128 oldCumulativeSpent, bytes calldata oldSignature, uint256 newEpoch, uint128 newAmount, uint32 newDuration) external returns (uint128, uint128)",
   "function requestUnilateralClose(address agent, address provider, uint256 epoch, bytes32 sessionId, uint128 claimedSpent) external",
-  "function submitMerchantVoucher(address provider, bytes32 sessionId, uint128 voucherAmount, bytes calldata signature) external",
+  "function submitMerchantVoucher(address agent, address provider, bytes32 sessionId, uint128 voucherAmount, bytes calldata signature) external",
   "function finalizeUnilateralClose(address agent, address provider, uint256 epoch, bytes32 sessionId) external returns (uint128, uint128)",
   "function getVaultBalance(address agent) external view returns (uint128)",
   "function getEpochBucket(address agent, address provider, uint256 epoch) external view returns (EpochBucket memory)",
   "function getAgentChallenge(address agent, bytes32 sessionId) external view returns (UnilateralChallenge memory)",
-  "function getMerchantSettlement(address provider, bytes32 sessionId) external view returns (uint128)",
+  "function getMerchantSettlement(address agent, address provider, bytes32 sessionId) external view returns (uint128)",
   "event Deposited(address indexed agent, address indexed depositor, uint256 amount)",
   "event EpochBucketAllocated(address indexed agent, address indexed provider, uint256 indexed epoch, uint128 cap, uint32 duration)",
   "event VoucherDeltaSettled(address indexed agent, address indexed provider, uint256 indexed epoch, uint128 delta, uint128 cumulativeSettled)",
@@ -38,8 +38,11 @@ export const CIRCUIT_VAULT_ABI = parseAbi([
 ]);
 
 function getPublicClient() {
+  if (!configuration.rpcUrl) {
+    throw new Error("The settlement network endpoint is not configured.");
+  }
   return createPublicClient({
-    transport: http(configuration.rpcUrl || undefined),
+    transport: http(configuration.rpcUrl),
   });
 }
 

@@ -1,6 +1,6 @@
 import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
 import { configuration, networkLabel } from "./configuration";
 import { RequestError, request, setAccessTokenProvider } from "./api";
 
@@ -52,6 +52,7 @@ function useIdentityQuery() {
   const privy = usePrivy();
   const queryClient = useQueryClient();
   const subject = privy.user?.id;
+  const previousSubject = useRef<string | undefined>(subject);
   const role = useQuery({
     queryKey: ["role", subject],
     queryFn: ({ signal }) =>
@@ -63,9 +64,9 @@ function useIdentityQuery() {
     retry: false,
   });
   const platform = useQuery({
-    queryKey: ["platform-access"],
+    queryKey: ["platform-access", subject],
     queryFn: ({ signal }) => request<unknown>("/platform/plans", { signal }),
-    enabled: Boolean(privy.authenticated),
+    enabled: Boolean(privy.authenticated && subject),
     retry: false,
   });
   const needsOnboarding =
@@ -81,16 +82,32 @@ function useIdentityQuery() {
   const membershipResolved = role.isSuccess || role.isError;
   const membershipLoading = Boolean(privy.authenticated) && !membershipResolved;
 
-  // Persist or resolve human-readable tenant name without leaking raw hex IDs
+  useEffect(() => {
+    if (previousSubject.current && previousSubject.current !== subject) {
+      void queryClient.removeQueries({ queryKey: ["role", previousSubject.current] });
+      void queryClient.removeQueries({ queryKey: ["platform-access", previousSubject.current] });
+      try {
+        localStorage.removeItem(`agentguard_tenant_name:${previousSubject.current}`);
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
+    }
+    previousSubject.current = subject;
+  }, [queryClient, subject]);
+
+  // Persist and resolve the human-readable tenant name only within the authenticated subject.
+  const tenantStorageKey = subject ? `agentguard_tenant_name:${subject}` : null;
   const serverTenantName = role.data?.tenant_name?.trim();
-  if (serverTenantName) {
+  if (serverTenantName && tenantStorageKey) {
     try {
-      localStorage.setItem("agentguard_tenant_name", serverTenantName);
+      localStorage.setItem(tenantStorageKey, serverTenantName);
     } catch {
       // Ignore storage errors in restricted contexts
     }
   }
-  const cachedTenantName = typeof window !== "undefined" ? localStorage.getItem("agentguard_tenant_name") : null;
+  const cachedTenantName = typeof window !== "undefined" && tenantStorageKey
+    ? localStorage.getItem(tenantStorageKey)
+    : null;
   const tenantName = serverTenantName || cachedTenantName || "Workspace";
 
   return {
@@ -107,7 +124,7 @@ function useIdentityQuery() {
     needsOnboarding,
     refreshIdentity: () => {
       void queryClient.invalidateQueries({ queryKey: ["role", subject] });
-      void queryClient.invalidateQueries({ queryKey: ["platform-access"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-access", subject] });
     },
   };
 }

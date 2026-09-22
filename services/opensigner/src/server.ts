@@ -5,11 +5,15 @@ import type { OpenSignerEngine } from './signer.js';
 export function createOpenSignerServer(
   vault: EncryptedVault,
   engine: OpenSignerEngine,
-  apiToken = ''
+  apiToken = '',
+  allowedOrigin = ''
 ): http.Server {
   return http.createServer(async (req, res) => {
-    // Enable CORS for all web clients
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const requestOrigin = req.headers.origin;
+    if (allowedOrigin && requestOrigin === allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
 
@@ -141,8 +145,8 @@ export function createOpenSignerServer(
         return;
       }
 
-      // Plain ERC-20 transfer, submitted and gas-paid by this wallet (used for Load)
-      if (req.method === 'POST' && pathname === '/api/v1/execute-transfer') {
+      // Constrained sovereign treasury load. Arbitrary ERC-20 transfers are not exposed.
+      if (req.method === 'POST' && pathname === '/api/v1/execute-treasury-load') {
         const body = await parseBody();
         const { walletIdOrAddress, tokenAddress, to, amount, chainId } = body;
         if (!walletIdOrAddress || !tokenAddress || !to || !amount) {
@@ -152,7 +156,7 @@ export function createOpenSignerServer(
           });
           return;
         }
-        const result = await engine.executeTransfer(walletIdOrAddress, { tokenAddress, to, amount, chainId });
+        const result = await engine.executeTreasuryLoad(walletIdOrAddress, { tokenAddress, to, amount, chainId });
         sendJson(200, { success: true, ...result });
         return;
       }
@@ -179,81 +183,33 @@ export function createOpenSignerServer(
         return;
       }
 
-      // Generic EIP-712 Typed Data Signer
-      if (req.method === 'POST' && pathname === '/api/v1/sign-typed-data') {
-        const body = await parseBody();
-        const { walletIdOrAddress, domain, types, primaryType, message } = body;
-
-        if (!walletIdOrAddress || !domain || !types || !primaryType || !message) {
-          sendJson(400, {
-            success: false,
-            error: 'Missing required parameters: walletIdOrAddress, domain, types, primaryType, message',
-          });
-          return;
-        }
-
-        const result = await engine.signGenericTypedData(walletIdOrAddress, {
-          domain,
-          types,
-          primaryType,
-          message,
-        });
-
-        sendJson(200, {
-          success: true,
-          ...result,
-        });
-        return;
-      }
-
-      // Hardware TEE Attestation Quote Endpoint
+      // Hardware attestation is intentionally unavailable until a real provider-backed
+      // quote verifier is configured. Never manufacture an enclave measurement or signature.
       if (req.method === 'POST' && pathname === '/api/v1/attestation/quote') {
-        const body = await parseBody();
-        const { walletIdOrAddress } = body;
-        if (!walletIdOrAddress) {
-          sendJson(400, { success: false, error: 'Missing walletIdOrAddress parameter' });
-          return;
-        }
-
-        const quote = vault.getEnclaveQuote(walletIdOrAddress);
-        sendJson(200, { success: true, quote });
+        sendJson(503, {
+          success: false,
+          error: 'Hardware attestation is not configured for this signing service.',
+          code: 'ATTESTATION_UNAVAILABLE',
+        });
         return;
       }
 
-      // Hardware TEE Attestation Verification Endpoint
       if (req.method === 'POST' && pathname === '/api/v1/attestation/verify') {
-        const body = await parseBody();
-        const { quote } = body;
-        if (!quote || !quote.mrenclave || !quote.agent) {
-          sendJson(400, { success: false, error: 'Missing or invalid quote payload' });
-          return;
-        }
-
-        const isExpired = Date.now() > Number(quote.expiresAt);
-        if (isExpired) {
-          sendJson(200, {
-            success: true,
-            valid: false,
-            reason: 'Enclave attestation quote expired',
-          });
-          return;
-        }
-
-        sendJson(200, {
-          success: true,
-          valid: true,
-          mrenclave: quote.mrenclave,
-          agent: quote.agent,
-          status: 'ATTESTATION_VALID',
+        sendJson(503, {
+          success: false,
+          valid: false,
+          error: 'Hardware attestation verification is not configured for this signing service.',
+          code: 'ATTESTATION_UNAVAILABLE',
         });
         return;
       }
 
       sendJson(404, { success: false, error: 'Endpoint not found' });
     } catch (err: any) {
+      console.error('[OpenSigner] Request failed', err);
       sendJson(500, {
         success: false,
-        error: err?.message || 'Internal Server Error',
+        error: 'The signing service could not complete the request.',
       });
     }
   });

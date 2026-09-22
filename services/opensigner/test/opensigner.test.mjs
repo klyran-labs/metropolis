@@ -96,7 +96,13 @@ test('OpenSigner Signer: EIP-712 SpendRequest signing and cryptographic recovery
   cleanup();
   const vault = new EncryptedVault(TEST_VAULT_PATH, TEST_MASTER_KEY);
   const w = vault.createWallet('signing_agent');
-  const engine = new OpenSignerEngine(vault);
+  const engine = new OpenSignerEngine(vault, {
+    rpcUrl: 'http://127.0.0.1:8545',
+    chainId: 10143,
+    policyEngineAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    agentWalletGuardAddress: '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0',
+    allowedTokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  });
 
   const verifyingContract = '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0';
   const merchant = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -144,7 +150,13 @@ test('OpenSigner Signer: Rejects unauthorized signing attempt for a foreign addr
   cleanup();
   const vault = new EncryptedVault(TEST_VAULT_PATH, TEST_MASTER_KEY);
   const w = vault.createWallet('honest_agent');
-  const engine = new OpenSignerEngine(vault);
+  const engine = new OpenSignerEngine(vault, {
+    rpcUrl: 'http://127.0.0.1:8545',
+    chainId: 10143,
+    policyEngineAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    agentWalletGuardAddress: '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0',
+    allowedTokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  });
 
   const foreignAddress = '0x1111111111111111111111111111111111111111';
 
@@ -169,7 +181,13 @@ test('OpenSigner Signer: Rejects unauthorized signing attempt for a foreign addr
 test('OpenSigner HTTP Server: Probes and API routes simulation', async () => {
   cleanup();
   const vault = new EncryptedVault(TEST_VAULT_PATH, TEST_MASTER_KEY);
-  const engine = new OpenSignerEngine(vault);
+  const engine = new OpenSignerEngine(vault, {
+    rpcUrl: 'http://127.0.0.1:8545',
+    chainId: 10143,
+    policyEngineAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    agentWalletGuardAddress: '0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0',
+    allowedTokenAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  });
   const server = createOpenSignerServer(vault, engine);
 
   try {
@@ -221,30 +239,40 @@ test('OpenSigner HTTP Server: Probes and API routes simulation', async () => {
         },
       }
     );
-    // 6. Request TEE Enclave Attestation Quote via API
+    // Hardware attestation must be explicit about unavailable provider configuration.
     const quoteRes = await simulateRequest(
       server,
       { method: 'POST', path: '/api/v1/attestation/quote' },
       { walletIdOrAddress: agentAddress }
     );
-    assert.equal(quoteRes.statusCode, 200);
-    assert.equal(quoteRes.body.success, true);
-    assert.equal(quoteRes.body.quote.agent, agentAddress);
-    assert.equal(quoteRes.body.quote.enclaveType, 'AWS_NITRO');
-    assert.ok(quoteRes.body.quote.mrenclave.startsWith('0x'));
+    assert.equal(quoteRes.statusCode, 503);
+    assert.equal(quoteRes.body.success, false);
+    assert.equal(quoteRes.body.code, 'ATTESTATION_UNAVAILABLE');
 
-    // 7. Verify TEE Attestation Quote via API
+    // Verification must not accept an arbitrary caller-provided quote.
     const verifyRes = await simulateRequest(
       server,
       { method: 'POST', path: '/api/v1/attestation/verify' },
-      { quote: quoteRes.body.quote }
+      { quote: { agent: agentAddress, mrenclave: '0xdeadbeef', expiresAt: Date.now() + 60_000 } }
     );
-    assert.equal(verifyRes.statusCode, 200);
-    assert.equal(verifyRes.body.success, true);
-    assert.equal(verifyRes.body.valid, true);
-    assert.equal(verifyRes.body.status, 'ATTESTATION_VALID');
+    assert.equal(verifyRes.statusCode, 503);
+    assert.equal(verifyRes.body.success, false);
+    assert.equal(verifyRes.body.code, 'ATTESTATION_UNAVAILABLE');
   } finally {
     cleanup();
   }
 });
 
+test('OpenSigner HTTP Server: generic typed-data signing is not exposed', async () => {
+  cleanup();
+  const vault = new EncryptedVault(TEST_VAULT_PATH, TEST_MASTER_KEY);
+  const engine = new OpenSignerEngine(vault);
+  const server = createOpenSignerServer(vault, engine);
+  const response = await simulateRequest(
+    server,
+    { method: 'POST', path: '/api/v1/sign-typed-data' },
+    { walletIdOrAddress: 'wallet_missing', domain: {}, types: {}, primaryType: 'X', message: {} },
+  );
+  assert.equal(response.statusCode, 404);
+  cleanup();
+});

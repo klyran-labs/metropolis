@@ -6,6 +6,7 @@ pub mod crypto;
 pub mod error;
 pub mod finops;
 pub mod handlers;
+pub mod limits;
 pub mod pbac;
 pub mod qwen;
 pub mod rbac;

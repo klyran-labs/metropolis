@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { TextField } from "./design-system";
 import { useIdentity } from "./identity";
 import { networkLabel } from "./configuration";
+import { toUserFacingError } from "./api";
 
 export function InlineSignIn() {
   const identity = useIdentity();
@@ -29,7 +30,7 @@ export function InlineSignIn() {
       await sendCode({ email: trimmed });
       setEditingEmail(false);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Could not send a code to that address.");
+      setError(toUserFacingError(submitError, "Could not send a code to that address."));
     }
   };
 
@@ -39,7 +40,7 @@ export function InlineSignIn() {
     try {
       await loginWithCode({ code: code.trim() });
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "That code did not match.");
+      setError(toUserFacingError(submitError, "That code did not match."));
     }
   };
 
@@ -240,7 +241,7 @@ export function InlineSignIn() {
             <ShieldCheck size={12} />
             <span>Non-Custodial</span>
           </span>
-          <span className="signin-security-badge" title="Hardware isolated signer vault">
+          <span className="signin-security-badge" title="Hardware-sealed sovereign key vault">
             <CheckCircle2 size={12} />
             <span>Hardware Sealed</span>
           </span>

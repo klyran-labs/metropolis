@@ -38,12 +38,12 @@ We integrated seven modern EIPs and agentic blockchain primitives across all sys
    - Transferring the NFT automatically transfers ownership of the agent's budget pool allocations, reputation history, and spend policies.
 
 6. **ERC-7677 Paymaster RPC for Gasless Settlements**:
-   - Extended the Rust gateway (`services/gateway`) with `/v1/paymaster` JSON-RPC handlers for `pm_supportedEntryPoints`, `pm_getPaymasterStubData`, and `pm_getPaymasterData`.
-   - Enables gasless transactions for agents funded via stablecoin budget pools.
+   - Extended the Rust gateway (`services/gateway`) with configured `pm_getPaymasterStubData` and `pm_getPaymasterData` handlers.
+   - Sponsorship is admitted only after an onchain `CircuitPaymaster.isSponsorshipEligible` check; verification and post-op gas bounds are deployment configuration, not fabricated response constants.
 
-7. **TEE Remote Attestation Proofs**:
-   - Extended OpenSigner (`services/opensigner`) to compute SHA-256 enclave measurements (`mrenclave`) binding agent public keys in report data via `/api/v1/attestation/quote`.
-   - Implemented `EnclaveAttestationRegistry.sol` on Monad for $O(1)$ attestation validity checks.
+7. **Attestation integration boundary**:
+   - OpenSigner fails closed for `/api/v1/attestation/quote` and `/api/v1/attestation/verify` until a real provider-backed quote verifier is configured.
+   - `EnclaveAttestationRegistry.sol` remains available for a future verified provider integration; no software-generated measurement is treated as hardware proof.
 
 ## Consequences
 - **Positive**: Complete interoperability with modern EVM account abstraction standards (Safe, Kernel, ERC-7579, EIP-7702).

@@ -9,38 +9,44 @@ use agentguard_gateway::{
     chain::ChainClient,
     config::Config,
     handlers::{
-        anthropic_messages_handler, AppState, authentication_middleware, authorization_middleware, calculate_spend_handler,
-        chat_completions_handler, checkout_handler, compile_policy_handler,
-        create_api_key_handler, create_onboarding_tenant_handler,
+        AppState, anthropic_messages_handler, authentication_middleware, authorization_middleware,
+        calculate_spend_handler, chat_completions_handler, checkout_handler,
+        compile_policy_handler, create_api_key_handler, create_onboarding_tenant_handler,
         create_or_revise_pbac_policy_handler, create_plan_handler, create_signing_wallet_handler,
-        create_tenant_handler, deactivate_pbac_policy_handler, get_abac_policy_handler,
-        get_agent_policy_handler, get_platform_reconciliation_handler,
+        create_tenant_handler, deactivate_pbac_policy_handler, finops_sync_handler,
+        get_abac_policy_handler, get_agent_policy_handler, get_platform_reconciliation_handler,
         get_platform_revenue_summary_handler, get_subscription_handler,
-        get_tenant_pricing_model_handler, get_user_role_handler,
-        grant_wallet_access_handler, health_handler, inference_handler, list_agents_handler,
-        list_api_keys_handler, list_organization_wallets_handler, list_pbac_policies_handler,
-        list_plans_handler, list_platform_ledger_handler, list_platform_operators_handler,
+        get_tenant_pricing_model_handler, get_user_role_handler, grant_wallet_access_handler,
+        health_handler, inference_handler, list_agents_handler, list_api_keys_handler,
+        list_organization_wallets_handler, list_pbac_policies_handler, list_plans_handler,
+        list_platform_ledger_handler, list_platform_operators_handler,
         list_platform_subscriptions_handler, list_signing_wallets_handler,
         list_telemetry_events_handler, list_tenant_operators_handler, list_tenants_handler,
         list_wallet_access_handler, list_wallet_transfers_handler,
-        onboarding_authentication_middleware, prepare_agent_policy_handler, prepare_load_handler,
-        prepare_unload_handler, put_abac_policy_handler, ready_handler, register_agent_handler,
-        register_organization_wallet_handler, revoke_api_key_handler, revoke_wallet_access_handler,
-        rotate_api_key_handler, sign_approval_ticket_handler, submit_payment_handler,
-        submit_wallet_transfer_handler, telemetry_stream, update_tenant_pricing_model_handler,
-        update_user_role_handler, update_wallet_threshold_handler, upsert_platform_operator_handler,
-        paymaster_rpc_handler, finops_sync_handler,
+        onboarding_authentication_middleware, paymaster_rpc_handler, prepare_agent_policy_handler,
+        prepare_load_handler, prepare_unload_handler, put_abac_policy_handler, ready_handler,
+        register_agent_handler, register_organization_wallet_handler, revoke_api_key_handler,
+        revoke_wallet_access_handler, rotate_api_key_handler, sign_approval_ticket_handler,
+        submit_payment_handler, submit_wallet_transfer_handler, telemetry_stream,
+        update_tenant_pricing_model_handler, update_user_role_handler,
+        update_wallet_threshold_handler, upsert_platform_operator_handler,
     },
     repository::PgRepository,
     telemetry::EventHub,
 };
-use axum::{Router, http::HeaderValue, middleware, routing::get};
+use axum::{
+    Router,
+    http::{HeaderValue, header},
+    middleware,
+    routing::get,
+};
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tower_http::{
     compression::CompressionLayer,
-    cors::{AllowOrigin, Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
     limit::RequestBodyLimitLayer,
     trace::TraceLayer,
 };
@@ -99,7 +105,11 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let repository = PgRepository::new(pool);
-    let chain = ChainClient::new(config.clone(), http_client.clone())?;
+    let chain = ChainClient::new(
+        config.clone(),
+        http_client.clone(),
+        config.rpc_max_concurrency,
+    )?;
     chain.verify_contracts().await?;
     let events = EventHub::new();
     let auth = AuthService::new(config.clone(), http_client.clone(), repository.clone());
@@ -110,8 +120,12 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         auth,
         chain: chain.clone(),
         events: events.clone(),
-        finops_sync: agentguard_gateway::finops::DistributedFinopsSync::new(),
         streaming_reserves: agentguard_gateway::finops::StreamingReserveHold::new(),
+        tenant_concurrency: agentguard_gateway::limits::TenantConcurrency::new(
+            config.tenant_max_concurrency,
+            config.max_tracked_tenants,
+        )?,
+        provider_bulkhead: Arc::new(Semaphore::new(config.provider_max_concurrency)),
     });
 
     let public = Router::new()
@@ -142,10 +156,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/paymaster/rpc",
             axum::routing::post(paymaster_rpc_handler),
         )
-        .route(
-            "/rpc/paymaster",
-            axum::routing::post(paymaster_rpc_handler),
-        );
+        .route("/rpc/paymaster", axum::routing::post(paymaster_rpc_handler));
 
     let onboarding = Router::new()
         .route(
@@ -316,7 +327,18 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             axum::http::Method::PUT,
             axum::http::Method::DELETE,
         ])
-        .allow_headers(Any);
+        .allow_headers([
+            header::ACCEPT,
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ORIGIN,
+            header::HeaderName::from_static("x-agent-address"),
+            header::HeaderName::from_static("x-settlement-chain"),
+        ])
+        .expose_headers([
+            header::HeaderName::from_static("x-agentguard-reason-code"),
+            header::HeaderName::from_static("x-402-payment-required"),
+        ]);
 
     let app = public
         .merge(onboarding)

@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentityKind {
@@ -118,6 +118,7 @@ pub struct AuthService {
     client: Client,
     repository: PgRepository,
     jwks: Arc<RwLock<Option<CachedJwks>>>,
+    jwks_refresh: Arc<Mutex<()>>,
 }
 
 impl AuthService {
@@ -127,6 +128,7 @@ impl AuthService {
             client,
             repository,
             jwks: Arc::new(RwLock::new(None)),
+            jwks_refresh: Arc::new(Mutex::new(())),
         }
     }
 
@@ -415,31 +417,39 @@ impl AuthService {
         // No heap allocation, no network call.
         {
             let cache = self.jwks.read().await;
-            if let Some(ref c) = *cache {
-                if c.expires_at > Instant::now() {
-                    if let Some(key) = c.keys.iter().find(|k| k.kid == kid && k.kty == expected_kty) {
-                        return Ok(key.clone());
-                    }
-                }
+            if let Some(key) = cache
+                .as_ref()
+                .filter(|c| c.expires_at > Instant::now())
+                .and_then(|c| {
+                    c.keys
+                        .iter()
+                        .find(|k| k.kid == kid && k.kty == expected_kty)
+                })
+            {
+                return Ok(key.clone());
             }
         } // read lock released here
 
-        // Slow path: upgrade to write lock.
-        // Double-checked locking: re-validate the cache under the write lock — another concurrent
-        // request may have already refreshed it between our read-lock check and now.
-        // This prevents the thundering herd: N concurrent requests at cache expiry all
-        // seeing a stale cache and all firing GET /jwks simultaneously.
-        let mut cache = self.jwks.write().await;
-        if let Some(ref c) = *cache {
-            if c.expires_at > Instant::now() {
-                // Another task already refreshed while we waited for the write lock — use it.
-                if let Some(key) = c.keys.iter().find(|k| k.kid == kid && k.kty == expected_kty) {
-                    return Ok(key.clone());
-                }
+        // Slow path: serialize refreshes with a dedicated async mutex, while keeping the JWKS
+        // read/write lock free during network I/O. Authentication readers therefore do not queue
+        // behind a slow or unavailable identity provider.
+        let _refresh_guard = self.jwks_refresh.lock().await;
+        {
+            let cache = self.jwks.read().await;
+            if let Some(key) = cache
+                .as_ref()
+                .filter(|c| c.expires_at > Instant::now())
+                .and_then(|c| {
+                    c.keys
+                        .iter()
+                        .find(|k| k.kid == kid && k.kty == expected_kty)
+                })
+            {
+                return Ok(key.clone());
             }
         }
 
-        // We hold the write lock exclusively — exactly one request reaches the network.
+        // Network I/O deliberately occurs without holding the cache lock.
         let response = self
             .client
             .get(&self.config.privy_jwks_url)
@@ -474,6 +484,7 @@ impl AuthService {
         // Proactive pre-expiry buffer: expire 30s early so foreground requests always hit a warm
         // cache. The background refresh cost (one HTTP GET) happens 30s before visible expiry.
         let effective_ttl = self.config.jwks_cache_seconds.saturating_sub(30);
+        let mut cache = self.jwks.write().await;
         *cache = Some(CachedJwks {
             expires_at: Instant::now() + Duration::from_secs(effective_ttl),
             keys: body.keys,

@@ -64,6 +64,24 @@ spec:
                 secretKeyRef:
                   name: agentguard-secrets
                   key: gateway-merchant-address
+            - name: PAYMASTER_VERIFICATION_GAS_LIMIT
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: paymaster-verification-gas-limit
+            - name: PAYMASTER_POST_OP_GAS_LIMIT
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: paymaster-post-op-gas-limit
+            - name: TENANT_MAX_CONCURRENCY
+              value: "64"
+            - name: MAX_TRACKED_TENANTS
+              value: "10000"
+            - name: PROVIDER_MAX_CONCURRENCY
+              value: "32"
+            - name: RPC_MAX_CONCURRENCY
+              value: "128"
             - name: OPENSIGNER_URL
               value: "http://agentguard-opensigner:3001"
             - name: OPENSIGNER_API_TOKEN
@@ -193,6 +211,28 @@ spec:
                 secretKeyRef:
                   name: agentguard-secrets
                   key: opensigner-api-token
+            - name: MONAD_RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: monad-rpc-url
+            - name: MONAD_CHAIN_ID
+              value: "10143"
+            - name: POLICY_ENGINE_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: policy-engine-address
+            - name: AGENT_WALLET_GUARD_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: agent-wallet-guard-address
+            - name: USDC_TOKEN_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: agentguard-secrets
+                  key: usdc-token-address
           volumeMounts:
             - name: opensigner-data
               mountPath: /data

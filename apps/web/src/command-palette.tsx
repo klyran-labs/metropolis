@@ -392,7 +392,7 @@ export function CommandPalette({
           </div>
           <div className="command-palette-network-tag">
             <span className="status-dot status-dot-success" />
-            Monad Parallel EVM · 400ms Cadence
+            Monad Parallel EVM · 400ms block cadence
           </div>
         </div>
       </div>

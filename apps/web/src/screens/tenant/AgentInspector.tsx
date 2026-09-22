@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X,
   Bot,
@@ -23,6 +23,7 @@ import {
   useWalletTransfers,
   useSubmitWalletTransfer,
   useAgentPolicy,
+  toUserFacingError,
 } from "../../api";
 import { Badge, Button, EmptyState, Mono, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
@@ -38,12 +39,24 @@ export function AgentInspector({
   onTripCircuit: (agentAddress: string, trip: boolean) => void;
 }) {
   const identity = useIdentity();
+  const drawerRef = useRef<HTMLElement>(null);
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
   const transfers = useWalletTransfers(agent.address, Boolean(identity.authenticated));
   const policyQuery = useAgentPolicy(agent.address, Boolean(identity.authenticated));
   const policy = policyQuery.data;
   const runtimeState = useAgentRuntimeState(agent.address, Boolean(identity.authenticated));
   const tripKillSwitch = useTripKillSwitch();
+  const guardAddress = configuration.contracts.agentWalletGuard;
+  const rpcUrl = configuration.rpcUrl;
+
+  useEffect(() => {
+    drawerRef.current?.focus();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
 
   const maxSpendPerTxFormatted = policy?.maxPerTx
     ? `${(Number(policy.maxPerTx) / 1_000_000).toFixed(2)} USDC`
@@ -111,7 +124,7 @@ export function AgentInspector({
       onTripCircuit(agent.address, nextState);
       setMessage(`Circuit ${nextState ? "tripped" : "reset"} confirmed onchain.`);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Circuit update failed.");
+      setMessage(toUserFacingError(err, "Circuit update failed."));
     }
   };
 
@@ -119,7 +132,15 @@ export function AgentInspector({
 
   return (
     <div className="inspector-backdrop" onClick={onClose}>
-      <aside className="inspector-drawer" onClick={(e) => e.stopPropagation()}>
+      <aside
+        ref={drawerRef}
+        className="inspector-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-inspector-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <header className="inspector-header">
           <div className="inspector-title-group">
@@ -128,7 +149,7 @@ export function AgentInspector({
             </div>
             <div>
               <div className="inspector-address-row">
-                <h3><Mono>{truncateMiddle(agent.address, 10, 6)}</Mono></h3>
+                <h3 id="agent-inspector-title"><Mono>{truncateMiddle(agent.address, 10, 6)}</Mono></h3>
                 <button
                   type="button"
                   className="inspector-copy-btn"
@@ -204,7 +225,7 @@ export function AgentInspector({
                     <strong>O(1) Circuit Breaker</strong>
                     <small>
                       {isTripped
-                        ? "Spending halted. Evaluation short-circuits onchain in sub-microsecond time."
+                        ? "Spending halted. The onchain evaluator short-circuits before further policy arithmetic."
                         : "Active spend monitoring. Invariants enforced per transaction."}
                     </small>
                   </div>
@@ -249,7 +270,7 @@ export function AgentInspector({
                   </div>
                   <div className="metric-cell">
                     <small>Settlement Cadence</small>
-                    <strong>400ms finality</strong>
+                    <strong>400ms block cadence</strong>
                   </div>
                 </div>
               </div>
@@ -550,9 +571,9 @@ export function AgentInspector({
                     onClick={() => {
                       let code = "";
                       if (sdkLang === "python") {
-                        code = `from agentguard import AgentGuardClient\n\nclient = AgentGuardClient(\n    agent_address="${agent.address}",\n    guard_contract="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n    chain_id=${configuration.chainId},\n)\n\n# Autonomous spend with onchain invariant checks\nreceipt = client.execute_gated_payment(\n    merchant="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n    amount_usdc=25.00,\n    category="inference",\n)\nprint(f"Settled on Monad in {receipt.latency_ms}ms: {receipt.tx_hash}")`;
+                        code = `from agentguard import AgentGuardClient\n\nclient = AgentGuardClient(\n    agent_address="${agent.address}",\n    guard_contract="${guardAddress ?? ""}",\n    chain_id=${configuration.chainId},\n)\n\n# Use a merchant address already approved by this agent's policy.\nreceipt = client.execute_gated_payment(\n    merchant=approved_merchant_address,\n    amount_usdc=25.00,\n    category="inference",\n)\nprint(f"Payment receipt: {receipt.tx_hash}")`;
                       } else if (sdkLang === "typescript") {
-                        code = `import { createWalletClient, http } from "viem";\n\nconst client = createWalletClient({\n  account: "${agent.address}",\n  transport: http("${configuration.rpcUrl || "http://127.0.0.1:8545"}"),\n});\n\nconst signature = await client.signTypedData({\n  domain: {\n    name: "AgentGuard_PolicyEngine",\n    version: "1",\n    chainId: ${configuration.chainId},\n    verifyingContract: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",\n  },\n  types: { SpendRequest: [...] },\n  primaryType: "SpendRequest",\n  message: { agent: "${agent.address}", amount: 25000000n },\n});`;
+                        code = `import { createWalletClient, http } from "viem";\n\nconst client = createWalletClient({\n  account: "${agent.address}",\n  transport: http("${rpcUrl}"),\n});\n\nconst signature = await client.signTypedData({\n  domain: {\n    name: "AgentGuard_PolicyEngine",\n    version: "1",\n    chainId: ${configuration.chainId},\n    verifyingContract: "${guardAddress ?? ""}",\n  },\n  types: { SpendRequest: [...] },\n  primaryType: "SpendRequest",\n  message: { agent: "${agent.address}", merchant: approvedMerchantAddress, amount: 25000000n },\n});`;
                       } else {
                         code = `curl -i -X POST ${configuration.apiBaseUrl}/v1/inference \\\n  -H "Authorization: Bearer x402-token" \\\n  -H "X-Agent-Address: ${agent.address}" \\\n  -H "X-Settlement-Chain: ${configuration.chainId}"`;
                       }
@@ -572,24 +593,24 @@ export function AgentInspector({
 # Initialize sovereign client on Monad
 client = AgentGuardClient(
     agent_address="${agent.address}",
-    guard_contract="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    guard_contract="${guardAddress ?? ""}",
     chain_id=${configuration.chainId},
 )
 
 # Autonomous spend authorization with EIP-712 invariant checks
 receipt = client.execute_gated_payment(
-    merchant="${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    merchant=approved_merchant_address,
     amount_usdc=25.00,
     category="inference",
 )
-print(f"Settled on Monad in {receipt.latency_ms}ms: {receipt.tx_hash}")`
+print(f"Payment receipt: {receipt.tx_hash}")`
                   )}
                   {sdkLang === "typescript" && (
 `import { createWalletClient, http } from "viem";
 
 const client = createWalletClient({
   account: "${agent.address}",
-  transport: http("${configuration.rpcUrl || "http://127.0.0.1:8545"}"),
+  transport: http("${rpcUrl}"),
 });
 
 // Sign EIP-712 SpendRequest matching AgentGuard PolicyEngine
@@ -598,7 +619,7 @@ const signature = await client.signTypedData({
     name: "AgentGuard_PolicyEngine",
     version: "1",
     chainId: ${configuration.chainId},
-    verifyingContract: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    verifyingContract: "${guardAddress ?? ""}",
   },
   types: {
     SpendRequest: [
@@ -614,12 +635,12 @@ const signature = await client.signTypedData({
   primaryType: "SpendRequest",
   message: {
     agent: "${agent.address}",
-    merchant: "${configuration.contracts.agentWalletGuard || "0x0000000000000000000000000000000000000001"}",
+    merchant: approvedMerchantAddress,
     amount: 25000000n, // 25.00 USDC
     category: "0x696e666572656e63650000000000000000000000000000000000000000000000",
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
     deadline: BigInt(Math.floor(Date.now() / 1000) + 300),
-    nonce: 0n,
+    nonce: nextUnusedNonce,
   },
 });`
                   )}

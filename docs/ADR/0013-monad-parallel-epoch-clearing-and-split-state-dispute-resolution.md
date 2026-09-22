@@ -1,7 +1,7 @@
 # ADR 0013: Monad Parallel Epoch Clearing & Split-State Dispute Resolution Architecture
 
 ## Status
-**Implemented** (Supersedes Monad Metropolis target — fully deployed)
+**Accepted; code implemented, live deployment validation pending**
 
 ## Context
 In high-throughput autonomous machine commerce, AI agents interact continuously with APIs, compute clusters, and data providers using HTTP 402 micro-vouchers. 

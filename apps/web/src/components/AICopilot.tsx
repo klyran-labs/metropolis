@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Sparkles,
@@ -30,6 +30,17 @@ export function AICopilot({
   const [compiledResult, setCompiledResult] = useState<CompiledPolicyResult | null>(null);
   const [applied, setApplied] = useState(false);
   const [selectedReasonCode, setSelectedReasonCode] = useState<number | null>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    drawerRef.current?.focus();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -71,12 +82,20 @@ export function AICopilot({
 
   return (
     <div className="copilot-backdrop" onClick={onClose}>
-      <aside className="copilot-drawer" onClick={(e) => e.stopPropagation()}>
+      <aside
+        ref={drawerRef}
+        className="copilot-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="copilot-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="copilot-header">
           <div className="copilot-title">
             <Sparkles size={18} className="copilot-sparkle-icon" />
             <div>
-              <h3>AI Risk Copilot</h3>
+              <h3 id="copilot-title">AI Risk Copilot</h3>
               <small>Autonomous policy synthesis & failure diagnostics</small>
             </div>
           </div>

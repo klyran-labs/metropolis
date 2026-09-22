@@ -136,12 +136,19 @@ export function Dialog({
   footer: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     if (open && !node.open) {
+      previouslyFocused.current = document.activeElement as HTMLElement | null;
       node.showModal();
+      requestAnimationFrame(() => {
+        node.querySelector<HTMLElement>("button, input, select, textarea, [tabindex='0']")?.focus();
+      });
     } else if (!open && node.open) {
       node.close();
     }
@@ -150,7 +157,11 @@ export function Dialog({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const handleClose = () => onClose();
+    const handleClose = () => {
+      previouslyFocused.current?.focus();
+      previouslyFocused.current = null;
+      onClose();
+    };
     node.addEventListener("close", handleClose);
     return () => node.removeEventListener("close", handleClose);
   }, [onClose]);
@@ -159,7 +170,8 @@ export function Dialog({
     <dialog
       ref={ref}
       className="m3-dialog"
-      aria-labelledby="m3-dialog-title"
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -173,12 +185,43 @@ export function Dialog({
       }}
     >
       <div className="m3-dialog-header">
-        <h2 id="m3-dialog-title">{title}</h2>
-        {description && <p className="m3-dialog-description">{description}</p>}
+        <h2 id={titleId}>{title}</h2>
+        {description && <p id={descriptionId} className="m3-dialog-description">{description}</p>}
       </div>
       <div className="m3-dialog-body">{children}</div>
       <div className="m3-dialog-footer">{footer}</div>
     </dialog>
+  );
+}
+
+export type TransactionPhase = "idle" | "awaiting_wallet" | "pending" | "confirmed" | "failed";
+
+export function TransactionStatus({
+  phase,
+  hash,
+  error,
+}: {
+  phase: TransactionPhase;
+  hash?: string;
+  error?: string;
+}) {
+  if (phase === "idle") return null;
+  const labels: Record<Exclude<TransactionPhase, "idle">, string> = {
+    awaiting_wallet: "Waiting for wallet approval",
+    pending: "Submitted · waiting for network confirmation",
+    confirmed: "Confirmed on the settlement network",
+    failed: "Action could not be confirmed",
+  };
+  const tone = phase === "confirmed" ? "success" : phase === "failed" ? "critical" : "warning";
+  return (
+    <div className={`transaction-status transaction-status-${tone}`} role={phase === "failed" ? "alert" : "status"} aria-live="polite">
+      <span className="status-dot" aria-hidden="true" />
+      <div>
+        <strong>{labels[phase]}</strong>
+        {phase === "failed" && error && <p>{error}</p>}
+        {hash && <small>Transaction <Mono>{truncateMiddle(hash, 10, 8)}</Mono></small>}
+      </div>
+    </div>
   );
 }
 

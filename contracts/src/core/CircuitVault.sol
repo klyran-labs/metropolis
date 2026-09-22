@@ -31,6 +31,8 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     bytes32 public constant MICRO_VOUCHER_TYPEHASH = keccak256(
         "MicroVoucher(address agent,address provider,uint256 epoch,bytes32 sessionId,uint128 cumulativeSpent,uint256 nonce,uint256 deadline)"
     );
+    bytes32 public constant SESSION_VOUCHER_TYPEHASH =
+        keccak256("SessionVoucher(address agent,address provider,bytes32 sessionId,uint128 voucherAmount)");
 
     // Double-Partitioned Storage Slots: Anchored strictly by agent address
     // Eliminates parallel write-write conflicts across concurrent agents on Monad Parallel EVM
@@ -40,7 +42,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
 
     // Split-State Challenge Protocol Slots: Disentangles agent challenges from merchant vouchers
     mapping(address => mapping(bytes32 => UnilateralChallenge)) public agentChallenges;
-    mapping(address => mapping(bytes32 => uint128)) public merchantSettlements;
+    mapping(address => mapping(address => mapping(bytes32 => uint128))) public merchantSettlements;
 
     // Sharded Lazy-Settled Relayer Compensation Slots
     mapping(address => mapping(uint256 => uint128)) public relayerGasCredits;
@@ -54,12 +56,15 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     error AllocationExceeded();
     error SpendNotMonotonic();
     error ChallengeAlreadyActive();
+    error ChallengeTargetMismatch();
     error ChallengeNotExpired();
     error NoActiveChallenge();
     error InvalidVoucherSignature();
     error CooldownActive();
     error ZeroAmount();
     error TokenTransferFailed();
+    error AmountOverflow();
+    error BucketExpired();
 
     modifier onlyOwner() {
         _onlyOwner();
@@ -114,7 +119,9 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
 
         actualAmount = balAfter - balBefore;
         if (actualAmount == 0) revert ZeroAmount();
+        if (actualAmount > type(uint128).max) revert AmountOverflow();
 
+        if (vaultBalance[agent] > type(uint128).max - uint128(actualAmount)) revert AmountOverflow();
         vaultBalance[agent] += uint128(actualAmount);
         emit Deposited(agent, msg.sender, actualAmount);
     }
@@ -138,7 +145,12 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     }
 
     /// @notice Finalizes an unbonded withdrawal after cooldown expires.
-    function finalizeWithdrawal(address agent, address recipient) external override nonReentrant returns (uint128 amount) {
+    function finalizeWithdrawal(address agent, address recipient)
+        external
+        override
+        nonReentrant
+        returns (uint128 amount)
+    {
         if (msg.sender != agent && msg.sender != policyEngine.agentAdmin(agent) && msg.sender != owner) {
             revert Unauthorized();
         }
@@ -162,13 +174,11 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     }
 
     /// @notice Double-partitioned allocation: anchors credit in agent's orthogonal storage slot.
-    function allocateEpochBucket(
-        address agent,
-        address provider,
-        uint256 epoch,
-        uint128 amount,
-        uint32 duration
-    ) external override notCircuitBroken(agent) {
+    function allocateEpochBucket(address agent, address provider, uint256 epoch, uint128 amount, uint32 duration)
+        external
+        override
+        notCircuitBroken(agent)
+    {
         if (msg.sender != agent && msg.sender != policyEngine.agentAdmin(agent) && msg.sender != owner) {
             revert Unauthorized();
         }
@@ -178,6 +188,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
 
         EpochBucket storage bucket = agentEpochAllocation[agent][provider][epoch];
         if (bucket.isClosed) revert BucketClosed();
+        if (bucket.allocatedCap > 0) _notBucketExpired(bucket);
 
         vaultBalance[agent] -= amount;
 
@@ -185,6 +196,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
             bucket.epochStart = uint32(block.timestamp);
             bucket.epochDuration = duration;
         }
+        if (bucket.allocatedCap > type(uint128).max - amount) revert AmountOverflow();
         bucket.allocatedCap += amount;
 
         emit EpochBucketAllocated(agent, provider, epoch, bucket.allocatedCap, duration);
@@ -200,6 +212,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     ) external override nonReentrant notCircuitBroken(agent) returns (uint128 delta) {
         EpochBucket storage bucket = agentEpochAllocation[agent][provider][epoch];
         if (bucket.isClosed) revert BucketClosed();
+        _notBucketExpired(bucket);
         if (cumulativeSpent > bucket.allocatedCap) revert AllocationExceeded();
         if (cumulativeSpent <= bucket.cumulativeSettled) revert SpendNotMonotonic();
 
@@ -227,6 +240,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
 
         if (cumulativeSpent > 0 && cumulativeSpent > bucket.cumulativeSettled) {
             if (cumulativeSpent > bucket.allocatedCap) revert AllocationExceeded();
+            _notBucketExpired(bucket);
             _verifyVoucher(agent, provider, epoch, bytes32(0), cumulativeSpent, 0, block.timestamp + 1 hours, signature);
             delta = cumulativeSpent - bucket.cumulativeSettled;
             bucket.cumulativeSettled = cumulativeSpent;
@@ -263,7 +277,17 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
         if (oldBucket.allocatedCap > 0 && !oldBucket.isClosed) {
             if (oldCumulativeSpent > 0 && oldCumulativeSpent > oldBucket.cumulativeSettled) {
                 if (oldCumulativeSpent > oldBucket.allocatedCap) revert AllocationExceeded();
-                _verifyVoucher(agent, provider, oldEpoch, bytes32(0), oldCumulativeSpent, 0, block.timestamp + 1 hours, oldSignature);
+                _notBucketExpired(oldBucket);
+                _verifyVoucher(
+                    agent,
+                    provider,
+                    oldEpoch,
+                    bytes32(0),
+                    oldCumulativeSpent,
+                    0,
+                    block.timestamp + 1 hours,
+                    oldSignature
+                );
                 delta = oldCumulativeSpent - oldBucket.cumulativeSettled;
                 oldBucket.cumulativeSettled = oldCumulativeSpent;
                 bool ok = token.transfer(provider, delta);
@@ -293,6 +317,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
             newBucket.epochStart = uint32(block.timestamp);
             newBucket.epochDuration = newDuration;
         }
+        if (newBucket.allocatedCap > type(uint128).max - newAmount) revert AmountOverflow();
         newBucket.allocatedCap += newAmount;
 
         emit EpochBucketAllocated(agent, provider, newEpoch, newBucket.allocatedCap, newDuration);
@@ -310,6 +335,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
         if (msg.sender != agent && msg.sender != policyEngine.agentAdmin(agent) && msg.sender != owner) {
             revert Unauthorized();
         }
+        if (provider == address(0)) revert ZeroAddress();
         EpochBucket storage bucket = agentEpochAllocation[agent][provider][epoch];
         if (bucket.isClosed) revert BucketClosed();
 
@@ -318,42 +344,48 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
 
         ch.challengeBlock = block.number;
         ch.proposedSettlement = claimedSpent;
+        ch.provider = provider;
+        ch.epoch = epoch;
         ch.active = true;
 
-        emit UnilateralChallengeInitiated(agent, sessionId, block.number, claimedSpent);
+        emit UnilateralChallengeInitiated(agent, provider, epoch, sessionId, block.number, claimedSpent);
     }
 
     /// @notice Split-State Dispute: Merchant submits highest voucher writing strictly to provider slot.
     function submitMerchantVoucher(
+        address agent,
         address provider,
         bytes32 sessionId,
         uint128 voucherAmount,
         bytes calldata signature
     ) external override {
-        if (voucherAmount <= merchantSettlements[provider][sessionId]) revert SpendNotMonotonic();
+        if (agent == address(0) || provider == address(0)) revert ZeroAddress();
+        if (!agentChallenges[agent][sessionId].active) revert NoActiveChallenge();
+        if (voucherAmount <= merchantSettlements[agent][provider][sessionId]) revert SpendNotMonotonic();
 
         // Verifies the agent's signature on the session voucher
-        _verifySessionVoucher(provider, sessionId, voucherAmount, signature);
+        _verifySessionVoucher(agent, provider, sessionId, voucherAmount, signature);
 
-        merchantSettlements[provider][sessionId] = voucherAmount;
-        emit MerchantVoucherSubmitted(provider, sessionId, voucherAmount);
+        merchantSettlements[agent][provider][sessionId] = voucherAmount;
+        emit MerchantVoucherSubmitted(agent, provider, sessionId, voucherAmount);
     }
 
     /// @notice Split-State Dispute: Resolves dispute via read-only comparison across orthogonal slots.
-    function finalizeUnilateralClose(
-        address agent,
-        address provider,
-        uint256 epoch,
-        bytes32 sessionId
-    ) external override nonReentrant returns (uint128 providerPayout, uint128 agentRefund) {
+    function finalizeUnilateralClose(address agent, address provider, uint256 epoch, bytes32 sessionId)
+        external
+        override
+        nonReentrant
+        returns (uint128 providerPayout, uint128 agentRefund)
+    {
         UnilateralChallenge storage ch = agentChallenges[agent][sessionId];
         if (!ch.active) revert NoActiveChallenge();
+        if (ch.provider != provider || ch.epoch != epoch) revert ChallengeTargetMismatch();
         if (block.number < ch.challengeBlock + CHALLENGE_WINDOW_BLOCKS) revert ChallengeNotExpired();
 
         EpochBucket storage bucket = agentEpochAllocation[agent][provider][epoch];
         if (bucket.isClosed) revert BucketClosed();
 
-        uint128 merchantClaim = merchantSettlements[provider][sessionId];
+        uint128 merchantClaim = merchantSettlements[agent][provider][sessionId];
         uint128 finalSpent = merchantClaim > ch.proposedSettlement ? merchantClaim : ch.proposedSettlement;
         if (finalSpent > bucket.allocatedCap) {
             finalSpent = bucket.allocatedCap;
@@ -381,16 +413,23 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     function creditRelayerFee(address relayer, uint256 shardId, uint128 amount) external override {
         if (msg.sender != owner && !authorizedCallers[msg.sender]) revert Unauthorized();
         if (relayer == address(0)) revert ZeroAddress();
+        if (relayerGasCredits[relayer][shardId] > type(uint128).max - amount) revert AmountOverflow();
         relayerGasCredits[relayer][shardId] += amount;
         emit RelayerCreditAccrued(relayer, shardId, amount);
     }
 
     /// @notice Relayers claim accumulated payouts in aggregated batch withdrawals.
-    function claimRelayerCredits(uint256[] calldata shardIds) external override nonReentrant returns (uint128 totalPayout) {
+    function claimRelayerCredits(uint256[] calldata shardIds)
+        external
+        override
+        nonReentrant
+        returns (uint128 totalPayout)
+    {
         for (uint256 i = 0; i < shardIds.length; i++) {
             uint256 shard = shardIds[i];
             uint128 credit = relayerGasCredits[msg.sender][shard];
             if (credit > 0) {
+                if (totalPayout > type(uint128).max - credit) revert AmountOverflow();
                 totalPayout += credit;
                 relayerGasCredits[msg.sender][shard] = 0;
             }
@@ -413,16 +452,7 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
         bytes calldata signature
     ) internal view {
         bytes32 structHash = keccak256(
-            abi.encode(
-                MICRO_VOUCHER_TYPEHASH,
-                agent,
-                provider,
-                epoch,
-                sessionId,
-                cumulativeSpent,
-                nonce,
-                deadline
-            )
+            abi.encode(MICRO_VOUCHER_TYPEHASH, agent, provider, epoch, sessionId, cumulativeSpent, nonce, deadline)
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
 
@@ -455,19 +485,13 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
     }
 
     function _verifySessionVoucher(
+        address agent,
         address provider,
         bytes32 sessionId,
         uint128 voucherAmount,
         bytes calldata signature
     ) internal view {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256("SessionVoucher(address provider,bytes32 sessionId,uint128 voucherAmount)"),
-                provider,
-                sessionId,
-                voucherAmount
-            )
-        );
+        bytes32 structHash = keccak256(abi.encode(SESSION_VOUCHER_TYPEHASH, agent, provider, sessionId, voucherAmount));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
 
         if (signature.length == 65) {
@@ -485,7 +509,13 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
             }
             // forge-lint: disable-next-line(ecrecover)
             address recovered = ecrecover(digest, v, r, s);
-            if (recovered != address(0)) return;
+            if (recovered == agent) return;
+        }
+
+        if (agent.code.length > 0) {
+            try IERC1271(agent).isValidSignature(digest, signature) returns (bytes4 magic) {
+                if (magic == ERC1271_MAGICVALUE) return;
+            } catch {}
         }
 
         revert InvalidVoucherSignature();
@@ -496,32 +526,40 @@ contract CircuitVault is ICircuitVault, TransientReentrancyGuard {
         return vaultBalance[agent];
     }
 
-    function getEpochBucket(
-        address agent,
-        address provider,
-        uint256 epoch
-    ) external view override returns (EpochBucket memory) {
+    function getEpochBucket(address agent, address provider, uint256 epoch)
+        external
+        view
+        override
+        returns (EpochBucket memory)
+    {
         return agentEpochAllocation[agent][provider][epoch];
     }
 
-    function getAgentChallenge(
-        address agent,
-        bytes32 sessionId
-    ) external view override returns (UnilateralChallenge memory) {
+    function getAgentChallenge(address agent, bytes32 sessionId)
+        external
+        view
+        override
+        returns (UnilateralChallenge memory)
+    {
         return agentChallenges[agent][sessionId];
     }
 
-    function getMerchantSettlement(
-        address provider,
-        bytes32 sessionId
-    ) external view override returns (uint128) {
-        return merchantSettlements[provider][sessionId];
+    function getMerchantSettlement(address agent, address provider, bytes32 sessionId)
+        external
+        view
+        override
+        returns (uint128)
+    {
+        return merchantSettlements[agent][provider][sessionId];
     }
 
-    function getRelayerGasCredits(
-        address relayer,
-        uint256 shardId
-    ) external view override returns (uint128) {
+    function getRelayerGasCredits(address relayer, uint256 shardId) external view override returns (uint128) {
         return relayerGasCredits[relayer][shardId];
+    }
+
+    function _notBucketExpired(EpochBucket storage bucket) internal view {
+        if (bucket.epochDuration > 0 && block.timestamp > uint256(bucket.epochStart) + uint256(bucket.epochDuration)) {
+            revert BucketExpired();
+        }
     }
 }

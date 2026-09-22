@@ -178,7 +178,7 @@ To maintain maximum parallel throughput on Monad and eliminate storage-proxy rea
 4. **ERC-7579 / ERC-4337 Modular Account Hooks**: `AgentGuardHookModule.sol` implements standard Hook (`type 4`) and Validator (`type 1`) interfaces for Kernel, Safe ERC-7579, and Biconomy smart accounts.
 5. **EIP-6551 Token Bound Accounts (TBA)**: `AgentIdentityRegistry.sol` and `AgentAccount.sol` bind agent budget allocations, spend policies, and reputation scores to an ERC-721 identity NFT passport.
 6. **ERC-7677 Paymaster RPC**: Rust Gateway implements standard JSON-RPC endpoints (`pm_getPaymasterStubData`, `pm_getPaymasterData`) enabling gasless stablecoin agent transactions.
-7. **TEE Remote Attestation**: OpenSigner provides hardware-sealed quotes (`mrenclave`) via `/api/v1/attestation/quote`, verified onchain via `EnclaveAttestationRegistry.sol`.
+7. **Attestation boundary**: OpenSigner does not fabricate enclave measurements. The attestation endpoints fail closed with `ATTESTATION_UNAVAILABLE` until a provider-backed verifier is configured; `EnclaveAttestationRegistry.sol` remains an explicit integration boundary.
 
 ---
 

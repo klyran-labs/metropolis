@@ -12,11 +12,20 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from "lucide-react";
-import { encodeFunctionData, isAddress, type Address } from "viem";
-import { request, useAgentPolicy, useAgents, type PolicyUpdate } from "../../api";
-import { configuration } from "../../configuration";
-import { Badge, Button, EmptyState, Mono, RecordSummary, Surface, TextField } from "../../design-system";
-import { POLICY_ENGINE_ABI } from "../../hooks/usePolicyContracts";
+import { request, toUserFacingError, useAgentPolicy, useAgents, type PolicyUpdate } from "../../api";
+import {
+  Badge,
+  Button,
+  Dialog,
+  EmptyState,
+  formatTokenAmount,
+  Mono,
+  RecordSummary,
+  Surface,
+  TextField,
+  TransactionStatus,
+  type TransactionPhase,
+} from "../../design-system";
 import { useIdentity } from "../../identity";
 
 async function waitForReceipt(
@@ -109,6 +118,10 @@ export function Policy() {
   });
   const [message, setMessage] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [transactionPhase, setTransactionPhase] = useState<TransactionPhase>("idle");
+  const [transactionHash, setTransactionHash] = useState<string>();
+  const [transactionError, setTransactionError] = useState("");
 
   // Auto-select first agent if available and none selected
   useEffect(() => {
@@ -165,59 +178,80 @@ export function Policy() {
     setDraft((prev) => ({ ...prev, windowSeconds: seconds }));
   };
 
+  const currentPolicy: PolicyUpdate | null = policy.data
+    ? {
+        maxPerTx: String(policy.data.maxPerTx ?? "0"),
+        maxPerWindow: String(policy.data.maxPerWindow ?? "0"),
+        windowSeconds: Number(policy.data.windowSeconds ?? 3600),
+        maxVelocity: Number(policy.data.maxVelocity ?? 1),
+        killSwitch: Boolean(policy.data.killSwitch),
+        whitelistEnabled: Boolean(policy.data.whitelistEnabled),
+      }
+    : null;
+
+  const changedFields = (Object.keys(draft) as Array<keyof PolicyUpdate>).filter(
+    (key) => !currentPolicy || draft[key] !== currentPolicy[key],
+  );
+
+  const reviewPolicy = () => {
+    if (!agent) {
+      setMessage("Select an agent before reviewing a policy change.");
+      return;
+    }
+    if (!Number.isFinite(draft.windowSeconds) || draft.windowSeconds < 1 || draft.maxVelocity < 1) {
+      setMessage("Window duration and velocity must be positive values.");
+      return;
+    }
+    try {
+      if (BigInt(draft.maxPerTx || "0") < 0n || BigInt(draft.maxPerWindow || "0") < 0n) {
+        setMessage("Spend limits cannot be negative.");
+        return;
+      }
+    } catch {
+      setMessage("Spend limits must be whole-number token amounts.");
+      return;
+    }
+    setTransactionError("");
+    setReviewOpen(true);
+  };
+
   const publish = async () => {
     const wallet = wallets[0];
     if (!agent || !wallet) {
       setMessage("Connect your organization's admin wallet before publishing policy.");
       return;
     }
+    setReviewOpen(false);
     setIsPublishing(true);
+    setTransactionPhase("idle");
+    setTransactionHash(undefined);
+    setTransactionError("");
     try {
       setMessage("Preparing the policy change…");
-      let target: string;
-      let data: string;
-
-      try {
-        const prepared = await request<{ target: string; data: string }>(
-          `/agents/${encodeURIComponent(agent)}/policy`,
-          { method: "POST", body: JSON.stringify(draft) },
-        );
-        target = prepared.target;
-        data = prepared.data;
-      } catch {
-        // Direct onchain fallback if gateway REST endpoint is unreachable
-        const engineAddress = configuration.contracts.policyEngine;
-        if (!engineAddress || !isAddress(engineAddress)) {
-          throw new Error("PolicyEngine contract address is not configured.");
-        }
-        target = engineAddress;
-        data = encodeFunctionData({
-          abi: POLICY_ENGINE_ABI,
-          functionName: "setPolicy",
-          args: [
-            agent as Address,
-            {
-              maxPerTx: BigInt(draft.maxPerTx || "0"),
-              maxPerWindow: BigInt(draft.maxPerWindow || "0"),
-              windowSeconds: draft.windowSeconds,
-              maxVelocity: draft.maxVelocity,
-              killSwitch: draft.killSwitch,
-              whitelistEnabled: draft.whitelistEnabled,
-            },
-          ],
-        });
-      }
+      const prepared = await request<{ target: string; data: string }>(
+        `/agents/${encodeURIComponent(agent)}/policy`,
+        { method: "POST", body: JSON.stringify(draft) },
+      );
+      const target = prepared.target;
+      const data = prepared.data;
 
       const provider = await wallet.getEthereumProvider();
+      setTransactionPhase("awaiting_wallet");
       const hash = (await provider.request({
         method: "eth_sendTransaction",
         params: [{ from: wallet.address, to: target, data }],
       })) as string;
+      setTransactionHash(hash);
+      setTransactionPhase("pending");
       await waitForReceipt(provider, hash);
+      setTransactionPhase("confirmed");
       setMessage("Policy change confirmed on the settlement network.");
       void policy.refetch();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The policy change could not be completed.");
+      const safeError = toUserFacingError(error, "The policy change could not be completed.");
+      setTransactionPhase("failed");
+      setTransactionError(safeError);
+      setMessage(safeError);
     } finally {
       setIsPublishing(false);
     }
@@ -230,7 +264,7 @@ export function Policy() {
           <span className="eyebrow">Risk Governance / Policy Engine</span>
           <h1>Policy Studio</h1>
           <p>
-            Author and enforce deterministic Monad EVM spend invariants per autonomous agent. Changes settle atomically in 400ms.
+            Author and enforce deterministic spend invariants per autonomous agent. Changes are submitted to the configured Monad network for confirmation.
           </p>
         </div>
         <div className="page-heading-actions">
@@ -370,11 +404,11 @@ export function Policy() {
             </div>
 
             <Button
-              onClick={() => void publish()}
+              onClick={reviewPolicy}
               disabled={!agent || isPublishing}
               className="publish-policy-btn"
             >
-              {isPublishing ? "Submitting to Monad…" : "Publish Policy to Monad"}
+              {isPublishing ? "Submitting to Monad…" : "Review & Publish Policy"}
             </Button>
           </div>
 
@@ -458,6 +492,61 @@ export function Policy() {
           </Surface>
         </div>
       </div>
+
+      <TransactionStatus
+        phase={transactionPhase}
+        hash={transactionHash}
+        error={transactionError}
+      />
+
+      <Dialog
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        title="Review policy change"
+        description="Confirm the exact limits that will be sent to the configured PolicyEngine. No onchain state changes until wallet approval."
+        footer={
+          <>
+            <Button variant="text" onClick={() => setReviewOpen(false)}>
+              Keep editing
+            </Button>
+            <Button onClick={() => void publish()} disabled={isPublishing}>
+              Confirm & open wallet
+            </Button>
+          </>
+        }
+      >
+        <div className="policy-review-target">
+          <span className="eyebrow">Target agent</span>
+          <Mono>{agent}</Mono>
+        </div>
+        <div className="policy-review-summary">
+          <strong>{changedFields.length} policy {changedFields.length === 1 ? "field" : "fields"} will change</strong>
+          <span>Review the impact before signing.</span>
+        </div>
+        <dl className="policy-diff-list">
+          {changedFields.map((key) => {
+            const before = currentPolicy?.[key];
+            const after = draft[key];
+            const display = (value: PolicyUpdate[typeof key] | undefined) => {
+              if (value === undefined) return "Not configured";
+              if (key === "maxPerTx" || key === "maxPerWindow") return `${formatTokenAmount(String(value))} USDC`;
+              if (key === "windowSeconds") return `${value} seconds`;
+              if (key === "maxVelocity") return `${value} transactions`;
+              return value ? "Enabled" : "Disabled";
+            };
+            return (
+              <div className="policy-diff-row" key={key}>
+                <dt>{policyLabels[key]}</dt>
+                <dd><span>{display(before)}</span><strong>→</strong><span>{display(after)}</span></dd>
+              </div>
+            );
+          })}
+        </dl>
+        <div className="policy-review-warning" role="note">
+          <AlertTriangle size={16} />
+          <span>This policy governs autonomous spending immediately after network confirmation.</span>
+        </div>
+      </Dialog>
     </div>
   );
 }

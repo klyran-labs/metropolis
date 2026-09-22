@@ -1,7 +1,7 @@
 # ADR 0008: Alibaba Qwen 3.8 Max Autonomous Agent Inference & UI Risk Copilot Architecture
 
 ## Status
-**Implemented** (Supersedes Hackathon Phase 2 target — fully deployed)
+**Accepted; code implemented, live deployment/provider validation pending**
 
 ## Context
 In the emerging autonomous agent economy, two distinct challenges prevent institutional adoption of AI agents:

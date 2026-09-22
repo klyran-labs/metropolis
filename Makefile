@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 LOCAL_ENV_FILE ?= .env.local
 
-.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-web test-middleware test-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down docker-prod-up docker-prod-down clean help
+.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-contracts-forge test-web test-middleware test-gateway bench-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down docker-prod-up docker-prod-down clean help
 
 all: lint build test
 
@@ -43,14 +43,16 @@ build-web:
 	@echo "=== Building React 19 Web Control Plane (Vite) ==="
 	@cd apps/web && npm run build
 
-test: test-contracts test-web test-middleware test-gateway test-opensigner
+test: test-contracts test-contracts-forge test-web test-middleware test-gateway test-opensigner
 	@echo "=== All AgentGuard Test Suites Passed 100% ==="
-	@echo "NOTE: 'test-contracts' above is the JS parity suite, NOT a substitute"
-	@echo "for 'forge test' against real compiled bytecode. Run: cd contracts && forge test -vvv"
 
 test-contracts:
 	@echo "=== Running AgentGuard Monad Contracts Test Suite ==="
 	@node --test contracts/test/agentguard-contracts.test.mjs
+
+test-contracts-forge:
+	@echo "=== Running Foundry tests against compiled contract bytecode ==="
+	@forge test --root contracts
 
 test-web:
 	@echo "=== Running React 19 Web Control Plane Tests ==="
@@ -75,6 +77,10 @@ build-opensigner:
 test-gateway:
 	@echo "=== Running AgentGuard High-Throughput Rust Gateway Tests ==="
 	@cargo test --manifest-path services/gateway/Cargo.toml
+
+bench-gateway:
+	@echo "=== Running repeatable gateway latency profile ==="
+	@cargo bench --manifest-path services/gateway/Cargo.toml --bench gateway_latency
 
 run-web:
 	@echo "=== Starting local control plane ==="

@@ -1,8 +1,14 @@
-import * as echarts from "echarts";
+import * as echarts from "echarts/core";
+import { BarChart, GaugeChart, LineChart } from "echarts/charts";
+import { GridComponent, TooltipComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+import type { ECharts, EChartsOption } from "echarts";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { chartPalette, resolveTheme, type ResolvedTheme } from "./theme";
 import { EmptyState } from "./design-system";
+
+echarts.use([BarChart, GaugeChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
 export function useResolvedTheme(): ResolvedTheme {
   const [theme, setTheme] = useState<ResolvedTheme>(() =>
@@ -28,10 +34,10 @@ export function useResolvedTheme(): ResolvedTheme {
 }
 
 function useChart(
-  option: echarts.EChartsOption | null,
+  option: EChartsOption | null,
   deps: unknown[],
 ): (node: HTMLDivElement | null) => void {
-  const instance = useRef<echarts.ECharts | null>(null);
+  const instance = useRef<ECharts | null>(null);
   // A conditionally-rendered chart div (EmptyState <-> chart) mounts on a
   // later commit than the component itself, so a plain useRef + `[]`-effect
   // would miss it. A callback ref re-fires whenever the node actually
@@ -70,7 +76,7 @@ export function Sparkline({
 }) {
   const theme = useResolvedTheme();
   const palette = chartPalette[theme];
-  const option: echarts.EChartsOption | null = data.length
+  const option: EChartsOption | null = data.length
     ? {
         animation: false,
         grid: { top: 2, right: 2, bottom: 2, left: 2 },
@@ -115,7 +121,7 @@ export function TrendArea({
   const theme = useResolvedTheme();
   const palette = chartPalette[theme];
   const accent = palette.categorical[0];
-  const option: echarts.EChartsOption | null = data.length
+  const option: EChartsOption | null = data.length
     ? {
         animation: false,
         textStyle: { fontFamily: "inherit", color: palette.inkSecondary },
@@ -176,7 +182,7 @@ export function Bars({
 }) {
   const theme = useResolvedTheme();
   const palette = chartPalette[theme];
-  const option: echarts.EChartsOption | null = data.length
+  const option: EChartsOption | null = data.length
     ? {
         animation: false,
         textStyle: { fontFamily: "inherit", color: palette.inkSecondary },
@@ -277,7 +283,7 @@ export function Gauge({
 }) {
   const theme = useResolvedTheme();
   const palette = chartPalette[theme];
-  const option: echarts.EChartsOption = {
+  const option: EChartsOption = {
     animation: false,
     series: [
       {

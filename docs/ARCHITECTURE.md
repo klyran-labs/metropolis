@@ -206,7 +206,7 @@ For institutional and enterprise deployments requiring that raw private keys nev
 3. **Enterprise Key Management Interoperability**:
    - In addition to the local self-hosted OpenSigner container, AgentGuard architecture cleanly abstracts the signing interface to support:
      - **AWS KMS / Google Cloud KMS**: Cloud HSM-backed secp256k1 key rings.
-     - **Confidential TEE Enclaves (AWS Nitro / Flashbots SGX)**: Attested confidential VMs where LLM agents run in cryptographically verified enclaves.
+     - **Confidential TEE integration boundary**: A provider-backed attestation service may be added later; the current OpenSigner deployment makes no hardware-isolation claim.
      - **Turnkey / Openfort**: Multi-party computation (MPC) and policy-controlled session signers.
 
 ---
@@ -223,4 +223,4 @@ AgentGuard avoids upgradeable storage proxies (e.g. ERC-1967) to eliminate globa
 | **ERC-7579** | [`AgentGuardHookModule.sol`](../contracts/src/core/AgentGuardHookModule.sol) | Modular account hook (`type 4`) and validator (`type 1`) for Kernel, Safe ERC-7579, and Biconomy. Runs pre-checks via `PolicyEngine` and post-checks via `ReputationRegistry`. |
 | **EIP-6551** | [`AgentIdentityRegistry.sol`](../contracts/src/core/AgentIdentityRegistry.sol), [`AgentAccount.sol`](../contracts/src/core/AgentAccount.sol) | Deterministic Token Bound Account registry. Binds the agent's wallet address, spend policy, and reputation score to an ERC-721 NFT passport. |
 | **ERC-7677** | [`services/gateway`](../services/gateway) | Standard JSON-RPC Paymaster RPC endpoints (`pm_getPaymasterStubData`, `pm_getPaymasterData`) enabling gasless stablecoin agent transactions. |
-| **TEE Attestation** | [`EnclaveAttestationRegistry.sol`](../contracts/src/core/EnclaveAttestationRegistry.sol), [`services/opensigner`](../services/opensigner) | Hardware enclave measurement generation (`mrenclave`) via OpenSigner with onchain verification in `EnclaveAttestationRegistry`. |
+| **TEE Attestation** | [`EnclaveAttestationRegistry.sol`](../contracts/src/core/EnclaveAttestationRegistry.sol), [`services/opensigner`](../services/opensigner) | Explicit provider integration boundary. OpenSigner returns `ATTESTATION_UNAVAILABLE` until hardware quote verification is configured. |

@@ -320,6 +320,34 @@ export class RequestError extends Error {
   }
 }
 
+/** Converts transport, wallet, and policy failures into safe operator-facing copy. */
+export function toUserFacingError(error: unknown, fallback: string): string {
+  if (error instanceof RequestError) {
+    const reasonMessages: Record<string, string> = {
+      ERR_UNAUTHENTICATED: "Your session has expired. Sign in again to continue.",
+      ERR_ROLE_FORBIDDEN: "Your role does not permit this action.",
+      ERR_TENANT_SCOPE: "This resource is outside your organization workspace.",
+      ERR_POLICY_DENIED: "The policy engine denied this action.",
+      ERR_RATE_LIMITED: "The workspace is busy. Retry when the current operations finish.",
+      ERR_DEPENDENCY_UNAVAILABLE: "A required service is temporarily unavailable.",
+      ERR_TIMEOUT: "The request timed out before a response was received.",
+    };
+    return reasonMessages[error.reasonCode] ?? fallback;
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  if (/user rejected|user denied|rejected the request/i.test(message)) {
+    return "Wallet approval was cancelled.";
+  }
+  if (/wrong network|chain id|unsupported chain/i.test(message)) {
+    return "Switch your wallet to the configured settlement network and try again.";
+  }
+  if (/insufficient funds|balance is too low/i.test(message)) {
+    return "The connected wallet does not have enough funds for this action.";
+  }
+  return fallback;
+}
+
 export const setAccessTokenProvider = (
   provider: () => Promise<string | null>,
 ) => {

@@ -10,6 +10,7 @@
 
 use crate::types::{
     FinOpsSpendResult, ModelRateOverride, PricingModelType, TenantPricingModel,
+    UpdatePricingModelRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -174,11 +175,7 @@ pub fn get_official_tool_catalog() -> Vec<crate::types::ToolCatalogEntry> {
 }
 
 /// Calculates tool spend for non-token tool execution requests (ADR 0010 Section 1)
-pub fn calculate_tool_spend(
-    tool_id: &str,
-    call_count: u64,
-    pricing: &TenantPricingModel,
-) -> u64 {
+pub fn calculate_tool_spend(tool_id: &str, call_count: u64, pricing: &TenantPricingModel) -> u64 {
     let rate_per_call = if let Some(override_rate) = pricing.tool_custom_rates.get(tool_id) {
         override_rate.cost_per_call_micro_dollars
     } else {
@@ -193,43 +190,97 @@ pub fn calculate_tool_spend(
     call_count.saturating_mul(rate_per_call)
 }
 
-/// Find catalog entry or create reasonable fallback for unknown model.
+pub fn validate_pricing_model(request: &UpdatePricingModelRequest) -> Result<(), &'static str> {
+    if request.discount_bps > 10_000 {
+        return Err("The pricing discount cannot exceed 10000 basis points.");
+    }
+    if request
+        .volume_tiers
+        .windows(2)
+        .any(|tiers| tiers[0].min_tokens >= tiers[1].min_tokens)
+    {
+        return Err("Pricing volume tiers must be strictly ordered by token volume.");
+    }
+    if request
+        .volume_tiers
+        .iter()
+        .any(|tier| tier.discount_bps > 10_000)
+    {
+        return Err("A pricing volume tier cannot exceed 10000 basis points.");
+    }
+    for rate in request.custom_rates.values() {
+        if rate.cache_write_per_m_micro_dollars.is_none()
+            && rate.input_per_m_micro_dollars.checked_mul(125).is_none()
+        {
+            return Err("A custom model rate overflows its derived cache-write rate.");
+        }
+    }
+    Ok(())
+}
+
+/// Find a configured custom rate or an official catalog entry. Unknown models are rejected.
 pub fn resolve_model_rates(
     model_id: &str,
     custom_rates: &HashMap<String, ModelRateOverride>,
-) -> (u64, u64, u64, u64) {
+) -> Option<(u64, u64, u64, u64)> {
     if let Some(override_rate) = custom_rates.get(model_id) {
-        return (
+        return Some((
             override_rate.input_per_m_micro_dollars,
             override_rate.output_per_m_micro_dollars,
-            override_rate.cache_read_per_m_micro_dollars.unwrap_or(override_rate.input_per_m_micro_dollars / 10),
-            override_rate.cache_write_per_m_micro_dollars.unwrap_or((override_rate.input_per_m_micro_dollars * 125) / 100),
-        );
+            override_rate
+                .cache_read_per_m_micro_dollars
+                .unwrap_or(override_rate.input_per_m_micro_dollars / 10),
+            override_rate
+                .cache_write_per_m_micro_dollars
+                .unwrap_or((override_rate.input_per_m_micro_dollars * 125) / 100),
+        ));
     }
 
     type CatalogRow = (&'static str, u64, u64, u64, u64);
     static CATALOG: std::sync::OnceLock<[CatalogRow; 10]> = std::sync::OnceLock::new();
-    let catalog = CATALOG.get_or_init(|| [
-        ("claude-3-7-sonnet",  3_000_000,  15_000_000,   300_000,  3_750_000),
-        ("claude-3-5-sonnet",  3_000_000,  15_000_000,   300_000,  3_750_000),
-        ("claude-3-5-haiku",     800_000,   4_000_000,    80_000,  1_000_000),
-        ("gpt-4o",             2_500_000,  10_000_000, 1_250_000,  2_500_000),
-        ("gpt-4o-mini",          150_000,     600_000,    75_000,    150_000),
-        ("o3-mini",            1_100_000,   4_400_000,   550_000,  1_100_000),
-        ("deepseek-v3",          270_000,   1_100_000,    70_000,    270_000),
-        ("deepseek-r1",          550_000,   2_190_000,   140_000,    550_000),
-        ("qwen-max",           2_400_000,   9_600_000,   600_000,  2_400_000),
-        ("qwen-plus",            400_000,   1_200_000,   100_000,    400_000),
-    ]);
+    let catalog = CATALOG.get_or_init(|| {
+        [
+            (
+                "claude-3-7-sonnet",
+                3_000_000,
+                15_000_000,
+                300_000,
+                3_750_000,
+            ),
+            (
+                "claude-3-5-sonnet",
+                3_000_000,
+                15_000_000,
+                300_000,
+                3_750_000,
+            ),
+            ("claude-3-5-haiku", 800_000, 4_000_000, 80_000, 1_000_000),
+            ("gpt-4o", 2_500_000, 10_000_000, 1_250_000, 2_500_000),
+            ("gpt-4o-mini", 150_000, 600_000, 75_000, 150_000),
+            ("o3-mini", 1_100_000, 4_400_000, 550_000, 1_100_000),
+            ("deepseek-v3", 270_000, 1_100_000, 70_000, 270_000),
+            ("deepseek-r1", 550_000, 2_190_000, 140_000, 550_000),
+            ("qwen-max", 2_400_000, 9_600_000, 600_000, 2_400_000),
+            ("qwen-plus", 400_000, 1_200_000, 100_000, 400_000),
+        ]
+    });
 
     for &(id, inp, out, cr, cw) in catalog.iter() {
         if id == model_id {
-            return (inp, out, cr, cw);
+            return Some((inp, out, cr, cw));
         }
     }
 
-    // Safe default: standard flagship rate ($2.50 in / $10.00 out)
-    (2_500_000, 10_000_000, 250_000, 3_125_000)
+    None
+}
+
+fn proportional_cost(nominal_cost: u64, part_tokens: u64, total_tokens: u64) -> u64 {
+    if nominal_cost == 0 || part_tokens == 0 || total_tokens == 0 {
+        return 0;
+    }
+    let numerator = (nominal_cost as u128).saturating_mul(part_tokens as u128);
+    let rounded = numerator.saturating_add((total_tokens as u128) / 2) / (total_tokens as u128);
+    rounded.min(u64::MAX as u128) as u64
 }
 
 /// Evaluates spend according to the tenant's configured pricing contract
@@ -240,28 +291,32 @@ pub fn calculate_inference_spend(
     cache_read_tokens: u64,
     cache_creation_tokens: u64,
     pricing: &TenantPricingModel,
-) -> FinOpsSpendResult {
+) -> Result<FinOpsSpendResult, String> {
     let total_tokens = input_tokens
         .saturating_add(output_tokens)
         .saturating_add(cache_read_tokens)
         .saturating_add(cache_creation_tokens);
 
     let (in_rate, out_rate, cache_read_rate, cache_write_rate) =
-        resolve_model_rates(model_name, &pricing.custom_rates);
+        resolve_model_rates(model_name, &pricing.custom_rates).ok_or_else(|| {
+            format!("No authoritative pricing rate is configured for model {model_name}")
+        })?;
 
     // Compute nominal list cost in micro-dollars (fixed-point arithmetic with 1M divisor)
     // Formula: (tokens * rate_per_m) / 1_000_000 with proper rounding
     let list_input_cost = ((input_tokens as u128 * in_rate as u128) + 500_000) / 1_000_000;
     let list_output_cost = ((output_tokens as u128 * out_rate as u128) + 500_000) / 1_000_000;
-    let list_cache_read_cost = ((cache_read_tokens as u128 * cache_read_rate as u128) + 500_000) / 1_000_000;
-    let list_cache_write_cost = ((cache_creation_tokens as u128 * cache_write_rate as u128) + 500_000) / 1_000_000;
+    let list_cache_read_cost =
+        ((cache_read_tokens as u128 * cache_read_rate as u128) + 500_000) / 1_000_000;
+    let list_cache_write_cost =
+        ((cache_creation_tokens as u128 * cache_write_rate as u128) + 500_000) / 1_000_000;
 
     let nominal_list_cost = list_input_cost
         .saturating_add(list_output_cost)
         .saturating_add(list_cache_read_cost)
         .saturating_add(list_cache_write_cost) as u64;
 
-    match pricing.model_type {
+    Ok(match pricing.model_type {
         PricingModelType::FlatDiscount => {
             let discount_bps = pricing.discount_bps.min(10000) as u128;
             let discount_amount = (nominal_list_cost as u128 * discount_bps) / 10000;
@@ -337,8 +392,7 @@ pub fn calculate_inference_spend(
                 } else {
                     let ptu_covered = remaining_ptu;
                     let overage = total_tokens - ptu_covered;
-                    let overage_ratio = overage as f64 / total_tokens as f64;
-                    let overage_cost = (nominal_list_cost as f64 * overage_ratio).round() as u64;
+                    let overage_cost = proportional_cost(nominal_list_cost, overage, total_tokens);
 
                     FinOpsSpendResult {
                         model_name: model_name.to_string(),
@@ -349,7 +403,11 @@ pub fn calculate_inference_spend(
                         cache_creation_tokens,
                         nominal_list_cost_micro_dollars: nominal_list_cost,
                         effective_cost_micro_dollars: overage_cost,
-                        effective_discount_bps: (((nominal_list_cost.saturating_sub(overage_cost)) as u128 * 10000) / nominal_list_cost.max(1) as u128) as u32,
+                        effective_discount_bps: (((nominal_list_cost.saturating_sub(overage_cost))
+                            as u128
+                            * 10000)
+                            / nominal_list_cost.max(1) as u128)
+                            as u32,
                         contract_model: PricingModelType::CommittedPtu,
                         ptu_capacity_applied: ptu_covered,
                         ptu_overage_tokens: overage,
@@ -447,17 +505,20 @@ pub fn calculate_inference_spend(
                 } else {
                     let ptu_covered = remaining_ptu;
                     let overage = total_tokens - ptu_covered;
-                    let overage_ratio = overage as f64 / total_tokens as f64;
-                    let overage_nominal = (nominal_list_cost as f64 * overage_ratio).round() as u64;
+                    let overage_nominal =
+                        proportional_cost(nominal_list_cost, overage, total_tokens);
 
                     let mut overage_discount_bps = pricing.discount_bps;
                     for tier in &pricing.volume_tiers {
                         if consumed + total_tokens >= tier.min_tokens {
-                            overage_discount_bps = tier.discount_bps.min(10000).max(overage_discount_bps);
+                            overage_discount_bps =
+                                tier.discount_bps.min(10000).max(overage_discount_bps);
                         }
                     }
-                    let discount_amount = (overage_nominal as u128 * overage_discount_bps as u128) / 10000;
-                    let overage_cost = (overage_nominal as u128).saturating_sub(discount_amount) as u64;
+                    let discount_amount =
+                        (overage_nominal as u128 * overage_discount_bps as u128) / 10000;
+                    let overage_cost =
+                        (overage_nominal as u128).saturating_sub(discount_amount) as u64;
 
                     FinOpsSpendResult {
                         model_name: model_name.to_string(),
@@ -468,7 +529,11 @@ pub fn calculate_inference_spend(
                         cache_creation_tokens,
                         nominal_list_cost_micro_dollars: nominal_list_cost,
                         effective_cost_micro_dollars: overage_cost,
-                        effective_discount_bps: (((nominal_list_cost.saturating_sub(overage_cost)) as u128 * 10000) / nominal_list_cost.max(1) as u128) as u32,
+                        effective_discount_bps: (((nominal_list_cost.saturating_sub(overage_cost))
+                            as u128
+                            * 10000)
+                            / nominal_list_cost.max(1) as u128)
+                            as u32,
                         contract_model: PricingModelType::HybridCommitVolume,
                         ptu_capacity_applied: ptu_covered,
                         ptu_overage_tokens: overage,
@@ -479,10 +544,12 @@ pub fn calculate_inference_spend(
                 let mut overage_discount_bps = pricing.discount_bps;
                 for tier in &pricing.volume_tiers {
                     if consumed >= tier.min_tokens {
-                        overage_discount_bps = tier.discount_bps.min(10000).max(overage_discount_bps);
+                        overage_discount_bps =
+                            tier.discount_bps.min(10000).max(overage_discount_bps);
                     }
                 }
-                let discount_amount = (nominal_list_cost as u128 * overage_discount_bps as u128) / 10000;
+                let discount_amount =
+                    (nominal_list_cost as u128 * overage_discount_bps as u128) / 10000;
                 let final_cost = (nominal_list_cost as u128).saturating_sub(discount_amount) as u64;
 
                 FinOpsSpendResult {
@@ -502,7 +569,7 @@ pub fn calculate_inference_spend(
                 }
             }
         }
-    }
+    })
 }
 
 /// Payload exchanged between distributed gateway instances to sync token volumes (ADR 0010 multi-region)
@@ -540,67 +607,15 @@ pub fn compute_active_tier_and_discount(pricing: &TenantPricingModel) -> (usize,
     let mut current_tier_idx = 0;
 
     for (idx, tier) in pricing.volume_tiers.iter().enumerate() {
-        if pricing.monthly_tokens_consumed >= tier.min_tokens {
-            if tier.discount_bps > effective_discount {
-                effective_discount = tier.discount_bps;
-                current_tier_idx = idx + 1;
-            }
+        if pricing.monthly_tokens_consumed >= tier.min_tokens
+            && tier.discount_bps > effective_discount
+        {
+            effective_discount = tier.discount_bps;
+            current_tier_idx = idx + 1;
         }
     }
 
     (current_tier_idx, effective_discount)
-}
-
-/// In-memory distributed token volume synchronizer to prevent multi-region ladder split-brain
-#[derive(Debug, Clone, Default)]
-pub struct DistributedFinopsSync {
-    processed_syncs: std::sync::Arc<tokio::sync::RwLock<HashMap<String, u64>>>,
-}
-
-impl DistributedFinopsSync {
-    pub fn new() -> Self {
-        Self {
-            processed_syncs: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-        }
-    }
-
-    /// Reconciles an incoming sync payload against a tenant's current pricing model
-    pub async fn process_sync(
-        &self,
-        payload: &FinopsSyncPayload,
-        pricing: &mut TenantPricingModel,
-    ) -> Result<FinopsSyncResponse, String> {
-        let mut syncs = self.processed_syncs.write().await;
-        let last_seq = syncs.get(&payload.node_id).copied().unwrap_or(0);
-
-        if payload.sequence_number > 0 && payload.sequence_number <= last_seq {
-            // Deduplicated: already processed this sequence number from this node
-            let (tier_idx, disc) = compute_active_tier_and_discount(pricing);
-            return Ok(FinopsSyncResponse {
-                synced: false,
-                org_id: payload.org_id.clone(),
-                reconciled_monthly_tokens: pricing.monthly_tokens_consumed,
-                active_discount_bps: disc,
-                current_tier_index: tier_idx,
-            });
-        }
-
-        // Apply monotonically increasing volume delta
-        pricing.monthly_tokens_consumed = pricing
-            .monthly_tokens_consumed
-            .saturating_add(payload.delta_tokens);
-        syncs.insert(payload.node_id.clone(), payload.sequence_number);
-
-        let (tier_idx, disc) = compute_active_tier_and_discount(pricing);
-
-        Ok(FinopsSyncResponse {
-            synced: true,
-            org_id: payload.org_id.clone(),
-            reconciled_monthly_tokens: pricing.monthly_tokens_consumed,
-            active_discount_bps: disc,
-            current_tier_index: tier_idx,
-        })
-    }
 }
 
 /// Pre-Flight Streaming Token Reserve Hold (ADR 0010)
@@ -655,11 +670,18 @@ impl StreamingReserveHold {
     /// Uses a read lock — concurrent callers do not block each other.
     pub fn active_reservation(&self, agent_address: &str) -> u64 {
         let holds = self.active_holds.read().unwrap_or_else(|p| p.into_inner());
-        holds.get(&agent_address.to_lowercase()).copied().unwrap_or(0)
+        holds
+            .get(&agent_address.to_lowercase())
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Acquires an RAII guard that automatically releases the reservation on drop.
-    pub fn acquire_guard(&self, agent_address: &str, estimated_tokens: u64) -> StreamingReserveGuard {
+    pub fn acquire_guard(
+        &self,
+        agent_address: &str,
+        estimated_tokens: u64,
+    ) -> StreamingReserveGuard {
         self.acquire(agent_address, estimated_tokens);
         StreamingReserveGuard {
             holds: self.active_holds.clone(),
@@ -708,10 +730,12 @@ mod tests {
             custom_rates: HashMap::new(),
             monthly_tokens_consumed: 0,
             updated_at: "2026-09-17T00:00:00Z".to_string(),
+            ..Default::default()
         };
 
         // claude-3-7-sonnet: 1,000,000 input tokens = $3.00 (3,000,000 micro-dollars)
-        let result = calculate_inference_spend("claude-3-7-sonnet", 1_000_000, 0, 0, 0, &pricing);
+        let result =
+            calculate_inference_spend("claude-3-7-sonnet", 1_000_000, 0, 0, 0, &pricing).unwrap();
         assert_eq!(result.nominal_list_cost_micro_dollars, 3_000_000);
         // 20% off $3.00 = $2.40 (2,400,000 micro-dollars)
         assert_eq!(result.effective_cost_micro_dollars, 2_400_000);
@@ -738,10 +762,11 @@ mod tests {
             custom_rates: HashMap::new(),
             monthly_tokens_consumed: 15_000_000, // in Tier 2
             updated_at: "2026-09-17T00:00:00Z".to_string(),
+            ..Default::default()
         };
 
         // gpt-4o: 100,000 input tokens = $0.25 (250,000 micro-dollars)
-        let result = calculate_inference_spend("gpt-4o", 100_000, 0, 0, 0, &pricing);
+        let result = calculate_inference_spend("gpt-4o", 100_000, 0, 0, 0, &pricing).unwrap();
         assert_eq!(result.nominal_list_cost_micro_dollars, 250_000);
         // 15% off 250,000 = 212,500
         assert_eq!(result.effective_cost_micro_dollars, 212_500);
@@ -759,53 +784,16 @@ mod tests {
             custom_rates: HashMap::new(),
             monthly_tokens_consumed: 500_000,
             updated_at: "2026-09-17T00:00:00Z".to_string(),
+            ..Default::default()
         };
 
         // Within capacity (200k tokens < 500k remaining) -> marginal $0
-        let result = calculate_inference_spend("claude-3-7-sonnet", 100_000, 100_000, 0, 0, &pricing);
+        let result =
+            calculate_inference_spend("claude-3-7-sonnet", 100_000, 100_000, 0, 0, &pricing)
+                .unwrap();
         assert_eq!(result.effective_cost_micro_dollars, 0);
         assert_eq!(result.ptu_capacity_applied, 200_000);
         assert_eq!(result.ptu_overage_tokens, 0);
-    }
-
-    #[tokio::test]
-    async fn test_distributed_finops_sync() {
-        let sync = DistributedFinopsSync::new();
-        let mut pricing = TenantPricingModel {
-            org_id: "org_alpha".to_string(),
-            model_type: PricingModelType::TieredVolume,
-            discount_bps: 500, // 5%
-            volume_tiers: vec![
-                VolumeTier {
-                    min_tokens: 10_000_000,
-                    discount_bps: 2000, // 20%
-                },
-            ],
-            ptu_capacity_tokens: 0,
-            custom_rates: HashMap::new(),
-            monthly_tokens_consumed: 8_000_000,
-            updated_at: "2026-09-17T00:00:00Z".to_string(),
-        };
-
-        // 1. Process 3M tokens from us-east-1 -> triggers 10M tier
-        let payload1 = FinopsSyncPayload {
-            node_id: "node_us_east_1".to_string(),
-            org_id: "org_alpha".to_string(),
-            delta_tokens: 3_000_000,
-            sync_timestamp: 1741500000,
-            sequence_number: 1,
-        };
-
-        let resp1 = sync.process_sync(&payload1, &mut pricing).await.unwrap();
-        assert!(resp1.synced);
-        assert_eq!(resp1.reconciled_monthly_tokens, 11_000_000);
-        assert_eq!(resp1.active_discount_bps, 2000);
-        assert_eq!(resp1.current_tier_index, 1);
-
-        // 2. Duplicate sequence number from us-east-1 -> deduplicated, does not advance count
-        let resp2 = sync.process_sync(&payload1, &mut pricing).await.unwrap();
-        assert!(!resp2.synced);
-        assert_eq!(resp2.reconciled_monthly_tokens, 11_000_000);
     }
 
     #[test]
@@ -837,4 +825,3 @@ mod tests {
         assert_eq!(hold.active_reservation(agent), 0);
     }
 }
-

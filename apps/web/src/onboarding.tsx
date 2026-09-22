@@ -1,6 +1,6 @@
 import { Building2, Check, ShieldCheck, Wallet } from "lucide-react";
 import { useState } from "react";
-import { request } from "./api";
+import { request, toUserFacingError } from "./api";
 import { Button, Mono, Surface, TextField } from "./design-system";
 import { useIdentity } from "./identity";
 import { useWallets } from "@privy-io/react-auth";
@@ -50,11 +50,7 @@ export function TenantOnboarding({ identity }: { identity: ReturnType<typeof use
       setMessage("Organization created. Preparing your control plane…");
       await identity.refreshIdentity();
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "The organization could not be created.",
-      );
+      setMessage(toUserFacingError(error, "The organization could not be created."));
     } finally {
       setWorking(false);
     }

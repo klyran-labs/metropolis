@@ -2,8 +2,17 @@ import { useWallets } from "@privy-io/react-auth";
 import { useState } from "react";
 import { encodeFunctionData, parseAbi } from "viem";
 import { configuration } from "../../configuration";
-import { request, useSubscription, usePlans, type Checkout } from "../../api";
-import { Badge, Button, EmptyState, RecordSummary, Surface, TokenAmount } from "../../design-system";
+import { request, toUserFacingError, useSubscription, usePlans, type Checkout } from "../../api";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  RecordSummary,
+  Surface,
+  TokenAmount,
+  TransactionStatus,
+  type TransactionPhase,
+} from "../../design-system";
 import { useIdentity } from "../../identity";
 
 async function waitForReceipt(
@@ -33,6 +42,9 @@ export function Billing() {
   const { wallets } = useWallets();
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
+  const [transactionPhase, setTransactionPhase] = useState<TransactionPhase>("idle");
+  const [transactionHash, setTransactionHash] = useState<string>();
+  const [transactionError, setTransactionError] = useState("");
   const settle = async (planPriceId: string) => {
     const wallet = wallets[0];
     const guard = configuration.contracts.agentWalletGuard;
@@ -41,6 +53,9 @@ export function Billing() {
       return;
     }
     setWorking(true);
+    setTransactionPhase("awaiting_wallet");
+    setTransactionHash(undefined);
+    setTransactionError("");
     setMessage("Creating a signed settlement intent…");
     try {
       const checkout = await request<Checkout>("/subscription/checkout", {
@@ -84,6 +99,8 @@ export function Billing() {
         method: "eth_sendTransaction",
         params: [{ from: wallet.address, to: checkout.settlement.tokenAddress, data: approveData }],
       })) as string;
+      setTransactionHash(approvalHash);
+      setTransactionPhase("pending");
       await waitForReceipt(provider, approvalHash);
       const executeData = encodeFunctionData({
         abi: parseAbi([
@@ -109,15 +126,21 @@ export function Billing() {
         method: "eth_sendTransaction",
         params: [{ from: wallet.address, to: guard, data: executeData }],
       })) as string;
+      setTransactionHash(transactionHash);
+      setTransactionPhase("pending");
       await waitForReceipt(provider, transactionHash);
       await request(`/billing/payments/${checkout.paymentId}/submit`, {
         method: "POST",
         body: JSON.stringify({ transactionHash }),
       });
+      setTransactionPhase("confirmed");
       setMessage("Settlement submitted. Subscription activation will follow receipt confirmation.");
       void subscription.refetch();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The settlement could not be completed.");
+      const safeError = toUserFacingError(error, "The settlement could not be completed.");
+      setTransactionPhase("failed");
+      setTransactionError(safeError);
+      setMessage(safeError);
     } finally {
       setWorking(false);
     }
@@ -161,6 +184,7 @@ export function Billing() {
           />
         )}
       </Surface>
+      <TransactionStatus phase={transactionPhase} hash={transactionHash} error={transactionError} />
       <Surface>
         <div className="section-heading">
           <div>

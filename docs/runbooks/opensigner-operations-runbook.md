@@ -1,7 +1,7 @@
-# Runbook: Self-Hosted OpenSigner Enclave Operations
+# Runbook: Self-Hosted OpenSigner Operations
 
 ## Overview
-This runbook covers health checks, operations, key backup, master key rotation, and troubleshooting for the **AgentGuard Self-Hosted OpenSigner Enclave** (`services/opensigner`).
+This runbook covers health checks, operations, key backup, master key rotation, and troubleshooting for the **AgentGuard Self-Hosted OpenSigner signing service** (`services/opensigner`). It is a sealed software vault, not a hardware-attestation provider.
 
 ---
 
@@ -30,7 +30,10 @@ curl -f http://localhost:3001/ready
 | `/api/v1/wallets/:id` | `GET` | Get metadata for a specific wallet ID or address |
 | `/api/v1/wallets` | `POST` | Generate and seal a new agent keypair in the vault |
 | `/api/v1/sign-spend-request` | `POST` | Sign an EIP-712 SpendRequest for Monad (Chain 10143) |
-| `/api/v1/sign-typed-data` | `POST` | Generic EIP-712 typed data signing endpoint |
+| `/api/v1/execute-treasury-load` | `POST` | Submit the configured settlement-token transfer to a registered AgentGuard agent |
+| `/api/v1/execute-gated-payment` | `POST` | Submit a policy-gated payment through the configured AgentWalletGuard |
+
+There is deliberately no generic typed-data or arbitrary-transfer endpoint. Hardware attestation routes return `503 ATTESTATION_UNAVAILABLE` until a real provider-backed verifier is installed.
 
 ### Example: Provisioning a Sealed Agent Keypair
 ```bash

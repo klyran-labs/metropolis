@@ -63,8 +63,23 @@ export default defineConfig(({ mode }) => {
       outDir,
       sourcemap: false,
       emptyOutDir: true,
+      // Privy's supported ESM entry is a shared 539 KB minified vendor module
+      // (~156 KB gzip). Keep the warning budget just above that measured,
+      // unavoidable entry while chart and application chunks remain below 500 KB.
+      chunkSizeWarningLimit: 550,
       rollupOptions: {
         external: ["@stripe/stripe-js"],
+        output: {
+          manualChunks(moduleId) {
+            if (moduleId.includes("/node_modules/echarts/")) {
+              if (moduleId.includes("/echarts/charts") || moduleId.includes("/echarts/lib/chart/")) return "charts-series";
+              if (moduleId.includes("/echarts/components") || moduleId.includes("/echarts/lib/component/")) return "charts-components";
+              if (moduleId.includes("/echarts/renderers") || moduleId.includes("/echarts/lib/renderer/")) return "charts-renderer";
+              return "charts-core";
+            }
+            return undefined;
+          },
+        },
       },
     },
   };

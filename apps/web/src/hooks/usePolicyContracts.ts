@@ -113,15 +113,18 @@ export const monadLocalChain = {
   nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
   rpcUrls: {
     default: {
-      http: [configuration.rpcUrl || "http://127.0.0.1:8545"],
+      http: configuration.rpcUrl ? [configuration.rpcUrl] : [],
     },
   },
 };
 
 export function getPublicClient() {
+  if (!configuration.rpcUrl) {
+    throw new Error("The settlement network endpoint is not configured.");
+  }
   return createPublicClient({
     chain: monadLocalChain,
-    transport: http(configuration.rpcUrl || "http://127.0.0.1:8545"),
+    transport: http(configuration.rpcUrl),
   });
 }
 
@@ -179,7 +182,7 @@ export async function evaluatePolicyOnchain(params: {
       });
       nonce = BigInt(state[3]);
     } catch {
-      nonce = 0n;
+      throw new Error("The agent runtime state could not be read from the settlement network.");
     }
   }
 
@@ -552,7 +555,10 @@ export function useDevnetFaucet(onSuccess?: () => void) {
       if (!isAddress(targetAddress)) {
         throw new Error("Target address is not a valid EVM address.");
       }
-      const rpcUrl = configuration.rpcUrl || "http://127.0.0.1:8545";
+      const rpcUrl = configuration.rpcUrl;
+      if (!rpcUrl) {
+        throw new Error("The settlement network endpoint is not configured.");
+      }
 
       // Set native MON balance directly via Anvil RPC
       const monWei = `0x${parseEther(monAmount).toString(16)}`;
@@ -565,7 +571,7 @@ export function useDevnetFaucet(onSuccess?: () => void) {
           method: "anvil_setBalance",
           params: [targetAddress, monWei],
         }),
-      }).catch(() => null);
+      });
 
       // If settlement token is deployed, dynamically discover owner and mint USDC
       const usdcAddress = configuration.contracts.settlementToken;

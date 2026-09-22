@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use serde::Deserialize;
 use std::{env, fs, path::PathBuf, str::FromStr};
 
@@ -67,6 +67,10 @@ pub struct DeploymentContracts {
     pub reputation_registry: Option<DeploymentContract>,
     #[serde(rename = "agentWalletGuard")]
     pub agent_wallet_guard: Option<DeploymentContract>,
+    #[serde(rename = "circuitPaymaster")]
+    pub circuit_paymaster: Option<DeploymentContract>,
+    #[serde(rename = "circuitVault")]
+    pub circuit_vault: Option<DeploymentContract>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -84,6 +88,10 @@ pub struct Config {
     pub policy_engine_address: Address,
     pub reputation_registry_address: Address,
     pub agent_wallet_guard_address: Address,
+    pub circuit_paymaster_address: Address,
+    pub circuit_vault_address: Address,
+    pub paymaster_verification_gas_limit: U256,
+    pub paymaster_post_op_gas_limit: U256,
     pub usdc_token_address: Address,
     pub merchant_address: Address,
     pub opensigner_url: String,
@@ -104,6 +112,12 @@ pub struct Config {
     pub cors_allowed_origins: Vec<String>,
     pub dashscope_api_key: Option<String>,
     pub dashscope_base_url: String,
+    pub anthropic_api_key: Option<String>,
+    pub anthropic_base_url: String,
+    pub tenant_max_concurrency: usize,
+    pub max_tracked_tenants: usize,
+    pub provider_max_concurrency: usize,
+    pub rpc_max_concurrency: usize,
 }
 
 fn required(name: &str) -> Result<String, String> {
@@ -131,6 +145,37 @@ fn parse_address(name: &str) -> Result<Address, String> {
         return Err(format!("{name} must not be the zero address"));
     }
     Ok(address)
+}
+
+fn parse_u256(name: &str) -> Result<U256, String> {
+    let value = required(name)?;
+    let (digits, radix) = value
+        .strip_prefix("0x")
+        .map_or((value.as_str(), 10), |hex| (hex, 16));
+    let parsed =
+        U256::from_str_radix(digits, radix).map_err(|error| format!("Invalid {name}: {error}"))?;
+    if parsed.is_zero() {
+        return Err(format!("{name} must be greater than zero"));
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_limit(name: &str, default: usize) -> Result<usize, String> {
+    let value = env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|error| format!("Invalid {name}: {error}"))
+        })
+        .transpose()?
+        .unwrap_or(default);
+    if value == 0 {
+        return Err(format!("{name} must be greater than zero"));
+    }
+    Ok(value)
 }
 
 fn parse_manifest_address(
@@ -188,6 +233,11 @@ fn load_manifest(
         "agentWalletGuard",
         manifest.contracts.agent_wallet_guard.as_ref(),
     )?;
+    parse_manifest_address(
+        "circuitPaymaster",
+        manifest.contracts.circuit_paymaster.as_ref(),
+    )?;
+    parse_manifest_address("circuitVault", manifest.contracts.circuit_vault.as_ref())?;
     Ok(manifest)
 }
 
@@ -231,6 +281,14 @@ impl Config {
         let policy_engine_address = parse_address("POLICY_ENGINE_ADDRESS")?;
         let reputation_registry_address = parse_address("REPUTATION_REGISTRY_ADDRESS")?;
         let agent_wallet_guard_address = parse_address("AGENT_WALLET_GUARD_ADDRESS")?;
+        let circuit_paymaster_address = parse_manifest_address(
+            "circuitPaymaster",
+            manifest.contracts.circuit_paymaster.as_ref(),
+        )?;
+        let circuit_vault_address =
+            parse_manifest_address("circuitVault", manifest.contracts.circuit_vault.as_ref())?;
+        let paymaster_verification_gas_limit = parse_u256("PAYMASTER_VERIFICATION_GAS_LIMIT")?;
+        let paymaster_post_op_gas_limit = parse_u256("PAYMASTER_POST_OP_GAS_LIMIT")?;
         require_manifest_match(
             "POLICY_ENGINE_ADDRESS",
             policy_engine_address,
@@ -305,6 +363,10 @@ impl Config {
             policy_engine_address,
             reputation_registry_address,
             agent_wallet_guard_address,
+            circuit_paymaster_address,
+            circuit_vault_address,
+            paymaster_verification_gas_limit,
+            paymaster_post_op_gas_limit,
             usdc_token_address: parse_address("USDC_TOKEN_ADDRESS")?,
             merchant_address: parse_address("GATEWAY_MERCHANT_ADDRESS")?,
             opensigner_url: required("OPENSIGNER_URL")?,
@@ -332,8 +394,19 @@ impl Config {
                 .ok()
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty()),
-            dashscope_base_url: env::var("DASHSCOPE_BASE_URL")
-                .unwrap_or_else(|_| "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string()),
+            dashscope_base_url: env::var("DASHSCOPE_BASE_URL").unwrap_or_else(|_| {
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string()
+            }),
+            anthropic_api_key: env::var("ANTHROPIC_API_KEY")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+            anthropic_base_url: env::var("ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string()),
+            tenant_max_concurrency: parse_positive_limit("TENANT_MAX_CONCURRENCY", 64)?,
+            max_tracked_tenants: parse_positive_limit("MAX_TRACKED_TENANTS", 10_000)?,
+            provider_max_concurrency: parse_positive_limit("PROVIDER_MAX_CONCURRENCY", 32)?,
+            rpc_max_concurrency: parse_positive_limit("RPC_MAX_CONCURRENCY", 128)?,
         })
     }
 
@@ -348,6 +421,10 @@ impl Config {
             policy_engine_address: Address::repeat_byte(0x11),
             reputation_registry_address: Address::repeat_byte(0x12),
             agent_wallet_guard_address: Address::repeat_byte(0x13),
+            circuit_paymaster_address: Address::repeat_byte(0x16),
+            circuit_vault_address: Address::repeat_byte(0x17),
+            paymaster_verification_gas_limit: U256::from(100_000),
+            paymaster_post_op_gas_limit: U256::from(40_000),
             usdc_token_address: Address::repeat_byte(0x14),
             merchant_address: Address::repeat_byte(0x15),
             opensigner_url: "http://127.0.0.1:3001".to_string(),
@@ -367,7 +444,14 @@ impl Config {
             inference_category: "test".to_string(),
             cors_allowed_origins: vec!["http://test.local".to_string()],
             dashscope_api_key: None,
-            dashscope_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1".to_string(),
+            dashscope_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                .to_string(),
+            anthropic_api_key: None,
+            anthropic_base_url: "https://api.anthropic.com/v1".to_string(),
+            tenant_max_concurrency: 64,
+            max_tracked_tenants: 10_000,
+            provider_max_concurrency: 32,
+            rpc_max_concurrency: 128,
         }
     }
 }

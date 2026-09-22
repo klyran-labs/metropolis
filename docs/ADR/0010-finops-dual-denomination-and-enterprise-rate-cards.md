@@ -1,7 +1,7 @@
 # ADR 0010: FinOps Dual-Denomination & Enterprise Pricing Model Architecture
 
 ## Status
-**Implemented** (Supersedes Hackathon Phase 2 & 3 target — fully deployed)
+**Accepted; code implemented, live deployment validation pending**
 
 ## Context
 Autonomous agents interacting with foundation model APIs (Anthropic, OpenAI, DeepSeek) encounter a fundamental structural mismatch:

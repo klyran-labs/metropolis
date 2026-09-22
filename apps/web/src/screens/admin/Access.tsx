@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePlatformOperators, useUpsertPlatformOperator } from "../../api";
+import { toUserFacingError, usePlatformOperators, useUpsertPlatformOperator } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField } from "../../design-system";
 import { useIdentity } from "../../identity";
 
@@ -56,7 +56,7 @@ export function AdminAccess() {
                 { subject, role },
                 {
                   onError: (error) =>
-                    setMessage(error instanceof Error ? error.message : "The platform role could not be updated."),
+                    setMessage(toUserFacingError(error, "The platform role could not be updated.")),
                 },
               );
             }}

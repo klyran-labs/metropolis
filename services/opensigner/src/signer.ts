@@ -5,6 +5,7 @@ import {
   http,
   encodeFunctionData,
   parseAbi,
+  verifyTypedData,
   type Chain,
 } from 'viem';
 import type { EncryptedVault } from './vault.js';
@@ -22,11 +23,15 @@ const AGENT_WALLET_GUARD_ABI = parseAbi([
 
 const POLICY_ENGINE_ABI = parseAbi([
   'function setMerchantWhitelist(address agent, address merchant, bool allowed) external',
+  'function agentAdmin(address agent) external view returns (address)',
 ]);
 
 export interface ChainConnection {
   rpcUrl: string;
   chainId: number;
+  policyEngineAddress: `0x${string}`;
+  agentWalletGuardAddress: `0x${string}`;
+  allowedTokenAddress: `0x${string}`;
 }
 
 function chainFor(chainId: number): Chain {
@@ -112,6 +117,9 @@ export class OpenSignerEngine {
       chainId?: number;
     }
   ): Promise<SpendRequestSignResult> {
+    if (!this.connection) {
+      throw new Error('OpenSigner is not configured with an authoritative chain contract set.');
+    }
     const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
     const account = privateKeyToAccount(privKey);
 
@@ -122,7 +130,13 @@ export class OpenSignerEngine {
       );
     }
 
-    const chainId = params.chainId || MONAD_TESTNET_CHAIN_ID;
+    const chainId = params.chainId || this.connection.chainId;
+    if (chainId !== this.connection.chainId) {
+      throw new Error('Spend request chain does not match the configured signing chain.');
+    }
+    if (params.verifyingContract.toLowerCase() !== this.connection.agentWalletGuardAddress.toLowerCase()) {
+      throw new Error('Spend request verifier is not the configured AgentWalletGuard.');
+    }
     const domain = {
       name: DEFAULT_EIP712_DOMAIN_NAME,
       version: DEFAULT_EIP712_DOMAIN_VERSION,
@@ -163,43 +177,41 @@ export class OpenSignerEngine {
     };
   }
 
-  public async signGenericTypedData(
-    walletIdOrAddress: string,
-    params: {
-      domain: any;
-      types: any;
-      primaryType: string;
-      message: any;
-    }
-  ): Promise<{ signature: `0x${string}`; signer: `0x${string}` }> {
-    const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
-    const account = privateKeyToAccount(privKey);
-
-    const signature = await account.signTypedData({
-      domain: params.domain,
-      types: params.types,
-      primaryType: params.primaryType,
-      message: params.message,
-    });
-
-    return {
-      signature,
-      signer: account.address,
-    };
-  }
-
   /**
-   * Plain ERC-20 transfer submitted and paid for by this wallet's own MON balance. Used for
-   * Load into a sovereign wallet. Deliberately narrow: the only calldata this method will ever
-   * construct is `transfer(to, amount)` on the caller-specified token.
+   * Executes the only non-policy-gated transfer allowed by OpenSigner: a configured settlement
+   * token transfer from a registered sovereign treasury to a registered AgentGuard agent.
+   * The token, chain, and destination are verified against service configuration and PolicyEngine
+   * before any transaction is constructed.
    */
-  public async executeTransfer(
+  public async executeTreasuryLoad(
     walletIdOrAddress: string,
     params: { tokenAddress: `0x${string}`; to: `0x${string}`; amount: string | bigint; chainId?: number }
   ): Promise<{ transactionHash: `0x${string}`; from: `0x${string}` }> {
     const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
     const account = privateKeyToAccount(privKey);
     const { publicClient, walletClient } = this.clients(params.chainId);
+    if (!this.connection) {
+      throw new Error('OpenSigner chain configuration is unavailable.');
+    }
+    if (params.chainId !== undefined && params.chainId !== this.connection.chainId) {
+      throw new Error('Treasury load chain does not match the configured signing chain.');
+    }
+    if (params.tokenAddress.toLowerCase() !== this.connection.allowedTokenAddress.toLowerCase()) {
+      throw new Error('Treasury load token is not the configured settlement token.');
+    }
+    if (BigInt(params.amount) <= 0n) {
+      throw new Error('Treasury load amount must be positive.');
+    }
+
+    const registeredAdmin = await publicClient.readContract({
+      address: this.connection.policyEngineAddress,
+      abi: POLICY_ENGINE_ABI,
+      functionName: 'agentAdmin',
+      args: [params.to],
+    });
+    if (registeredAdmin === '0x0000000000000000000000000000000000000000') {
+      throw new Error('Treasury load destination is not a registered AgentGuard agent.');
+    }
 
     const data = encodeFunctionData({
       abi: ERC20_ABI,
@@ -209,7 +221,7 @@ export class OpenSignerEngine {
     const transactionHash = await walletClient.sendTransaction({
       account,
       chain: null,
-      to: params.tokenAddress,
+      to: this.connection.allowedTokenAddress,
       data,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: transactionHash });
@@ -243,9 +255,74 @@ export class OpenSignerEngine {
     const privKey = this.vault.getDecryptedPrivateKey(walletIdOrAddress);
     const account = privateKeyToAccount(privKey);
     const { publicClient, walletClient } = this.clients(params.chainId);
+    if (!this.connection) {
+      throw new Error('OpenSigner chain configuration is unavailable.');
+    }
+    if (params.chainId !== undefined && params.chainId !== this.connection.chainId) {
+      throw new Error('Gated payment chain does not match the configured signing chain.');
+    }
+    if (params.verifyingContract.toLowerCase() !== this.connection.agentWalletGuardAddress.toLowerCase()) {
+      throw new Error('Gated payment verifier is not the configured AgentWalletGuard.');
+    }
+    if (params.tokenAddress.toLowerCase() !== this.connection.allowedTokenAddress.toLowerCase()) {
+      throw new Error('Gated payment token is not the configured settlement token.');
+    }
+    if (params.request.agent.toLowerCase() !== account.address.toLowerCase()) {
+      throw new Error(
+        `Agent address mismatch: wallet ${account.address} cannot submit for agent ${params.request.agent}`,
+      );
+    }
+
+    const chainId = params.chainId ?? this.connection.chainId;
+    const formattedRequest = {
+      agent: params.request.agent,
+      merchant: params.request.merchant,
+      amount: BigInt(params.request.amount),
+      category:
+        params.request.category ||
+        ('0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`),
+      timestamp: BigInt(params.request.timestamp),
+      deadline: BigInt(params.request.deadline),
+      nonce: BigInt(params.request.nonce),
+    };
+    const domain = {
+      name: DEFAULT_EIP712_DOMAIN_NAME,
+      version: DEFAULT_EIP712_DOMAIN_VERSION,
+      chainId,
+      verifyingContract: params.verifyingContract,
+    };
+    const signed = params.signature
+      ? {
+          signature: params.signature,
+          request: formattedRequest,
+        }
+      : await this.signSpendRequest(walletIdOrAddress, {
+          request: params.request,
+          verifyingContract: params.verifyingContract,
+          chainId,
+        });
+    if (params.signature) {
+      const valid = await verifyTypedData({
+        address: account.address,
+        domain,
+        types: SPEND_REQUEST_TYPES,
+        primaryType: 'SpendRequest',
+        message: formattedRequest,
+        signature: params.signature,
+      });
+      if (!valid) {
+        throw new Error('The supplied SpendRequest signature does not match the configured wallet.');
+      }
+    }
 
     let whitelistHash: `0x${string}` | undefined;
     if (params.whitelistMerchant) {
+      if (
+        params.whitelistMerchant.policyEngineAddress.toLowerCase() !==
+        this.connection.policyEngineAddress.toLowerCase()
+      ) {
+        throw new Error('Whitelist target is not the configured PolicyEngine.');
+      }
       const whitelistData = encodeFunctionData({
         abi: POLICY_ENGINE_ABI,
         functionName: 'setMerchantWhitelist',
@@ -254,7 +331,7 @@ export class OpenSignerEngine {
       whitelistHash = await walletClient.sendTransaction({
         account,
         chain: null,
-        to: params.whitelistMerchant.policyEngineAddress,
+        to: this.connection.policyEngineAddress,
         data: whitelistData,
       });
       const whitelistReceipt = await publicClient.waitForTransactionReceipt({ hash: whitelistHash });
@@ -262,27 +339,6 @@ export class OpenSignerEngine {
         throw new Error(`Merchant whitelist transaction reverted: ${whitelistHash}`);
       }
     }
-
-    const signed = params.signature
-      ? {
-          signature: params.signature,
-          request: {
-            agent: params.request.agent,
-            merchant: params.request.merchant,
-            amount: BigInt(params.request.amount).toString(),
-            category:
-              params.request.category ||
-              ('0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`),
-            timestamp: BigInt(params.request.timestamp).toString(),
-            deadline: BigInt(params.request.deadline).toString(),
-            nonce: BigInt(params.request.nonce).toString(),
-          },
-        }
-      : await this.signSpendRequest(walletIdOrAddress, {
-          request: params.request,
-          verifyingContract: params.verifyingContract,
-          chainId: params.chainId,
-        });
 
     const approvalData = encodeFunctionData({
       abi: ERC20_ABI,

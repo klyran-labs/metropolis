@@ -114,6 +114,21 @@ contract CircuitVaultTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _signSessionVoucher(
+        address _agent,
+        address _provider,
+        bytes32 _sessionId,
+        uint128 _voucherAmount,
+        uint256 _privateKey
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(vault.SESSION_VOUCHER_TYPEHASH(), _agent, _provider, _sessionId, _voucherAmount)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_privateKey, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
     function test_Deposit_BalanceDeltaTracking() public {
         vm.prank(agent);
         uint256 actual = vault.deposit(agent, 1000 ether);
@@ -158,13 +173,15 @@ contract CircuitVaultTest is Test {
         vault.allocateEpochBucket(agent, provider, 1, 1000 ether, 3600);
 
         // First voucher: spent 300 ether
-        bytes memory sig1 = _signVoucher(agent, provider, 1, bytes32(0), 300 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
+        bytes memory sig1 =
+            _signVoucher(agent, provider, 1, bytes32(0), 300 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
         uint128 delta1 = vault.settleVoucherDelta(agent, provider, 1, 300 ether, sig1);
         assertEq(delta1, 300 ether);
         assertEq(token.balanceOf(provider), 300 ether);
 
         // Second voucher: spent 750 ether (delta = 450 ether)
-        bytes memory sig2 = _signVoucher(agent, provider, 1, bytes32(0), 750 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
+        bytes memory sig2 =
+            _signVoucher(agent, provider, 1, bytes32(0), 750 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
         uint128 delta2 = vault.settleVoucherDelta(agent, provider, 1, 750 ether, sig2);
         assertEq(delta2, 450 ether);
         assertEq(token.balanceOf(provider), 750 ether);
@@ -183,7 +200,8 @@ contract CircuitVaultTest is Test {
         assertEq(vault.getVaultBalance(agent), 3000 ether);
 
         // Terminal close after spending 1200 ether -> 800 ether refunded instantly
-        bytes memory sig = _signVoucher(agent, provider, 1, bytes32(0), 1200 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
+        bytes memory sig =
+            _signVoucher(agent, provider, 1, bytes32(0), 1200 ether, 0, block.timestamp + 1 hours, agentPrivateKey);
         (uint128 delta, uint128 refunded) = vault.terminalClose(agent, provider, 1, 1200 ether, sig);
 
         assertEq(delta, 1200 ether);
@@ -211,22 +229,22 @@ contract CircuitVaultTest is Test {
         ICircuitVault.UnilateralChallenge memory ch = vault.getAgentChallenge(agent, sessionId);
         assertTrue(ch.active);
         assertEq(ch.proposedSettlement, 500 ether);
+        assertEq(ch.provider, provider);
+        assertEq(ch.epoch, 1);
+
+        vm.expectRevert(CircuitVault.ChallengeTargetMismatch.selector);
+        vault.finalizeUnilateralClose(agent, makeAddr("otherProvider"), 1, sessionId);
 
         // Provider submits higher merchant voucher for 800 ether
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256("SessionVoucher(address provider,bytes32 sessionId,uint128 voucherAmount)"),
-                provider,
-                sessionId,
-                uint128(800 ether)
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(agentPrivateKey, digest);
-        bytes memory providerSig = abi.encodePacked(r, s, v);
+        bytes memory providerSig = _signSessionVoucher(agent, provider, sessionId, 800 ether, agentPrivateKey);
 
-        vault.submitMerchantVoucher(provider, sessionId, 800 ether, providerSig);
-        assertEq(vault.getMerchantSettlement(provider, sessionId), 800 ether);
+        vault.submitMerchantVoucher(agent, provider, sessionId, 800 ether, providerSig);
+        assertEq(vault.getMerchantSettlement(agent, provider, sessionId), 800 ether);
+
+        // A valid signature from an unrelated key cannot authorize the session voucher.
+        bytes memory wrongSignerSig = _signSessionVoucher(agent, provider, sessionId, 900 ether, 0xB0B);
+        vm.expectRevert(CircuitVault.InvalidVoucherSignature.selector);
+        vault.submitMerchantVoucher(agent, provider, sessionId, 900 ether, wrongSignerSig);
 
         // Cannot finalize before challenge window (200 blocks)
         vm.expectRevert(CircuitVault.ChallengeNotExpired.selector);

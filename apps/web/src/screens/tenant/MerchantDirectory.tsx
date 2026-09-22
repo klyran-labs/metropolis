@@ -19,7 +19,7 @@ import {
   Copy,
 } from "lucide-react";
 import { isAddress } from "viem";
-import { useAgents } from "../../api";
+import { toUserFacingError, useAgents } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
@@ -247,7 +247,7 @@ export function MerchantDirectory() {
       setMerchants(updated);
       saveStoredMerchants(updated);
     } catch (err) {
-      setStatusMessage(err instanceof Error ? err.message : "Whitelist transaction was rejected.");
+      setStatusMessage(toUserFacingError(err, "Whitelist transaction was rejected."));
     }
   };
 

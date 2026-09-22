@@ -2,7 +2,7 @@ use crate::{
     config::Config,
     repository::{ChainEventRecord, PgRepository},
     telemetry::{EventHub, GatewayEvent},
-    types::{IERC20Balance, IERC1271, IPolicyEngine, SpendRequest},
+    types::{ICircuitPaymaster, IERC20Balance, IERC1271, IPolicyEngine, SpendRequest},
 };
 use alloy::{
     primitives::{Address, B256, U256, keccak256},
@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::time::sleep;
+use tokio::{sync::Semaphore, time::sleep};
 use tracing::{debug, warn};
 
 #[derive(Clone)]
@@ -20,10 +20,14 @@ pub struct ChainClient {
     pub provider: Arc<ReqwestProvider>,
     http: Client,
     config: Config,
+    rpc_bulkhead: Arc<Semaphore>,
 }
 
 impl ChainClient {
-    pub fn new(config: Config, http: Client) -> Result<Self, String> {
+    pub fn new(config: Config, http: Client, rpc_max_concurrency: usize) -> Result<Self, String> {
+        if rpc_max_concurrency == 0 {
+            return Err("RPC_MAX_CONCURRENCY must be greater than zero".to_string());
+        }
         let url = config
             .rpc_url
             .parse()
@@ -33,13 +37,22 @@ impl ChainClient {
             provider: Arc::new(provider),
             http,
             config,
+            rpc_bulkhead: Arc::new(Semaphore::new(rpc_max_concurrency)),
         })
+    }
+
+    fn try_rpc_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, String> {
+        self.rpc_bulkhead
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Monad RPC concurrency capacity is exhausted".to_string())
     }
 
     pub async fn evaluate_policy(
         &self,
         request: SpendRequest,
     ) -> Result<(bool, U256, u8, U256), String> {
+        let _rpc_permit = self.try_rpc_permit()?;
         let contract = IPolicyEngine::new(self.config.policy_engine_address, self.provider.clone());
         contract
             .evaluate(request)
@@ -57,6 +70,7 @@ impl ChainClient {
     }
 
     pub async fn agent_policy(&self, agent: Address) -> Result<AgentPolicy, String> {
+        let _rpc_permit = self.try_rpc_permit()?;
         let contract = IPolicyEngine::new(self.config.policy_engine_address, self.provider.clone());
         contract
             .getAgentPolicy(agent)
@@ -78,12 +92,29 @@ impl ChainClient {
         agent: Address,
         merchant: Address,
     ) -> Result<bool, String> {
+        let _rpc_permit = self.try_rpc_permit()?;
         let contract = IPolicyEngine::new(self.config.policy_engine_address, self.provider.clone());
         contract
             .isMerchantWhitelisted(agent, merchant)
             .call()
             .await
             .map(|result| result._0)
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn paymaster_sponsorship_eligibility(
+        &self,
+        agent: Address,
+        max_cost: U256,
+    ) -> Result<(bool, u8), String> {
+        let _rpc_permit = self.try_rpc_permit()?;
+        let contract =
+            ICircuitPaymaster::new(self.config.circuit_paymaster_address, self.provider.clone());
+        contract
+            .isSponsorshipEligible(agent, max_cost)
+            .call()
+            .await
+            .map(|result| (result.eligible, result.reasonCode))
             .map_err(|error| error.to_string())
     }
 
@@ -96,6 +127,9 @@ impl ChainClient {
         digest: B256,
         signature: &[u8],
     ) -> bool {
+        let Ok(_rpc_permit) = self.try_rpc_permit() else {
+            return false;
+        };
         const ERC1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
         let binding = IERC1271::new(contract, self.provider.clone());
         binding
@@ -107,6 +141,7 @@ impl ChainClient {
     }
 
     pub async fn token_balance(&self, token: Address, holder: Address) -> Result<U256, String> {
+        let _rpc_permit = self.try_rpc_permit()?;
         let contract = IERC20Balance::new(token, self.provider.clone());
         contract
             .balanceOf(holder)
@@ -117,13 +152,11 @@ impl ChainClient {
     }
 
     pub async fn health_check(&self) -> Result<u64, String> {
-        let block = self
-            .provider
+        let _rpc_permit = self.try_rpc_permit()?;
+        self.provider
             .get_block_number()
             .await
-            .map_err(|error| error.to_string())?;
-        self.verify_contracts().await?;
-        Ok(block)
+            .map_err(|error| error.to_string())
     }
 
     pub async fn verify_contracts(&self) -> Result<(), String> {
@@ -134,6 +167,8 @@ impl ChainClient {
                 self.config.reputation_registry_address,
             ),
             ("AgentWalletGuard", self.config.agent_wallet_guard_address),
+            ("CircuitPaymaster", self.config.circuit_paymaster_address),
+            ("CircuitVault", self.config.circuit_vault_address),
         ];
         for (name, address) in contracts {
             let code: String = self
@@ -204,22 +239,33 @@ impl ChainClient {
         next_block: u64,
     ) -> Result<Option<u64>, String> {
         let from_block = next_block;
-        // Single HTTP round-trip: eth_blockNumber + eth_getLogs fused into one JSON-RPC batch.
-        // Saves one complete RPC round-trip (5-30ms) per 400ms Monad poll cycle.
-        let (latest, all_logs) = self.rpc_batch_block_and_logs(from_block).await?;
+        // Resolve the finalized head before asking for logs. The upper bound is deliberately
+        // finite so a restarted indexer cannot issue an unbounded historical RPC query.
+        let latest_hex: String = self.rpc("eth_blockNumber", json!([])).await?;
+        let latest = parse_quantity(&latest_hex)
+            .ok_or_else(|| "Monad RPC returned an invalid block number".to_string())?;
         let safe_head = latest.saturating_sub(self.config.event_finality_blocks);
         if from_block > safe_head {
             return Ok(None);
         }
 
-        let to_block = (from_block + 999).min(safe_head);
-        // Clip logs to the safe finality window — discard anything beyond safe_head
-        let logs: Vec<_> = all_logs
-            .into_iter()
-            .filter(|log| {
-                parse_quantity(&log.block_number).map_or(false, |bn| bn <= to_block)
-            })
-            .collect();
+        let to_block = from_block.saturating_add(999).min(safe_head);
+        let logs: Vec<RpcLog> = self
+            .rpc(
+                "eth_getLogs",
+                json!([{
+                    "fromBlock": quantity(from_block),
+                    "toBlock": quantity(to_block),
+                    "address": [
+                        format_address(self.config.policy_engine_address),
+                        format_address(self.config.agent_wallet_guard_address),
+                        format_address(self.config.circuit_paymaster_address),
+                        format_address(self.config.circuit_vault_address),
+                        format_address(self.config.reputation_registry_address),
+                    ]
+                }]),
+            )
+            .await?;
 
         // Batch-resolve org_ids: collect all unique agent addresses from the log batch
         // first, then issue a single `WHERE agent_address = ANY($1)` query.
@@ -287,17 +333,18 @@ impl ChainClient {
 
         let checkpoint_hash = self.block_hash(to_block).await?;
         repository
-            .save_checkpoint(self.config.chain_id, to_block + 1, &checkpoint_hash)
+            .save_checkpoint(
+                self.config.chain_id,
+                to_block.saturating_add(1),
+                &checkpoint_hash,
+            )
             .await
             .map_err(|error| error.to_string())?;
         debug!(from_block, to_block, "Indexed finalized Monad logs");
-        Ok(Some(to_block + 1))
+        Ok(Some(to_block.saturating_add(1)))
     }
 
-    pub fn check_dispute_finalization_readiness(
-        current_block: u64,
-        challenge_block: u64,
-    ) -> bool {
+    pub fn check_dispute_finalization_readiness(current_block: u64, challenge_block: u64) -> bool {
         current_block >= challenge_block.saturating_add(200)
     }
 
@@ -310,80 +357,12 @@ impl ChainClient {
             .ok_or_else(|| "Monad returned no block for checkpoint".to_string())
     }
 
-    /// JSON-RPC batch: fetches `eth_blockNumber` and `eth_getLogs` in a **single HTTP round-trip**.
-    ///
-    /// Standard JSON-RPC 2.0 batch (EIP-1474): sends an array of request objects and receives an
-    /// array of response objects. Eliminates the sequential `latest_block().await?` +
-    /// `logs().await?` pattern that cost 2 round-trips per poll cycle (5-30ms each on Monad RPC).
-    async fn rpc_batch_block_and_logs(
-        &self,
-        from_block: u64,
-        // We use "latest" as toBlock for the initial scan; caller clips to safe_head afterward.
-        // This avoids a chicken-and-egg dependency where we need block number to call eth_getLogs.
-    ) -> Result<(u64, Vec<RpcLog>), String> {
-        let batch = json!([
-            { "jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": [] },
-            {
-                "jsonrpc": "2.0", "id": 2, "method": "eth_getLogs",
-                "params": [{
-                    "fromBlock": quantity(from_block),
-                    "toBlock": "latest",
-                    "address": [
-                        format_address(self.config.policy_engine_address),
-                        format_address(self.config.agent_wallet_guard_address)
-                    ]
-                }]
-            }
-        ]);
-
-        let response = self
-            .http
-            .post(&self.config.rpc_url)
-            .json(&batch)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // Batch responses are a JSON array — order is not guaranteed by spec; match by `id`.
-        let raw: Vec<serde_json::Value> = response
-            .json()
-            .await
-            .map_err(|e| format!("Monad batch RPC parse error: {e}"))?;
-
-        let mut block_number_hex: Option<String> = None;
-        let mut logs: Option<Vec<RpcLog>> = None;
-
-        for item in raw {
-            match item.get("id").and_then(|v| v.as_u64()) {
-                Some(1) => {
-                    block_number_hex = item
-                        .get("result")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                Some(2) => {
-                    if let Some(result) = item.get("result") {
-                        logs = serde_json::from_value(result.clone()).ok();
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let latest = block_number_hex
-            .as_deref()
-            .and_then(parse_quantity)
-            .ok_or_else(|| "Monad batch RPC: missing eth_blockNumber result".to_string())?;
-        let logs = logs.ok_or_else(|| "Monad batch RPC: missing eth_getLogs result".to_string())?;
-
-        Ok((latest, logs))
-    }
-
     async fn rpc<T: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
         params: Value,
     ) -> Result<T, String> {
+        let _rpc_permit = self.try_rpc_permit()?;
         let response = self
             .http
             .post(&self.config.rpc_url)
@@ -624,6 +603,17 @@ fn event_name(topics: &[String]) -> Option<&'static str> {
         (
             "UnilateralCloseFinalized(address,address,bytes32,uint128,uint128)",
             "UnilateralCloseFinalized",
+        ),
+        (
+            "MerchantVoucherSubmitted(address,address,bytes32,uint128)",
+            "MerchantVoucherSubmitted",
+        ),
+        ("GasSponsored(address,address,uint256)", "GasSponsored"),
+        ("TreasuryDeposited(address,uint256)", "TreasuryDeposited"),
+        ("TreasuryWithdrawn(address,uint256)", "TreasuryWithdrawn"),
+        (
+            "OutcomeRecorded(address,address,uint8,uint256,uint32)",
+            "OutcomeRecorded",
         ),
     ];
     signatures.iter().find_map(|(signature, name)| {

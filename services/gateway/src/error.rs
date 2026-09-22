@@ -20,6 +20,7 @@ pub enum AccessReasonCode {
     ApiKeyRevoked,
     ConfigurationInvalid,
     DependencyUnavailable,
+    RateLimited,
     InvalidRequest,
 }
 
@@ -37,6 +38,7 @@ impl AccessReasonCode {
             Self::ApiKeyRevoked => "ERR_API_KEY_REVOKED",
             Self::ConfigurationInvalid => "ERR_CONFIGURATION_INVALID",
             Self::DependencyUnavailable => "ERR_DEPENDENCY_UNAVAILABLE",
+            Self::RateLimited => "ERR_RATE_LIMITED",
             Self::InvalidRequest => "ERR_INVALID_REQUEST",
         }
     }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { configuration } from "../../configuration";
-import { request, usePlatformPlans } from "../../api";
+import { request, toUserFacingError, usePlatformPlans } from "../../api";
 import { Badge, Button, EmptyState, Surface, TextField, TokenAmount } from "../../design-system";
 import { useIdentity } from "../../identity";
 
@@ -37,7 +37,7 @@ export function AdminPlans() {
       setMessage("Plan created.");
       void plans.refetch();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The plan could not be created.");
+      setMessage(toUserFacingError(error, "The plan could not be created."));
     }
   };
   const fields = ["code", "name", "description", "amount", "token"] as const;
