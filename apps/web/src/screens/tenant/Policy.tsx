@@ -11,9 +11,13 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertTriangle,
+  Bot,
+  AlertOctagon,
+  Copy,
 } from "lucide-react";
 import { request, toUserFacingError, useAgentPolicy, useAgents, type PolicyUpdate } from "../../api";
 import {
+  AgentSelect,
   Badge,
   Button,
   Dialog,
@@ -24,9 +28,12 @@ import {
   Surface,
   TextField,
   TransactionStatus,
+  truncateMiddle,
+  formatRiskTier,
   type TransactionPhase,
 } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 
 async function waitForReceipt(
   provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> },
@@ -107,6 +114,25 @@ export function Policy() {
   const [agent, setAgent] = useState("");
   const policy = useAgentPolicy(agent, Boolean(identity.authenticated && agent));
   const { wallets } = useWallets();
+  const selectedAgent = agents.data?.find((a) => a.address === agent);
+  const liveBalance = useLiveTokenBalance(agent);
+  const floatUsdc =
+    liveBalance.data !== null && liveBalance.data !== undefined
+      ? (Number(liveBalance.data) / 1e6).toFixed(2)
+      : "0.00";
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (address: string) => {
+    void navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const isPresetActive = (p: PolicyPreset) =>
+    draft.maxPerTx === p.maxPerTx &&
+    draft.maxPerWindow === p.maxPerWindow &&
+    draft.windowSeconds === p.windowSeconds &&
+    draft.maxVelocity === p.maxVelocity;
 
   const [draft, setDraft] = useState<PolicyUpdate>({
     maxPerTx: "0",
@@ -292,20 +318,42 @@ export function Policy() {
           </div>
 
           <div className="policy-field-group">
-            <label className="field-label">Target Agent</label>
-            <select
-              aria-label="Agent policy"
+            <AgentSelect
+              label="Target Agent"
               value={agent}
-              onChange={(event) => setAgent(event.target.value)}
-              className="policy-agent-select"
-            >
-              <option value="">Select an agent</option>
-              {agents.data?.map((item) => (
-                <option key={item.address} value={item.address}>
-                  {item.address} ({item.riskTier} tier)
-                </option>
-              ))}
-            </select>
+              agents={agents.data ?? []}
+              onChange={(val) => setAgent(val)}
+            />
+
+            {selectedAgent && (
+              <div className="selected-agent-strip">
+                <div className="agent-strip-avatar">
+                  <Bot size={18} />
+                </div>
+                <div className="agent-strip-details">
+                  <div className="agent-strip-title-row">
+                    <strong>{selectedAgent.label || truncateMiddle(selectedAgent.address, 10, 6)}</strong>
+                    <button
+                      type="button"
+                      className="agent-strip-copy-btn"
+                      onClick={() => handleCopy(selectedAgent.address)}
+                      title="Copy agent address"
+                    >
+                      <Mono>{truncateMiddle(selectedAgent.address, 8, 6)}</Mono>
+                      {copied ? <CheckCircle2 size={12} className="copied-icon" /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                  <div className="agent-strip-tags">
+                    <Badge tone={draft.killSwitch ? "critical" : "success"}>
+                      {draft.killSwitch ? "Spending Halted" : "Guarded Active"}
+                    </Badge>
+                    <Badge tone="info">{formatRiskTier(selectedAgent.riskTier)}</Badge>
+                    <Badge tone="neutral">Float: {floatUsdc} USDC</Badge>
+                    <span className="inspector-env-pill">{selectedAgent.environment}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Presets */}
@@ -315,101 +363,196 @@ export function Policy() {
               <span className="preset-kicker">Role Presets:</span>
             </div>
             <div className="policy-preset-chips">
-              {POLICY_PRESETS.map((p) => (
-                <button
-                  type="button"
-                  key={p.label}
-                  className="policy-preset-chip"
-                  onClick={() => applyPreset(p)}
-                  title={p.description}
-                >
-                  <Sparkles size={12} />
-                  <span>{p.label}</span>
-                </button>
-              ))}
+              {POLICY_PRESETS.map((p) => {
+                const active = isPresetActive(p);
+                return (
+                  <button
+                    type="button"
+                    key={p.label}
+                    className={`policy-preset-chip ${active ? "active" : ""}`}
+                    onClick={() => applyPreset(p)}
+                    title={p.description}
+                  >
+                    <Sparkles size={12} />
+                    <span>{p.label}</span>
+                    {active && <span className="preset-active-indicator" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="form-grid">
-            <TextField
-              label="Maximum per transaction (USDC base units)"
-              value={draft.maxPerTx}
-              onChange={(event) => setDraft({ ...draft, maxPerTx: event.target.value })}
-            />
-            <TextField
-              label="Maximum per window (USDC base units)"
-              value={draft.maxPerWindow}
-              onChange={(event) => setDraft({ ...draft, maxPerWindow: event.target.value })}
-            />
+          <div className="policy-form-container">
+            <div className="policy-params-grid">
+              {/* Field 1: Max Spend Per Tx */}
+              <div className="policy-input-block">
+                <TextField
+                  label="Maximum per transaction (USDC base units)"
+                  value={draft.maxPerTx}
+                  onChange={(event) => setDraft({ ...draft, maxPerTx: event.target.value })}
+                />
+                <div className="policy-field-hint">
+                  <span className="hint-val">
+                    ≈ {(Number(draft.maxPerTx || 0) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC
+                  </span>
+                  <small className="hint-sub">Single payment ceiling</small>
+                </div>
+              </div>
 
-            <div className="duration-input-wrapper">
-              <TextField
-                label="Window duration (seconds)"
-                type="number"
-                min={1}
-                value={draft.windowSeconds}
-                onChange={(event) => setDraft({ ...draft, windowSeconds: Number(event.target.value) })}
-              />
-              <div className="duration-quick-chips">
-                <button
-                  type="button"
-                  className={`duration-chip ${draft.windowSeconds === 900 ? "active" : ""}`}
-                  onClick={() => setDuration(900)}
-                >
-                  15m
-                </button>
-                <button
-                  type="button"
-                  className={`duration-chip ${draft.windowSeconds === 3600 ? "active" : ""}`}
-                  onClick={() => setDuration(3600)}
-                >
-                  1h
-                </button>
-                <button
-                  type="button"
-                  className={`duration-chip ${draft.windowSeconds === 86400 ? "active" : ""}`}
-                  onClick={() => setDuration(86400)}
-                >
-                  24h
-                </button>
+              {/* Field 2: Max Spend Per Window */}
+              <div className="policy-input-block">
+                <TextField
+                  label="Maximum per window (USDC base units)"
+                  value={draft.maxPerWindow}
+                  onChange={(event) => setDraft({ ...draft, maxPerWindow: event.target.value })}
+                />
+                <div className="policy-field-hint">
+                  <span className="hint-val">
+                    ≈ {(Number(draft.maxPerWindow || 0) / 1_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC
+                  </span>
+                  <small className="hint-sub">Sliding epoch aggregate</small>
+                </div>
+              </div>
+
+              {/* Field 3: Window Duration */}
+              <div className="policy-input-block">
+                <TextField
+                  label="Window duration (seconds)"
+                  type="number"
+                  min={1}
+                  value={draft.windowSeconds}
+                  onChange={(event) => setDraft({ ...draft, windowSeconds: Number(event.target.value) })}
+                />
+                <div className="duration-quick-chips">
+                  <button
+                    type="button"
+                    className={`duration-chip ${draft.windowSeconds === 900 ? "active" : ""}`}
+                    onClick={() => setDuration(900)}
+                  >
+                    15m
+                  </button>
+                  <button
+                    type="button"
+                    className={`duration-chip ${draft.windowSeconds === 3600 ? "active" : ""}`}
+                    onClick={() => setDuration(3600)}
+                  >
+                    1h
+                  </button>
+                  <button
+                    type="button"
+                    className={`duration-chip ${draft.windowSeconds === 86400 ? "active" : ""}`}
+                    onClick={() => setDuration(86400)}
+                  >
+                    24h
+                  </button>
+                  <span className="duration-epoch-label">
+                    {draft.windowSeconds === 900
+                      ? "15 mins"
+                      : draft.windowSeconds === 3600
+                      ? "1 hour"
+                      : draft.windowSeconds === 86400
+                      ? "24 hours"
+                      : `${draft.windowSeconds}s epoch`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Field 4: Velocity Limit */}
+              <div className="policy-input-block">
+                <TextField
+                  label="Velocity limit (txs per window)"
+                  type="number"
+                  min={1}
+                  value={draft.maxVelocity}
+                  onChange={(event) => setDraft({ ...draft, maxVelocity: Number(event.target.value) })}
+                />
+                <div className="policy-field-hint">
+                  <span className="hint-val">{draft.maxVelocity} max txs</span>
+                  <small className="hint-sub">Per sliding epoch</small>
+                </div>
               </div>
             </div>
 
-            <TextField
-              label="Velocity limit (txs per window)"
-              type="number"
-              min={1}
-              value={draft.maxVelocity}
-              onChange={(event) => setDraft({ ...draft, maxVelocity: Number(event.target.value) })}
-            />
+            {/* Safety & Execution Guards */}
+            <div className="policy-guards-section">
+              <div className={`policy-guard-card ${draft.killSwitch ? "guard-tripped" : "guard-active"}`}>
+                <label className="guard-card-label">
+                  <input
+                    type="checkbox"
+                    checked={draft.killSwitch}
+                    onChange={(event) => setDraft({ ...draft, killSwitch: event.target.checked })}
+                  />
+                  <div className="guard-card-content">
+                    <div className="guard-card-header">
+                      <div className="guard-card-title-group">
+                        <AlertOctagon size={16} />
+                        <strong>Emergency Pause (O(1) Kill Switch)</strong>
+                      </div>
+                      <Badge tone={draft.killSwitch ? "critical" : "success"}>
+                        {draft.killSwitch ? "Spending Halted" : "Guarded Active"}
+                      </Badge>
+                    </div>
+                    <p>
+                      {draft.killSwitch
+                        ? "All agent spending is halted. Evaluator short-circuits onchain in O(1) time without sliding window math."
+                        : "Real-time spend monitoring active on Monad Parallel EVM."}
+                    </p>
+                  </div>
+                </label>
+              </div>
 
-            <div className="policy-toggle-group">
-              <label className="check-field">
-                <input
-                  type="checkbox"
-                  checked={draft.killSwitch}
-                  onChange={(event) => setDraft({ ...draft, killSwitch: event.target.checked })}
-                />
-                <span className="check-title">Pause agent activity (O(1) Kill Switch)</span>
-              </label>
-
-              <label className="check-field">
-                <input
-                  type="checkbox"
-                  checked={draft.whitelistEnabled}
-                  onChange={(event) => setDraft({ ...draft, whitelistEnabled: event.target.checked })}
-                />
-                <span className="check-title">Require approved merchants from directory</span>
-              </label>
+              <div className={`policy-guard-card ${draft.whitelistEnabled ? "guard-whitelisted" : "guard-open"}`}>
+                <label className="guard-card-label">
+                  <input
+                    type="checkbox"
+                    checked={draft.whitelistEnabled}
+                    onChange={(event) => setDraft({ ...draft, whitelistEnabled: event.target.checked })}
+                  />
+                  <div className="guard-card-content">
+                    <div className="guard-card-header">
+                      <div className="guard-card-title-group">
+                        <ShieldCheck size={16} />
+                        <strong>Require Approved Merchants from Directory</strong>
+                      </div>
+                      <Badge tone={draft.whitelistEnabled ? "info" : "neutral"}>
+                        {draft.whitelistEnabled ? "Whitelist Enforced" : "Open Merchant"}
+                      </Badge>
+                    </div>
+                    <p>
+                      {draft.whitelistEnabled
+                        ? "Strict merchant enforcement active. Unlisted counterparties rejected immediately with ReasonCode 4."
+                        : "Agent permitted to disburse funds to any valid EVM recipient address."}
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
 
-            <Button
-              onClick={reviewPolicy}
-              disabled={!agent || isPublishing}
-              className="publish-policy-btn"
-            >
-              {isPublishing ? "Submitting to Monad…" : "Review & Publish Policy"}
-            </Button>
+            {/* Action Bar */}
+            <div className="policy-action-bar">
+              <div className="policy-changes-status">
+                {changedFields.length > 0 ? (
+                  <span className="changes-tag pending">
+                    <AlertTriangle size={14} />
+                    <span>{changedFields.length} uncommitted {changedFields.length === 1 ? "change" : "changes"}</span>
+                  </span>
+                ) : (
+                  <span className="changes-tag synced">
+                    <CheckCircle2 size={14} />
+                    <span>Synced with onchain policy</span>
+                  </span>
+                )}
+              </div>
+
+              <Button
+                onClick={reviewPolicy}
+                disabled={!agent || isPublishing}
+                className="publish-policy-btn"
+              >
+                <ShieldCheck size={16} />
+                <span>{isPublishing ? "Submitting to Monad…" : "Review & Publish Policy"}</span>
+              </Button>
+            </div>
           </div>
 
           {message && (

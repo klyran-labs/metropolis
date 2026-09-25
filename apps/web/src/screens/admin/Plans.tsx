@@ -64,7 +64,7 @@ export function AdminPlans() {
             <p>Prices must be bound to the active chain and configured settlement token.</p>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="admin-form-grid">
           {fields.map((key) => (
             <TextField
               key={key}

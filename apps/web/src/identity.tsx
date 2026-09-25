@@ -1,7 +1,7 @@
 import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
-import { configuration, networkLabel } from "./configuration";
+import { configuration, isTenantTarget, networkLabel } from "./configuration";
 import { RequestError, request, setAccessTokenProvider } from "./api";
 
 const chain = {
@@ -31,6 +31,15 @@ export function IdentityProvider({ children }: { children: React.ReactNode }) {
         embeddedWallets: {
           ethereum: { createOnLogin: "users-without-wallets" },
           showWalletUIs: false,
+        },
+        externalWallets: {
+          coinbaseWallet: {
+            config: {
+              preference: {
+                options: "eoaOnly",
+              },
+            },
+          },
         },
       }}
     >
@@ -66,7 +75,7 @@ function useIdentityQuery() {
   const platform = useQuery({
     queryKey: ["platform-access", subject],
     queryFn: ({ signal }) => request<unknown>("/platform/plans", { signal }),
-    enabled: Boolean(privy.authenticated && subject),
+    enabled: Boolean(!isTenantTarget() && privy.authenticated && subject),
     retry: false,
   });
   const needsOnboarding =

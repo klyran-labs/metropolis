@@ -1,6 +1,24 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Moon, Sun, SunMoon, X } from "lucide-react";
+import {
+  AlertCircle,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  FileText,
+  Inbox,
+  Key,
+  Moon,
+  Search,
+  Shield,
+  ShieldCheck,
+  Store,
+  Sun,
+  SunMoon,
+  Wallet,
+  X,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { applyTheme, getStoredTheme, resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme";
 
@@ -91,6 +109,233 @@ export function TextField({
       <input id={id} placeholder={placeholder || " "} {...props} />
       <label htmlFor={id}>{label}</label>
     </div>
+  );
+}
+
+export interface SelectOption<T extends string = string> {
+  value: T;
+  label: string;
+  detail?: string;
+  badge?: ReactNode;
+  icon?: ReactNode;
+  disabled?: boolean;
+}
+
+export function Select<T extends string = string>({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "Select an option",
+  icon,
+  className = "",
+  disabled = false,
+  error,
+}: {
+  label?: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: SelectOption<T>[];
+  placeholder?: string;
+  icon?: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  error?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [search, setSearch] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedOption = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        setSearch("");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  const filteredOptions = search.trim()
+    ? options.filter(
+        (o) =>
+          o.label.toLowerCase().includes(search.toLowerCase()) ||
+          (o.detail && o.detail.toLowerCase().includes(search.toLowerCase()))
+      )
+    : options;
+
+  return (
+    <div
+      ref={containerRef}
+      className={clsx("custom-select-container", className, open && "is-open", disabled && "is-disabled")}
+    >
+      {label && <label className="custom-select-label">{label}</label>}
+      <button
+        type="button"
+        className={clsx("custom-select-trigger", error && "has-error")}
+        onClick={() => {
+          if (!disabled) {
+            setOpen((prev) => !prev);
+            setSearch("");
+          }
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+      >
+        <div className="custom-select-trigger-content">
+          {icon && <span className="custom-select-icon">{icon}</span>}
+          {selectedOption ? (
+            <div className="custom-select-selected-row">
+              <span className="custom-select-title">{selectedOption.label}</span>
+              {selectedOption.detail && (
+                <span className="custom-select-detail">{selectedOption.detail}</span>
+              )}
+              {selectedOption.badge}
+            </div>
+          ) : (
+            <span className="custom-select-placeholder">{placeholder}</span>
+          )}
+        </div>
+        <ChevronDown size={15} className={clsx("custom-select-chevron", open && "rotated")} />
+      </button>
+
+      {open && (
+        <div className="custom-select-menu" role="listbox">
+          {options.length > 5 && (
+            <div className="custom-select-search-wrap">
+              <Search size={13} className="custom-select-search-icon" />
+              <input
+                ref={inputRef}
+                type="text"
+                className="custom-select-search-input"
+                placeholder="Search options..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+              />
+            </div>
+          )}
+          <div className="custom-select-options-list">
+            {filteredOptions.length === 0 ? (
+              <div className="custom-select-empty">No matching options</div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    disabled={opt.disabled}
+                    className={clsx(
+                      "custom-select-option",
+                      isSelected && "is-selected",
+                      opt.disabled && "is-disabled"
+                    )}
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  >
+                    <div className="custom-select-option-left">
+                      {opt.icon && <span className="custom-select-option-icon">{opt.icon}</span>}
+                      <div className="custom-select-option-text">
+                        <span className="custom-select-option-label">{opt.label}</span>
+                        {opt.detail && (
+                          <span className="custom-select-option-detail">{opt.detail}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="custom-select-option-right">
+                      {opt.badge}
+                      {isSelected && <Check size={14} className="custom-select-check" />}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+      {error && <span className="custom-select-error">{error}</span>}
+    </div>
+  );
+}
+
+export function AgentSelect({
+  label = "Target Agent",
+  value,
+  onChange,
+  agents,
+  placeholder = "Select an autonomous agent...",
+  className = "",
+  disabled = false,
+}: {
+  label?: string;
+  value: string;
+  onChange: (address: string) => void;
+  agents: Array<{
+    address: string;
+    label?: string | null;
+    riskTier?: string;
+    environment?: string;
+    status?: string;
+  }>;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  const options: SelectOption[] = agents.map((ag) => {
+    const tone =
+      ag.riskTier === "tier1_critical"
+        ? "critical"
+        : ag.riskTier === "tier2_standard"
+          ? "info"
+          : ag.riskTier === "tier3_test"
+            ? "neutral"
+            : "neutral";
+
+    return {
+      value: ag.address,
+      label: ag.label || truncateMiddle(ag.address, 10, 6),
+      detail: ag.label ? truncateMiddle(ag.address, 8, 6) : (ag.environment || undefined),
+      icon: <Bot size={15} />,
+      badge: <Badge tone={tone}>{formatRiskTier(ag.riskTier)}</Badge>,
+    };
+  });
+
+  return (
+    <Select
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={placeholder}
+      icon={<Bot size={15} />}
+      className={clsx("agent-custom-select", className)}
+      disabled={disabled}
+    />
   );
 }
 
@@ -242,20 +487,145 @@ export function TransactionStatus({
   );
 }
 
+export type EmptyStateTone = "neutral" | "success" | "warning" | "info";
+
+export interface EmptyStateProps {
+  title: string;
+  detail: string;
+  icon?: ReactNode;
+  tone?: EmptyStateTone;
+  action?: ReactNode;
+  compact?: boolean;
+  className?: string;
+}
+
+function getEmptyStateMeta(title: string, detail: string): { icon: ReactNode; tone: EmptyStateTone } {
+  const combined = `${title} ${detail}`.toLowerCase();
+
+  if (
+    combined.includes("clear") ||
+    combined.includes("within automated policy") ||
+    combined.includes("synced") ||
+    combined.includes("healthy") ||
+    combined.includes("all clear") ||
+    combined.includes("passed") ||
+    combined.includes("active")
+  ) {
+    return { icon: <ShieldCheck size={22} />, tone: "success" };
+  }
+
+  if (
+    combined.includes("unavailable") ||
+    combined.includes("error") ||
+    combined.includes("failed") ||
+    combined.includes("couldn't load") ||
+    combined.includes("offline") ||
+    combined.includes("requires")
+  ) {
+    return { icon: <AlertCircle size={22} />, tone: "warning" };
+  }
+
+  if (
+    combined.includes("wallet") ||
+    combined.includes("treasury") ||
+    combined.includes("transfer") ||
+    combined.includes("deposit") ||
+    combined.includes("fund") ||
+    combined.includes("float")
+  ) {
+    return { icon: <Wallet size={22} />, tone: "info" };
+  }
+
+  if (
+    combined.includes("agent") ||
+    combined.includes("fleet") ||
+    combined.includes("bot")
+  ) {
+    return { icon: <Bot size={22} />, tone: "info" };
+  }
+
+  if (
+    combined.includes("credential") ||
+    combined.includes("secret") ||
+    combined.includes("api key") ||
+    combined.includes("token")
+  ) {
+    return { icon: <Key size={22} />, tone: "info" };
+  }
+
+  if (
+    combined.includes("rule") ||
+    combined.includes("policy") ||
+    combined.includes("access") ||
+    combined.includes("permission")
+  ) {
+    return { icon: <Shield size={22} />, tone: "neutral" };
+  }
+
+  if (
+    combined.includes("merchant") ||
+    combined.includes("store") ||
+    combined.includes("whitelist")
+  ) {
+    return { icon: <Store size={22} />, tone: "info" };
+  }
+
+  if (
+    combined.includes("search") ||
+    combined.includes("filter") ||
+    combined.includes("matching") ||
+    combined.includes("found")
+  ) {
+    return { icon: <Search size={22} />, tone: "neutral" };
+  }
+
+  if (
+    combined.includes("plan") ||
+    combined.includes("billing") ||
+    combined.includes("invoice") ||
+    combined.includes("subscription") ||
+    combined.includes("ledger") ||
+    combined.includes("reconciliation")
+  ) {
+    return { icon: <FileText size={22} />, tone: "neutral" };
+  }
+
+  return { icon: <Inbox size={22} />, tone: "neutral" };
+}
+
 export function EmptyState({
   title,
   detail,
-}: {
-  title: string;
-  detail: string;
-}) {
+  icon,
+  tone,
+  action,
+  compact = false,
+  className = "",
+}: EmptyStateProps) {
+  const inferred = getEmptyStateMeta(title, detail);
+  const activeTone = tone || inferred.tone;
+  const activeIcon = icon !== undefined ? icon : inferred.icon;
+
   return (
-    <div className="empty-state">
-      <span className="status-dot" />
-      <div>
-        <strong>{title}</strong>
-        <p>{detail}</p>
+    <div
+      className={clsx(
+        "empty-state",
+        `empty-state-${activeTone}`,
+        compact && "empty-state-compact",
+        className
+      )}
+      role="status"
+    >
+      {activeIcon && (
+        <div className={clsx("empty-state-icon-badge", `tone-${activeTone}`)}>
+          {activeIcon}
+        </div>
+      )}
+      <div className="empty-state-body">
+        <strong className="empty-state-title">{title}</strong>
+        <p className="empty-state-detail">{detail}</p>
       </div>
+      {action && <div className="empty-state-action">{action}</div>}
     </div>
   );
 }
@@ -401,3 +771,23 @@ export function ThemeToggle() {
     </button>
   );
 }
+
+export function formatRiskTier(tier?: string): string {
+  if (!tier) return "Standard";
+  switch (tier) {
+    case "tier1_critical":
+      return "Tier 1 · Critical";
+    case "tier2_standard":
+      return "Tier 2 · Standard";
+    case "tier3_test":
+      return "Tier 3 · Sandbox";
+    default:
+      return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
+
+export function formatPlatformRole(role?: string): string {
+  if (!role) return "Viewer";
+  return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+

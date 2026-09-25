@@ -54,7 +54,7 @@ export function AdminTenants() {
             <p>Platform operators can provision a tenant for an invited owner.</p>
           </div>
         </div>
-        <div className="form-grid">
+        <div className="admin-form-grid">
           {(["displayName", "enterpriseAddress", "ownerSubject"] as const).map((key) => (
             <TextField
               key={key}

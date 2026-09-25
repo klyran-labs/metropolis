@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toUserFacingError, usePlatformOperators, useUpsertPlatformOperator } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, Surface, TextField, formatPlatformRole } from "../../design-system";
 import { useIdentity } from "../../identity";
 
 const platformRoles = [
@@ -45,7 +45,7 @@ export function AdminAccess() {
           <select aria-label="Platform role" value={role} onChange={(event) => setRole(event.target.value as (typeof platformRoles)[number])}>
             {platformRoles.map((item) => (
               <option key={item} value={item}>
-                {item}
+                {formatPlatformRole(item)}
               </option>
             ))}
           </select>
@@ -81,7 +81,7 @@ export function AdminAccess() {
             {operators.data.map((operator) => (
               <div className="entity-row" key={operator.subject}>
                 <strong><Mono>{operator.subject}</Mono></strong>
-                <Badge tone="info">{operator.role}</Badge>
+                <Badge tone="info">{formatPlatformRole(operator.role)}</Badge>
                 <Badge tone={operator.status === "active" ? "success" : "neutral"}>{operator.status}</Badge>
               </div>
             ))}

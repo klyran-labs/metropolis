@@ -28,7 +28,7 @@ pub fn compute_domain_separator(chain_id: u64, verifying_contract: Address) -> B
 /// Computes the EIP-712 Struct Hash for a SpendRequest
 pub fn compute_spend_request_hash(req: &SpendRequest) -> B256 {
     let spend_request_typehash = keccak256(
-        b"SpendRequest(address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint64 nonce)",
+        b"SpendRequest(address agent,address merchant,uint256 amount,bytes32 category,uint256 timestamp,uint256 deadline,uint256 nonce)",
     );
     let encoded = (
         spend_request_typehash,

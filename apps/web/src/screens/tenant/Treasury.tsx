@@ -32,7 +32,7 @@ import {
 } from "../../api";
 import { StatTile } from "../../charts";
 import { configuration } from "../../configuration";
-import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
 import {
   useDevnetFaucet,
@@ -938,25 +938,11 @@ export function Treasury() {
             {destinationType === "agent" && (
               agentsQuery.data?.length ? (
                 <div className="stack" style={{ gap: "6px" }}>
-                  <select
+                  <AgentSelect
                     value={selectedAgentAddress}
-                    onChange={(e) => setSelectedAgentAddress(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      borderRadius: "var(--radius-input)",
-                      background: "var(--surface-container-high)",
-                      border: "1px solid var(--outline-variant)",
-                      color: "var(--on-surface)",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {agentsQuery.data.map((agent) => (
-                      <option key={agent.address} value={agent.address}>
-                        {truncateMiddle(agent.address, 8, 6)} ({agent.environment} · {agent.riskTier.replace("_", " ")})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setSelectedAgentAddress(val)}
+                    agents={agentsQuery.data}
+                  />
                   {selectedAgent && (
                     <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "0.78rem", color: "var(--muted)", padding: "2px 2px" }}>
                       <Badge tone="info">{selectedAgent.environment.toUpperCase()}</Badge>

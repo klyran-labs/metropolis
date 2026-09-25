@@ -10,6 +10,7 @@ export type Agent = {
   status: string;
   createdAt: string;
   walletSource?: "external" | "sovereign";
+  label?: string;
 };
 
 export type OrganizationWallet = {

@@ -24,7 +24,7 @@ import {
   type WalletTransfer,
   type Agent,
 } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TokenAmount, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 import type { OrganizationWallet } from "../../api";
@@ -151,24 +151,6 @@ export function QuorumApprovals() {
         </Surface>
       )}
 
-      {/* Agent Selector */}
-      {agents.length > 0 && (
-        <Surface className="quorum-agent-selector-bar">
-          <span className="filter-label">Filter Quorum by Agent:</span>
-          <select
-            aria-label="Agent"
-            value={selectedAgentAddress || (agents[0]?.address ?? "")}
-            onChange={(e) => setSelectedAgentAddress(e.target.value)}
-          >
-            {agents.map((a) => (
-              <option key={a.address} value={a.address}>
-                {truncateMiddle(a.address, 10, 6)} ({a.riskTier})
-              </option>
-            ))}
-          </select>
-        </Surface>
-      )}
-
       {/* Pending Approvals Section */}
       <Surface>
         <div className="section-heading">
@@ -176,6 +158,16 @@ export function QuorumApprovals() {
             <h2>Pending Approval Queue</h2>
             <p>Transactions currently awaiting human-in-the-loop quorum validation.</p>
           </div>
+          {agents.length > 0 && (
+            <div className="quorum-agent-filter-inline">
+              <AgentSelect
+                label="Filter Quorum by Agent"
+                value={selectedAgentAddress || (agents[0]?.address ?? "")}
+                agents={agents}
+                onChange={(val) => setSelectedAgentAddress(val)}
+              />
+            </div>
+          )}
         </div>
 
         {pendingTransfers.length > 0 ? (

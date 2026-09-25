@@ -14,7 +14,7 @@ import {
   useWalletTransfers,
   type Agent,
 } from "../../api";
-import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
 import { useAgentTba, usePaymasterEligibility } from "../../hooks/usePolicyContracts";
@@ -49,7 +49,17 @@ const fleetColumnHelper = createColumnHelper<typeof fleetFeatures, Agent>();
 const fleetColumns = fleetColumnHelper.columns([
   fleetColumnHelper.accessor("address", {
     header: "Agent",
-    cell: (info) => <CopyAddressButton address={info.getValue()} />,
+    cell: (info) => {
+      const agent = info.row.original;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          {agent.label ? (
+            <strong style={{ fontSize: "0.85rem", color: "var(--on-surface)" }}>{agent.label}</strong>
+          ) : null}
+          <CopyAddressButton address={info.getValue()} />
+        </div>
+      );
+    },
   }),
   fleetColumnHelper.accessor("walletSource", {
     header: "Wallet",
@@ -60,7 +70,14 @@ const fleetColumns = fleetColumnHelper.columns([
     ),
   }),
   fleetColumnHelper.accessor("environment", { header: "Environment" }),
-  fleetColumnHelper.accessor("riskTier", { header: "Risk tier" }),
+  fleetColumnHelper.accessor("riskTier", {
+    header: "Risk tier",
+    cell: (info) => (
+      <Badge tone={info.getValue() === "tier1_critical" ? "critical" : info.getValue() === "tier2_standard" ? "info" : "neutral"}>
+        {formatRiskTier(info.getValue())}
+      </Badge>
+    ),
+  }),
   fleetColumnHelper.accessor("status", {
     header: "State",
     cell: (info) => (
@@ -352,10 +369,10 @@ export function Fleet() {
         method: "POST",
         body: JSON.stringify(
           walletSource === "sovereign"
-            ? { walletSource: "sovereign", label, environment: "production", riskTier: "tier2_standard" }
+            ? { walletSource: "sovereign", label: label.trim(), environment: "production", riskTier: "tier2_standard" }
             : walletSource === "tba"
-            ? { walletSource: "sovereign", label: `${label || "Passport Agent"} [ERC-6551 TBA]`, environment: "production", riskTier: "tier2_standard" }
-            : { walletSource: "external", address, environment: "production", riskTier: "tier2_standard" },
+            ? { walletSource: "sovereign", label: `${label.trim() || "Passport Agent"} [ERC-6551 TBA]`, environment: "production", riskTier: "tier2_standard" }
+            : { walletSource: "external", address, label: label.trim() || undefined, environment: "production", riskTier: "tier2_standard" },
         ),
       });
       setMessage("Agent registered.");
@@ -413,31 +430,62 @@ export function Fleet() {
           </button>
         </div>
         <div className="inline-form">
-          {walletSource === "sovereign" || walletSource === "tba" ? (
-            <TextField
-              label={walletSource === "tba" ? "Passport agent label" : "Agent label"}
-              placeholder={walletSource === "tba" ? "e.g. Autonomous Strategy Bot [TBA]" : "e.g. Inference Agent"}
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          ) : (treasuryWallets.data?.length ?? 0) > 0 ? (
-            <select aria-label="Treasury wallet to link" value={address} onChange={(event) => setAddress(event.target.value)}>
-              <option value="">Select a wallet your organization has registered</option>
-              {treasuryWallets.data?.map((wallet) => (
-                <option key={wallet.id} value={wallet.address}>
-                  {wallet.label} ({wallet.kind === "sovereign" ? "managed" : "connected"})
-                </option>
-              ))}
-            </select>
-          ) : (
-            <EmptyState
-              title="No treasury wallets yet"
-              detail="Register one in Treasury first, then come back to link it to this agent."
-            />
+          <TextField
+            label={walletSource === "tba" ? "Passport agent label" : "Agent label"}
+            placeholder={
+              walletSource === "tba"
+                ? "e.g. Autonomous Strategy Bot [TBA]"
+                : walletSource === "external"
+                  ? "e.g. Treasury Operations Bot"
+                  : "e.g. Inference Agent"
+            }
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+          />
+
+          {walletSource === "external" && (
+            (treasuryWallets.data?.length ?? 0) > 0 ? (
+              <select
+                aria-label="Treasury wallet to link"
+                value={address}
+                onChange={(event) => {
+                  const selectedVal = event.target.value;
+                  setAddress(selectedVal);
+                  if (!label.trim()) {
+                    const matched = treasuryWallets.data?.find((w) => w.address.toLowerCase() === selectedVal.toLowerCase());
+                    if (matched) setLabel(matched.label);
+                  }
+                }}
+                style={{
+                  height: "44px",
+                  padding: "10px 14px",
+                  borderRadius: "var(--radius-input)",
+                  background: "var(--surface-container-high)",
+                  border: "1px solid var(--outline-variant)",
+                  color: "var(--on-surface)",
+                  fontSize: "0.85rem",
+                  flex: 1,
+                  minWidth: "220px",
+                }}
+              >
+                <option value="">Select a wallet your organization has registered</option>
+                {treasuryWallets.data?.map((wallet) => (
+                  <option key={wallet.id} value={wallet.address}>
+                    {wallet.label} ({wallet.kind === "sovereign" ? "managed" : "connected"}) — {truncateMiddle(wallet.address, 8, 4)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <EmptyState
+                title="No treasury wallets yet"
+                detail="Register one in Treasury first, then come back to link it to this agent."
+              />
+            )
           )}
+
           <Button
             onClick={register}
-            disabled={walletSource === "sovereign" ? !label.trim() : !address}
+            disabled={walletSource === "external" ? !address || !label.trim() : !label.trim()}
           >
             Register
           </Button>

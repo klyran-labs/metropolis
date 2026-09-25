@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { isAddress, parseUnits } from "viem";
 import { toUserFacingError, useAgents, useAgentPolicy, type Agent } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
 import { evaluatePolicyOnchain, ONCHAIN_REASON_CODES, useTripKillSwitch } from "../../hooks/usePolicyContracts";
@@ -273,23 +273,15 @@ export function PolicySimulator() {
             </div>
 
             <div className="simulator-form">
-              <div className="m3-field">
-                <label>Target Agent</label>
-                <select
-                  aria-label="Target agent"
-                  value={selectedAgentAddress || (activeAgent?.address ?? "")}
-                  onChange={(e) => {
-                    setSelectedAgentAddress(e.target.value);
-                    setResult(null);
-                  }}
-                >
-                  {agents.map((ag) => (
-                    <option key={ag.address} value={ag.address}>
-                      {truncateMiddle(ag.address, 10, 6)} ({ag.riskTier})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <AgentSelect
+                label="Target Agent"
+                value={selectedAgentAddress || (activeAgent?.address ?? "")}
+                agents={agents}
+                onChange={(addr) => {
+                  setSelectedAgentAddress(addr);
+                  setResult(null);
+                }}
+              />
 
               <div className="simulator-amount-group">
                 <TextField

@@ -949,7 +949,12 @@ pub async fn list_agents_handler(
     Extension(context): Extension<RequestContext>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     let rows = sqlx::query(
-        "SELECT agent_address, admin_address, environment, risk_tier, status, created_at, wallet_source FROM agents WHERE org_id = $1 ORDER BY created_at ASC",
+        "SELECT a.agent_address, a.admin_address, a.environment, a.risk_tier, a.status, a.created_at, a.wallet_source, \
+         COALESCE(NULLIF(a.label, ''), sw.label, ow.label, '') AS label \
+         FROM agents a \
+         LEFT JOIN signing_wallets sw ON sw.id = a.wallet_id \
+         LEFT JOIN organization_wallets ow ON ow.address = a.agent_address AND ow.org_id = a.org_id \
+         WHERE a.org_id = $1 ORDER BY a.created_at ASC",
     )
     .bind(&context.tenant.org_id)
     .fetch_all(&state.repository.pool)
@@ -965,6 +970,7 @@ pub async fn list_agents_handler(
                 "status": row.try_get::<String, _>("status")?,
                 "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
                 "walletSource": row.try_get::<String, _>("wallet_source")?,
+                "label": row.try_get::<String, _>("label").unwrap_or_default(),
             }))
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
@@ -1239,8 +1245,9 @@ pub async fn register_agent_handler(
         }
         _ => return Err(invalid_request("The wallet source is not supported.")),
     };
+    let agent_label = payload.label.as_deref().unwrap_or("").trim();
     sqlx::query(
-        "INSERT INTO agents (org_id, agent_address, admin_address, environment, risk_tier, wallet_id, wallet_source) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO agents (org_id, agent_address, admin_address, environment, risk_tier, wallet_id, wallet_source, label) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(&context.tenant.org_id)
     .bind(format!("{agent:#x}"))
@@ -1249,6 +1256,7 @@ pub async fn register_agent_handler(
     .bind(&payload.risk_tier)
     .bind(wallet_row_id)
     .bind(wallet_source)
+    .bind(agent_label)
     .execute(&state.repository.pool)
     .await
     .map_err(|_| invalid_request("The agent is already registered or the fleet record is invalid."))?;
@@ -1260,7 +1268,8 @@ pub async fn register_agent_handler(
             "environment": payload.environment,
             "riskTier": payload.risk_tier,
             "walletSource": wallet_source,
-            "status": "active"
+            "status": "active",
+            "label": agent_label
         })),
     ))
 }

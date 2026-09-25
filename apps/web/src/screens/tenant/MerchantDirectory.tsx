@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { isAddress } from "viem";
 import { toUserFacingError, useAgents } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
 import { useSetMerchantWhitelist, useIsMerchantWhitelisted } from "../../hooks/usePolicyContracts";
@@ -322,26 +322,19 @@ export function MerchantDirectory() {
         </Surface>
       )}
 
-      {/* Target Agent Selector */}
-      {agents.length > 0 && (
-        <Surface className="quorum-agent-selector-bar">
-          <span className="filter-label">Managing Whitelist for Agent:</span>
-          <select
-            aria-label="Agent"
-            value={selectedAgentAddress || (agents[0]?.address ?? "")}
-            onChange={(e) => setSelectedAgentAddress(e.target.value)}
-          >
-            {agents.map((a) => (
-              <option key={a.address} value={a.address}>
-                {truncateMiddle(a.address, 10, 6)} ({a.riskTier})
-              </option>
-            ))}
-          </select>
-        </Surface>
-      )}
+      {/* Unified Merchant Controls Toolbar */}
+      <Surface className="merchant-toolbar-card">
+        {agents.length > 0 && (
+          <div className="merchant-toolbar-agent-row">
+            <AgentSelect
+              label="Managing Whitelist for Agent"
+              value={selectedAgentAddress || (agents[0]?.address ?? "")}
+              agents={agents}
+              onChange={(val) => setSelectedAgentAddress(val)}
+            />
+          </div>
+        )}
 
-      {/* Filter and Search Bar */}
-      <Surface className="activity-filter-bar">
         <div className="activity-filter-controls">
           <div className="table-search-input">
             <Search size={14} />

@@ -392,6 +392,13 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
   assert.match(copilotSrc, /Policy Invariant Violated/, "AICopilot must display a clear invariant violation message");
   assert.match(copilotSrc, /maxPerTx.*maxPerWindow|maxPerWindow.*maxPerTx/, "AICopilot must compare maxPerTx and maxPerWindow values");
 
+  // React Hook rules: All hooks in AICopilot must precede conditional return (open check)
+  const openReturnIndex = copilotSrc.indexOf("if (!open) return null;");
+  assert.ok(openReturnIndex !== -1, "AICopilot must handle !open with return null");
+  const lastHookMatch = [...copilotSrc.matchAll(/\buse(?:State|Effect|Memo|Ref|Navigate|CompilePolicy)\b/g)].pop();
+  assert.ok(lastHookMatch && lastHookMatch.index < openReturnIndex, "All React hook invocations in AICopilot must occur before the !open early return");
+  assert.match(copilotSrc, /createPortal/, "AICopilot must render to portal root");
+
   // PolicySimulator includes ADR-0008 Multi-Tier Circuit Breaker Testbench
   assert.match(simulatorSrc, /Autonomous Multi-Tier Circuit Breaker Testbench/);
   assert.match(simulatorSrc, /Simulate Runaway Qwen 3.8 Max Loop/);

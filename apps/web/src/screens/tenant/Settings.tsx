@@ -29,7 +29,7 @@ import {
   useUpsertPbacPolicy,
   toUserFacingError,
 } from "../../api";
-import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
 import { useIdentity, type Identity } from "../../identity";
 
 const ASSIGNABLE_CAPABILITIES = [
@@ -309,15 +309,14 @@ function CredentialsTab({ identity }: { identity: Identity }) {
         {issued ? (
           <Mono className="credential-secret-value">{issued.secret}</Mono>
         ) : (
-          <div className="form-grid">
-            <select aria-label="Agent" value={agentAddress} onChange={(event) => setAgentAddress(event.target.value)}>
-              <option value="">Select an agent</option>
-              {agents.data?.map((agent) => (
-                <option key={agent.address} value={agent.address}>
-                  {truncateMiddle(agent.address)} · {agent.environment}
-                </option>
-              ))}
-            </select>
+          <div className="dialog-form-stack">
+            <AgentSelect
+              label="Associated Agent"
+              placeholder="Select an agent..."
+              value={agentAddress}
+              agents={agents.data ?? []}
+              onChange={(val) => setAgentAddress(val)}
+            />
             <TextField label="Subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
             <div className="capability-checkboxes">
               {ASSIGNABLE_CAPABILITIES.map((capability) => (
@@ -378,7 +377,7 @@ function CredentialsTab({ identity }: { identity: Identity }) {
         {issued ? (
           <Mono className="credential-secret-value">{issued.secret}</Mono>
         ) : (
-          <div className="form-grid">
+          <div className="dialog-form-stack">
             <TextField label="New expiry" type="date" value={rotateExpiresAt} onChange={(event) => setRotateExpiresAt(event.target.value)} />
             {formError && <p className="form-message">{formError}</p>}
           </div>
@@ -514,7 +513,7 @@ function PolicyTab({ identity }: { identity: Identity }) {
         {abac.isError ? (
           <EmptyState title="Organization controls unavailable" detail="We couldn't load organization controls right now." />
         ) : abacForm ? (
-          <div className="form-grid">
+          <div className="settings-form-grid">
             <TextField
               label="Allowed networks (CIDR, comma-separated)"
               value={abacForm.allowedCidrs.join(", ")}
@@ -606,7 +605,7 @@ function PolicyTab({ identity }: { identity: Identity }) {
           </>
         }
       >
-        <div className="form-grid">
+        <div className="dialog-form-stack">
           <select aria-label="Effect" value={effect} onChange={(event) => setEffect(event.target.value as "allow" | "deny")}>
             <option value="allow">Allow</option>
             <option value="deny">Deny</option>

@@ -25,9 +25,9 @@ import {
   useAgentPolicy,
   toUserFacingError,
 } from "../../api";
-import { Badge, Button, EmptyState, Mono, TextField, TokenAmount, truncateMiddle } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
-import { useAgentRuntimeState, useTripKillSwitch } from "../../hooks/usePolicyContracts";
+import { useAgentRuntimeState, useTripKillSwitch, useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 
 export function AgentInspector({
   agent,
@@ -45,6 +45,11 @@ export function AgentInspector({
   const policyQuery = useAgentPolicy(agent.address, Boolean(identity.authenticated));
   const policy = policyQuery.data;
   const runtimeState = useAgentRuntimeState(agent.address, Boolean(identity.authenticated));
+  const liveBalance = useLiveTokenBalance(agent.address);
+  const floatUsdc =
+    liveBalance.data !== null && liveBalance.data !== undefined
+      ? (Number(liveBalance.data) / 1e6).toFixed(2)
+      : "0.00";
   const tripKillSwitch = useTripKillSwitch();
   const guardAddress = configuration.contracts.agentWalletGuard;
   const rpcUrl = configuration.rpcUrl;
@@ -149,7 +154,18 @@ export function AgentInspector({
             </div>
             <div>
               <div className="inspector-address-row">
-                <h3 id="agent-inspector-title"><Mono>{truncateMiddle(agent.address, 10, 6)}</Mono></h3>
+                <h3 id="agent-inspector-title">
+                  {agent.label ? (
+                    <span style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <span>{agent.label}</span>
+                      <small style={{ fontSize: "0.78rem", fontWeight: 400, color: "var(--muted)" }}>
+                        <Mono>{truncateMiddle(agent.address, 10, 6)}</Mono>
+                      </small>
+                    </span>
+                  ) : (
+                    <Mono>{truncateMiddle(agent.address, 10, 6)}</Mono>
+                  )}
+                </h3>
                 <button
                   type="button"
                   className="inspector-copy-btn"
@@ -166,6 +182,7 @@ export function AgentInspector({
                 <Badge tone={agent.walletSource === "sovereign" ? "info" : "neutral"}>
                   {agent.walletSource === "sovereign" ? "Managed Vault" : "Connected Wallet"}
                 </Badge>
+                <Badge tone="info">Float: {floatUsdc} USDC</Badge>
                 <span className="inspector-env-pill">{agent.environment}</span>
               </div>
             </div>
@@ -182,32 +199,32 @@ export function AgentInspector({
             className={`inspector-tab ${activeTab === "overview" ? "active" : ""}`}
             onClick={() => setActiveTab("overview")}
           >
-            <Activity size={14} />
-            Overview & Controls
+            <Activity size={15} />
+            <span>Overview</span>
           </button>
           <button
             type="button"
             className={`inspector-tab ${activeTab === "storage" ? "active" : ""}`}
             onClick={() => setActiveTab("storage")}
           >
-            <Layers size={14} />
-            Storage Slots
+            <Layers size={15} />
+            <span>Storage Slots</span>
           </button>
           <button
             type="button"
             className={`inspector-tab ${activeTab === "transfers" ? "active" : ""}`}
             onClick={() => setActiveTab("transfers")}
           >
-            <ArrowDownToLine size={14} />
-            Wallet Funds ({transfers.data?.length ?? 0})
+            <ArrowDownToLine size={15} />
+            <span>Transfers ({transfers.data?.length ?? 0})</span>
           </button>
           <button
             type="button"
             className={`inspector-tab ${activeTab === "sdk" ? "active" : ""}`}
             onClick={() => setActiveTab("sdk")}
           >
-            <Terminal size={14} />
-            SDK Sandbox
+            <Terminal size={15} />
+            <span>SDK Sandbox</span>
           </button>
         </div>
 
@@ -221,8 +238,13 @@ export function AgentInspector({
                   <div className="action-card-icon">
                     <AlertOctagon size={18} />
                   </div>
-                  <div>
-                    <strong>O(1) Circuit Breaker</strong>
+                  <div className="action-card-text">
+                    <div className="action-card-headline">
+                      <strong>O(1) Circuit Breaker</strong>
+                      <span className="action-card-badge">
+                        {isTripped ? "Spending Halted" : "Monitoring Active"}
+                      </span>
+                    </div>
                     <small>
                       {isTripped
                         ? "Spending halted. The onchain evaluator short-circuits before further policy arithmetic."
@@ -263,14 +285,22 @@ export function AgentInspector({
                     <span>10143 Monad Testnet</span>
                   </div>
                 </div>
-                <div className="metric-grid-2">
+                <div className="metric-grid-4">
                   <div className="metric-cell">
                     <small>Risk Tier</small>
-                    <strong>{agent.riskTier}</strong>
+                    <strong>{formatRiskTier(agent.riskTier)}</strong>
                   </div>
                   <div className="metric-cell">
-                    <small>Settlement Cadence</small>
-                    <strong>400ms block cadence</strong>
+                    <small>Available Float</small>
+                    <strong>{floatUsdc} USDC</strong>
+                  </div>
+                  <div className="metric-cell">
+                    <small>Max Per Tx</small>
+                    <strong>{maxSpendPerTxFormatted}</strong>
+                  </div>
+                  <div className="metric-cell">
+                    <small>Window Ceiling</small>
+                    <strong>{maxSpendPerWindowFormatted}</strong>
                   </div>
                 </div>
               </div>
