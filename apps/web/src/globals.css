@@ -1033,33 +1033,180 @@ body,
 /* Dialog */
 
 .m3-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   border: 1px solid var(--outline-soft);
-  border-radius: 14px;
-  padding: 20px 22px;
+  border-radius: 18px;
+  padding: 24px 26px;
   background: var(--surface-container);
   color: var(--on-surface);
-  box-shadow: var(--card-shadow-strong), var(--card-highlight);
-  width: min(500px, calc(100vw - var(--space-24) * 2));
-  max-height: calc(100vh - var(--space-24) * 2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--outline-soft), var(--card-highlight);
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
   overflow-y: auto;
   gap: var(--space-16);
+  z-index: 1000;
 }
 
 .m3-dialog[open] {
   display: grid;
+  animation: dialog-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dialog-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .m3-dialog::backdrop {
-  background: rgb(15 17 25 / 55%);
+  background: rgb(8 10 16 / 68%);
   backdrop-filter: blur(12px) saturate(160%);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
 }
 
+.m3-dialog-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.m3-dialog-close-btn:hover {
+  background: var(--surface-hover);
+  color: var(--on-surface);
+}
+
 .m3-dialog-header { display: grid; gap: 4px; }
-.m3-dialog-header h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
-.m3-dialog-description { font-size: 0.82rem; color: var(--muted); }
-.m3-dialog-body { display: grid; gap: 14px; }
-.m3-dialog-footer { display: flex; justify-content: flex-end; gap: var(--space-8); }
+.m3-dialog-header h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; }
+.m3-dialog-description { font-size: 0.84rem; color: var(--muted); line-height: 1.45; }
+.m3-dialog-body { display: grid; gap: 16px; }
+.m3-dialog-footer { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-8); padding-top: 4px; }
+
+/* Modal Segmented Destination Toggle */
+.modal-segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--outline-soft);
+  border-radius: 10px;
+}
+
+.modal-segment-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 140ms ease;
+  white-space: nowrap;
+}
+
+.modal-segment-btn:hover:not(.active) {
+  color: var(--on-surface);
+  background: var(--surface-hover);
+}
+
+.modal-segment-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* Quick Amount Chips */
+.amount-quick-chip {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  background: var(--surface-sunken);
+  border: 1px solid var(--outline-soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.amount-quick-chip:hover {
+  background: var(--surface-hover);
+  color: var(--on-surface);
+  border-color: var(--outline-strong);
+}
+
+.amount-quick-chip.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+/* Transfer Route Preview Flow */
+.transfer-route-preview {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--outline-soft);
+  font-size: 0.82rem;
+}
+
+.transfer-route-flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transfer-route-node {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.transfer-route-node strong {
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transfer-route-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  color: var(--primary);
+  flex-shrink: 0;
+}
 
 .transaction-status {
   display: flex;
@@ -1562,6 +1709,15 @@ input, select { min-height: 36px; border: 1px solid var(--outline); border-radiu
 }
 
 .m3-field.m3-field-has-icon label { left: 38px; }
+
+.m3-field input::placeholder {
+  color: transparent;
+  transition: color 0.15s ease;
+}
+
+.m3-field input:focus::placeholder {
+  color: var(--muted);
+}
 
 .m3-field input:focus ~ label,
 .m3-field input:not(:placeholder-shown) ~ label {

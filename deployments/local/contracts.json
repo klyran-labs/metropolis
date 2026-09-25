@@ -5,32 +5,32 @@
   "deployer": "0xA978BD5ea722e96caFe47384877F39f8E7EAD22f",
   "contracts": {
     "policyEngine": {
-      "address": "0xa176ef462d1ee0c456e9cf0e88dbf9152be024fd"
+      "address": "0xc3d5b6a3f8039c6a80caec7472b4a4c41641aa73"
     },
     "reputationRegistry": {
-      "address": "0xc325430ce3c733da1adc09a3f7f02de41f67969e"
+      "address": "0x5de272f7ef6598fc9e4aade85f9e87704752229b"
     },
     "agentWalletGuard": {
-      "address": "0xd3e38ac749bddda8a2aa228d4550fab8b77fd0b5"
+      "address": "0xee28f6430c3d6af464add405054207822066bd42"
     },
     "settlementToken": {
-      "address": "0x68fa026ca23bea4156f579cb6a66c5ed11c6ed02"
+      "address": "0xd0ac44bc6354909cfc8fa8949975fb6b1a02df75"
     },
     "circuitVault": {
-      "address": "0x44c015b6caae81d9f8e02d6bdf3b5e43a18a9942"
+      "address": "0x47a7b464307c094e598e237de49c98b361ef25ba"
     },
     "circuitPaymaster": {
-      "address": "0x33b918a5fd89e1b711904a2cce4a3d61b17d7721"
+      "address": "0x53c50523f4269e4a4194d79866c8ecd4f2f94baa"
     },
     "agentIdentityRegistry": {
-      "address": "0x55d019f7ccbe92e01a896d8e5792d4f2081e6551"
+      "address": "0xee7e7c99feec7576a2d44f81d04d649a2c1738bb"
     },
     "agentAccountImplementation": {
-      "address": "0x66e021a8ddcf03f12b907e9f6803e5a3192f6551"
+      "address": "0xc0a6a14960eb89a6638d98718da8dd2c1fdaecbe"
     },
     "agentPassportNFT": {
-      "address": "0x77f032b9eed014023ca18fa07914f6b42a3f7210"
+      "address": "0x4929be7143e22da749b26ede252fd011f2021bc8"
     }
   },
-  "deployBlock": 62680
+  "deployBlock": 6574
 }

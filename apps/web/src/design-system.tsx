@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Moon, Sun, SunMoon } from "lucide-react";
+import { Moon, Sun, SunMoon, X } from "lucide-react";
 import { clsx } from "clsx";
 import { applyTheme, getStoredTheme, resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme";
 
@@ -81,14 +81,14 @@ export function TextField({
   label,
   icon,
   className,
-  placeholder: _placeholder,
+  placeholder = " ",
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { label: string; icon?: ReactNode }) {
   const id = useId();
   return (
     <div className={clsx("m3-field", icon && "m3-field-has-icon", className)}>
       {icon && <span className="m3-field-icon">{icon}</span>}
-      <input id={id} placeholder=" " {...props} />
+      <input id={id} placeholder={placeholder || " "} {...props} />
       <label htmlFor={id}>{label}</label>
     </div>
   );
@@ -127,6 +127,8 @@ export function Dialog({
   description,
   children,
   footer,
+  maxWidth,
+  className,
 }: {
   open: boolean;
   onClose: () => void;
@@ -134,6 +136,8 @@ export function Dialog({
   description?: string;
   children: ReactNode;
   footer: ReactNode;
+  maxWidth?: string | number;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -169,7 +173,8 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className="m3-dialog"
+      className={clsx("m3-dialog", className)}
+      style={maxWidth ? { maxWidth: typeof maxWidth === "number" ? `${maxWidth}px` : maxWidth, width: "100%" } : undefined}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onKeyDown={(event) => {
@@ -185,8 +190,20 @@ export function Dialog({
       }}
     >
       <div className="m3-dialog-header">
-        <h2 id={titleId}>{title}</h2>
-        {description && <p id={descriptionId} className="m3-dialog-description">{description}</p>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            {description && <p id={descriptionId} className="m3-dialog-description">{description}</p>}
+          </div>
+          <button
+            type="button"
+            className="m3-dialog-close-btn"
+            onClick={() => ref.current?.close()}
+            aria-label="Close dialog"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
       <div className="m3-dialog-body">{children}</div>
       <div className="m3-dialog-footer">{footer}</div>

@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http } from 'viem';
+import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -62,6 +62,19 @@ async function main() {
     reputationRegistry.address,
   ]);
   const settlementToken = await deployContract('LocalSettlementToken', [account.address]);
+  const circuitVault = await deployContract('CircuitVault', [
+    settlementToken.address,
+    policyEngine.address,
+  ]);
+  const entryPointAddress = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789';
+  const circuitPaymaster = await deployContract('CircuitPaymaster', [
+    account.address,
+    entryPointAddress,
+    policyEngine.address,
+  ]);
+  const agentIdentityRegistry = await deployContract('AgentIdentityRegistry');
+  const agentAccountImplementation = await deployContract('AgentAccount');
+  const agentPassportNFT = await deployContract('AgentPassportNFT');
 
   const authorizePolicy = await walletClient.writeContract({
     address: policyEngine.address,
@@ -78,6 +91,21 @@ async function main() {
     args: [agentWalletGuard.address, true],
   });
   await publicClient.waitForTransactionReceipt({ hash: authorizeReputation });
+
+  const authorizeVault = await walletClient.writeContract({
+    address: circuitVault.address,
+    abi: circuitVault.abi,
+    functionName: 'setAuthorizedCaller',
+    args: [agentWalletGuard.address, true],
+  });
+  await publicClient.waitForTransactionReceipt({ hash: authorizeVault });
+
+  // Deposit initial gas into CircuitPaymaster
+  const fundPaymaster = await walletClient.sendTransaction({
+    to: circuitPaymaster.address,
+    value: parseEther('10'),
+  });
+  await publicClient.waitForTransactionReceipt({ hash: fundPaymaster });
 
   const deploymentDirectory = join(rootDirectory, 'deployments/local');
   mkdirSync(deploymentDirectory, { recursive: true });
@@ -103,6 +131,11 @@ async function main() {
     reputationRegistry: { address: reputationRegistry.address },
     agentWalletGuard: { address: agentWalletGuard.address },
     settlementToken: { address: settlementToken.address },
+    circuitVault: { address: circuitVault.address },
+    circuitPaymaster: { address: circuitPaymaster.address },
+    agentIdentityRegistry: { address: agentIdentityRegistry.address },
+    agentAccountImplementation: { address: agentAccountImplementation.address },
+    agentPassportNFT: { address: agentPassportNFT.address },
   };
 
   const deployment = {
@@ -140,10 +173,17 @@ async function main() {
       REPUTATION_REGISTRY_ADDRESS: reputationRegistry.address,
       AGENT_WALLET_GUARD_ADDRESS: agentWalletGuard.address,
       USDC_TOKEN_ADDRESS: settlementToken.address,
+      CIRCUIT_VAULT_ADDRESS: circuitVault.address,
+      CIRCUIT_PAYMASTER_ADDRESS: circuitPaymaster.address,
       VITE_POLICY_ENGINE_ADDRESS: policyEngine.address,
       VITE_REPUTATION_REGISTRY_ADDRESS: reputationRegistry.address,
       VITE_AGENT_WALLET_GUARD_ADDRESS: agentWalletGuard.address,
       VITE_USDC_TOKEN_ADDRESS: settlementToken.address,
+      VITE_CIRCUIT_VAULT_ADDRESS: circuitVault.address,
+      VITE_CIRCUIT_PAYMASTER_ADDRESS: circuitPaymaster.address,
+      VITE_AGENT_IDENTITY_REGISTRY_ADDRESS: agentIdentityRegistry.address,
+      VITE_AGENT_ACCOUNT_IMPLEMENTATION_ADDRESS: agentAccountImplementation.address,
+      VITE_AGENT_PASSPORT_NFT_ADDRESS: agentPassportNFT.address,
     };
     let envContent = readFileSync(envFilePath, 'utf8');
     for (const [key, value] of Object.entries(values)) {
@@ -164,6 +204,11 @@ async function main() {
   console.log(`ReputationRegistry: ${reputationRegistry.address}`);
   console.log(`AgentWalletGuard: ${agentWalletGuard.address}`);
   console.log(`LocalSettlementToken: ${settlementToken.address}`);
+  console.log(`CircuitVault: ${circuitVault.address}`);
+  console.log(`CircuitPaymaster: ${circuitPaymaster.address}`);
+  console.log(`AgentIdentityRegistry: ${agentIdentityRegistry.address}`);
+  console.log(`AgentAccountImplementation: ${agentAccountImplementation.address}`);
+  console.log(`AgentPassportNFT: ${agentPassportNFT.address}`);
 
   // Automatically fund devnet wallets and pre-seed active agent policies
   await fundAllWallets({

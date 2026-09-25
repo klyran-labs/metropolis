@@ -1,7 +1,23 @@
-import { useWallets } from "@privy-io/react-auth";
-import { ArrowRightLeft, CheckCircle2, Fuel, Landmark, SendHorizontal, ShieldCheck, Sparkles, UsersRound, Wallet } from "lucide-react";
-import { useState } from "react";
-import { encodeFunctionData, isAddress, parseAbi, parseEther } from "viem";
+import { useConnectWallet, useWallets } from "@privy-io/react-auth";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  ArrowRightLeft,
+  Bot,
+  CheckCircle2,
+  ExternalLink,
+  Fuel,
+  Info,
+  Landmark,
+  SendHorizontal,
+  ShieldCheck,
+  Sparkles,
+  UsersRound,
+  Wallet,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import { encodeFunctionData, isAddress, parseAbi, parseEther, stringToHex } from "viem";
 import {
   useAgents,
   useGrantWalletAccess,
@@ -16,9 +32,15 @@ import {
 } from "../../api";
 import { StatTile } from "../../charts";
 import { configuration } from "../../configuration";
-import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount } from "../../design-system";
+import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
-import { useDevnetFaucet, useLiveTokenBalance, usePaymasterTreasuryBalance, useDepositPaymasterGas } from "../../hooks/usePolicyContracts";
+import {
+  useDevnetFaucet,
+  useLiveTokenBalance,
+  useLiveNativeBalance,
+  usePaymasterTreasuryBalance,
+  useDepositPaymasterGas,
+} from "../../hooks/usePolicyContracts";
 
 function parseBaseUnits(amountStr: string, decimals: number): bigint {
   const [whole = "0", fraction = ""] = amountStr.trim().split(".");
@@ -170,19 +192,88 @@ function TreasuryWalletCard({
 export function Treasury() {
   const identity = useIdentity();
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
+  const { connectWallet } = useConnectWallet();
   const { wallets: connectedWallets } = useWallets();
   const [kind, setKind] = useState<"external" | "sovereign">("sovereign");
+  const [externalAddress, setExternalAddress] = useState("");
   const [label, setLabel] = useState("");
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const devnetFaucet = useDevnetFaucet();
 
-  const register = useRegisterOrganizationWallet(() => {
-    setLabel("");
-    setMessage("Treasury wallet registered.");
-    void wallets.refetch();
-  });
+  const handleSelectKind = (nextKind: "external" | "sovereign") => {
+    setKind(nextKind);
+  };
+
+  const rows = wallets.data ?? [];
+  const sovereignCount = rows.filter((wallet) => wallet.kind === "sovereign").length;
+  const withAccessCount = rows.filter((wallet) => wallet.hasAccess).length;
+
+  const trimmedAddress = externalAddress.trim();
+  const addressValidation = useMemo(() => {
+    if (!trimmedAddress) {
+      return { status: "empty" as const, message: "" };
+    }
+    if (!trimmedAddress.startsWith("0x") && !trimmedAddress.startsWith("0X")) {
+      return {
+        status: "invalid" as const,
+        message: "Address must begin with '0x'.",
+      };
+    }
+    if (trimmedAddress.length !== 42) {
+      return {
+        status: "invalid" as const,
+        message: `Must be exactly 42 characters (currently ${trimmedAddress.length}).`,
+      };
+    }
+    if (!isAddress(trimmedAddress)) {
+      return {
+        status: "invalid" as const,
+        message: "Invalid hexadecimal characters or invalid ERC-55 checksum.",
+      };
+    }
+    if (trimmedAddress.toLowerCase() === "0x0000000000000000000000000000000000000000") {
+      return {
+        status: "invalid" as const,
+        message: "Zero address cannot be registered as a treasury wallet.",
+      };
+    }
+    const existing = rows.find(
+      (w) => w.address.toLowerCase() === trimmedAddress.toLowerCase(),
+    );
+    if (existing) {
+      return {
+        status: "duplicate" as const,
+        message: `Already registered for this organization as "${existing.label}".`,
+      };
+    }
+    const isConnectedInBrowser = connectedWallets.some(
+      (w) => w.address.toLowerCase() === trimmedAddress.toLowerCase(),
+    );
+    if (isConnectedInBrowser) {
+      return {
+        status: "valid_connected" as const,
+        message: "Valid EVM address · Connected in browser wallet",
+      };
+    }
+    return {
+      status: "valid_unconnected" as const,
+      message: "Valid EVM address · Switch to this account in your browser extension to sign",
+    };
+  }, [trimmedAddress, rows, connectedWallets]);
+
+  const register = useRegisterOrganizationWallet(
+    () => {
+      setLabel("");
+      setExternalAddress("");
+      setMessage("Treasury wallet registered.");
+      void wallets.refetch();
+    },
+    (err) => {
+      setMessage(toUserFacingError(err, "Failed to register treasury wallet."));
+    },
+  );
 
   const registerWallet = async () => {
     setMessage("");
@@ -194,30 +285,53 @@ export function Treasury() {
       register.mutate({ kind: "sovereign", label: label.trim() });
       return;
     }
-    const wallet = connectedWallets[0];
+    if (
+      addressValidation.status === "invalid" ||
+      addressValidation.status === "duplicate" ||
+      addressValidation.status === "empty"
+    ) {
+      setMessage(addressValidation.message || "Please enter a valid EVM wallet address (0x...).");
+      return;
+    }
+    const targetAddress = trimmedAddress;
+    const wallet = connectedWallets.find(
+      (w) => w.address.toLowerCase() === targetAddress.toLowerCase(),
+    );
     if (!wallet || !identity.tenantId) {
-      setMessage("Connect a wallet first, then sign to confirm you own it.");
+      setMessage(
+        `Wallet ${truncateMiddle(targetAddress, 8, 6)} is not connected. Connect this wallet in your browser to sign ownership verification.`,
+      );
       return;
     }
     setWorking(true);
     try {
-      const provider = await wallet.getEthereumProvider();
       const proof = treasuryOwnershipMessage(identity.tenantId, label.trim());
-      const signature = (await provider.request({
-        method: "personal_sign",
-        params: [proof, wallet.address],
-      })) as string;
+      let signature: string;
+      if (typeof (wallet as any).sign === "function") {
+        signature = await (wallet as any).sign(proof);
+      } else {
+        const provider = await wallet.getEthereumProvider();
+        const hexMessage = stringToHex(proof);
+        try {
+          signature = (await provider.request({
+            method: "personal_sign",
+            params: [hexMessage, wallet.address],
+          })) as string;
+        } catch {
+          signature = (await provider.request({
+            method: "personal_sign",
+            params: [wallet.address, hexMessage],
+          })) as string;
+        }
+      }
       register.mutate({ kind: "external", label: label.trim(), address: wallet.address, signature });
     } catch (error) {
+      console.error("Treasury wallet signing error:", error);
       setMessage(toUserFacingError(error, "We couldn't confirm you own that wallet."));
     } finally {
       setWorking(false);
     }
   };
-
-  const rows = wallets.data ?? [];
-  const sovereignCount = rows.filter((wallet) => wallet.kind === "sovereign").length;
-  const withAccessCount = rows.filter((wallet) => wallet.hasAccess).length;
 
   // Transfer modal state
   const agentsQuery = useAgents(Boolean(identity.authenticated));
@@ -235,6 +349,33 @@ export function Treasury() {
     message: string;
     txHash?: string;
   } | null>(null);
+
+  const liveSourceUsdc = useLiveTokenBalance(
+    sourceWallet?.address ?? "",
+    Boolean(transferModalOpen && sourceWallet?.address),
+  );
+  const liveSourceMon = useLiveNativeBalance(
+    sourceWallet?.address ?? "",
+    Boolean(transferModalOpen && sourceWallet?.address),
+  );
+
+  const availableUsdcUnits =
+    liveSourceUsdc.data !== null && liveSourceUsdc.data !== undefined
+      ? liveSourceUsdc.data
+      : sourceWallet?.balanceBaseUnits !== null && sourceWallet?.balanceBaseUnits !== undefined
+        ? BigInt(sourceWallet.balanceBaseUnits)
+        : 0n;
+
+  const availableUsdcNumber = Number(availableUsdcUnits) / 1e6;
+  const availableMonNumber = Number(liveSourceMon.data ?? 0n) / 1e18;
+
+  const selectedAgent = agentsQuery.data?.find(
+    (a) => a.address.toLowerCase() === selectedAgentAddress.toLowerCase(),
+  );
+  const liveAgentUsdc = useLiveTokenBalance(
+    selectedAgentAddress || "",
+    Boolean(transferModalOpen && destinationType === "agent" && selectedAgentAddress),
+  );
 
   // Paymaster Gas Sponsorship Float state
   const primaryTreasury = rows[0]?.address || connectedWallets[0]?.address || "";
@@ -289,6 +430,9 @@ export function Treasury() {
     setSourceWallet(target);
     setTransferFeedback(null);
     setTransferAmount("");
+    if (target?.kind === "sovereign") {
+      setTokenSymbol("USDC");
+    }
     if (agentsQuery.data?.length) {
       setSelectedAgentAddress(agentsQuery.data[0].address);
     }
@@ -305,6 +449,30 @@ export function Treasury() {
     const trimmedAmount = transferAmount.trim();
     if (!trimmedAmount || isNaN(Number(trimmedAmount)) || Number(trimmedAmount) <= 0) {
       setTransferFeedback({ type: "error", message: "Enter a valid transfer amount greater than 0." });
+      return;
+    }
+
+    if (sourceWallet.kind === "sovereign" && tokenSymbol === "MON") {
+      setTransferFeedback({
+        type: "error",
+        message: "Sovereign Managed Vaults disburse USDC float. To sponsor native MON gas for agents, use the Paymaster Gas Float panel.",
+      });
+      return;
+    }
+
+    const requestedAmount = Number(trimmedAmount);
+    if (tokenSymbol === "USDC" && requestedAmount > availableUsdcNumber) {
+      setTransferFeedback({
+        type: "error",
+        message: `Insufficient balance: wallet holds ${availableUsdcNumber.toFixed(2)} USDC.`,
+      });
+      return;
+    }
+    if (tokenSymbol === "MON" && requestedAmount > availableMonNumber) {
+      setTransferFeedback({
+        type: "error",
+        message: `Insufficient balance: wallet holds ${availableMonNumber.toFixed(4)} MON.`,
+      });
       return;
     }
 
@@ -445,24 +613,153 @@ export function Treasury() {
           <button
             type="button"
             className={kind === "sovereign" ? "workspace-tab active" : "workspace-tab"}
-            onClick={() => setKind("sovereign")}
+            onClick={() => handleSelectKind("sovereign")}
           >
             <Sparkles size={14} /> Generate a new wallet
           </button>
           <button
             type="button"
             className={kind === "external" ? "workspace-tab active" : "workspace-tab"}
-            onClick={() => setKind("external")}
+            onClick={() => handleSelectKind("external")}
           >
             <Wallet size={14} /> Connect an existing wallet
           </button>
         </div>
-        <div className="inline-form">
-          <TextField label="Label" value={label} onChange={(event) => setLabel(event.target.value)} />
-          <Button onClick={() => void registerWallet()} disabled={working || register.isPending || !label.trim()}>
-            {working || register.isPending ? "Registering…" : "Register wallet"}
-          </Button>
-        </div>
+        {kind === "external" ? (
+          <div className="stack" style={{ gap: "12px", marginTop: "14px" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 340px" }}>
+                <TextField
+                  label="Wallet Address (0x...)"
+                  placeholder="0x... (paste address or connect wallet)"
+                  value={externalAddress}
+                  onChange={(event) => setExternalAddress(event.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+              <Button
+                variant="tonal"
+                style={{ height: "42px", minHeight: "42px", minWidth: "190px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                onClick={() => {
+                  try {
+                    void connectWallet();
+                  } catch (err) {
+                    setMessage(toUserFacingError(err, "Wallet connection failed."));
+                  }
+                }}
+              >
+                <Wallet size={14} style={{ marginRight: 6 }} />
+                {connectedWallets.length > 0 ? "Connect / Switch Wallet" : "Connect Web3 Wallet"}
+              </Button>
+            </div>
+            {addressValidation.status !== "empty" && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", marginTop: "-4px" }}>
+                {addressValidation.status === "invalid" && (
+                  <>
+                    <AlertCircle size={14} style={{ color: "var(--status-critical)", flexShrink: 0 }} />
+                    <span style={{ color: "var(--status-critical)" }}>{addressValidation.message}</span>
+                  </>
+                )}
+                {addressValidation.status === "duplicate" && (
+                  <>
+                    <AlertTriangle size={14} style={{ color: "var(--status-warning)", flexShrink: 0 }} />
+                    <span style={{ color: "var(--status-warning)" }}>{addressValidation.message}</span>
+                  </>
+                )}
+                {addressValidation.status === "valid_connected" && (
+                  <>
+                    <CheckCircle2 size={14} style={{ color: "var(--status-good)", flexShrink: 0 }} />
+                    <span style={{ color: "var(--status-good)" }}>{addressValidation.message}</span>
+                  </>
+                )}
+                {addressValidation.status === "valid_unconnected" && (
+                  <>
+                    <Info size={14} style={{ color: "var(--status-warning)", flexShrink: 0 }} />
+                    <span style={{ color: "var(--status-warning)" }}>{addressValidation.message}</span>
+                  </>
+                )}
+              </div>
+            )}
+            {connectedWallets.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--color-on-surface-variant)", flexWrap: "wrap" }}>
+                <span className="status-dot tone-success" />
+                <span>
+                  Detected browser wallet: <Mono>{truncateMiddle(connectedWallets[0].address, 10, 6)}</Mono>
+                </span>
+                {externalAddress.toLowerCase() !== connectedWallets[0].address.toLowerCase() && (
+                  <Button
+                    variant="text"
+                    style={{ padding: "0 6px", height: "24px", fontSize: "0.78rem" }}
+                    onClick={() => setExternalAddress(connectedWallets[0].address)}
+                  >
+                    Use detected address
+                  </Button>
+                )}
+                {connectedWallets.length > 1 && (
+                  <select
+                    style={{ marginLeft: "auto", fontSize: "0.8rem", padding: "4px 8px", borderRadius: "6px" }}
+                    value={externalAddress}
+                    onChange={(e) => setExternalAddress(e.target.value)}
+                    aria-label="Select connected wallet"
+                  >
+                    <option value="">Select from connected wallets...</option>
+                    {connectedWallets.map((w) => (
+                      <option key={w.address} value={w.address}>
+                        {truncateMiddle(w.address, 10, 6)} ({w.walletClientType || "wallet"})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: 0 }}>
+              <div style={{ flex: "1 1 340px" }}>
+                <TextField
+                  label="Wallet Label"
+                  placeholder="e.g. Primary Treasury, Operations Vault"
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+              <Button
+                style={{ height: "42px", minHeight: "42px", minWidth: "190px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                onClick={() => void registerWallet()}
+                disabled={
+                  working ||
+                  register.isPending ||
+                  !label.trim() ||
+                  (addressValidation.status !== "valid_connected" && addressValidation.status !== "valid_unconnected")
+                }
+              >
+                {working || register.isPending ? "Registering…" : "Register wallet"}
+              </Button>
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--color-on-surface-variant)", margin: 0 }}>
+              Connecting an external wallet requires a one-time cryptographic signature in your browser extension to verify ownership.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "14px" }}>
+            <div style={{ flex: "1 1 340px" }}>
+              <TextField
+                label="Wallet Label"
+                placeholder="e.g. Sovereign Vault, Reserve Treasury"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <Button
+              style={{ height: "42px", minHeight: "42px", minWidth: "190px", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+              onClick={() => void registerWallet()}
+              disabled={working || register.isPending || !label.trim()}
+            >
+              {working || register.isPending ? "Registering…" : "Register wallet"}
+            </Button>
+          </div>
+        )}
         {message && <p className="form-message">{message}</p>}
       </Surface>
       <Surface>
@@ -533,8 +830,8 @@ export function Treasury() {
         onClose={() => {
           if (!transferWorking) setTransferModalOpen(false);
         }}
-        title="Disburse / Transfer crypto"
-        description="Transfer funds between treasury wallets, disburse to an autonomous agent, or send to any external Monad address."
+        title="Disburse / Transfer Funds"
+        description="Transfer institutional USDC or native MON to fund autonomous agents, rebalance treasury vaults, or settle external counterparties on Monad."
         footer={
           <>
             <Button
@@ -547,156 +844,354 @@ export function Treasury() {
             <Button
               variant="filled"
               onClick={() => void handleExecuteTransfer()}
-              disabled={transferWorking || !sourceWallet || !transferAmount.trim()}
+              disabled={
+                transferWorking ||
+                !sourceWallet ||
+                !transferAmount.trim() ||
+                isNaN(Number(transferAmount)) ||
+                Number(transferAmount) <= 0
+              }
+              style={{ minWidth: "160px" }}
             >
               <SendHorizontal size={14} style={{ marginRight: 6 }} />
-              {transferWorking ? "Executing…" : "Confirm & Send"}
+              {transferWorking
+                ? "Executing Transfer…"
+                : transferAmount && Number(transferAmount) > 0
+                  ? `Disburse ${transferAmount} ${tokenSymbol}`
+                  : "Confirm & Disburse"}
             </Button>
           </>
         }
       >
-        <div className="stack" style={{ gap: "var(--space-12)" }}>
-          <div className="stack" style={{ gap: "var(--space-4)" }}>
-            <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Source Treasury Wallet</label>
+        <div className="stack" style={{ gap: "var(--space-16)" }}>
+          {/* Source Treasury Wallet */}
+          <div className="stack" style={{ gap: "6px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Source Treasury Wallet</label>
+              {sourceWallet && (
+                <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
+                  Available:{" "}
+                  <strong style={{ color: "var(--on-surface)" }}>
+                    {tokenSymbol === "USDC" ? `${availableUsdcNumber.toFixed(2)} USDC` : `${availableMonNumber.toFixed(4)} MON`}
+                  </strong>
+                </span>
+              )}
+            </div>
             <select
               value={sourceWallet?.id ?? ""}
               onChange={(e) => {
                 const found = rows.find((w) => w.id === e.target.value);
-                if (found) setSourceWallet(found);
+                if (found) {
+                  setSourceWallet(found);
+                  if (found.kind === "sovereign") {
+                    setTokenSymbol("USDC");
+                  }
+                }
               }}
               style={{
                 width: "100%",
-                padding: "8px 12px",
+                padding: "10px 14px",
                 borderRadius: "var(--radius-input)",
                 background: "var(--surface-container-high)",
                 border: "1px solid var(--outline-variant)",
                 color: "var(--on-surface)",
+                fontSize: "0.85rem",
+                fontWeight: 500,
               }}
             >
               {rows.map((w) => (
                 <option key={w.id} value={w.id} disabled={!w.hasAccess}>
-                  {w.label} ({w.kind === "sovereign" ? "Managed" : "Connected"}) — {w.address.slice(0, 6)}…{w.address.slice(-4)}
+                  {w.label} ({w.kind === "sovereign" ? "Managed Vault" : "Connected Wallet"}) — {truncateMiddle(w.address, 8, 4)}
+                  {!w.hasAccess ? " [No Access]" : ""}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="stack" style={{ gap: "var(--space-4)" }}>
-            <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Destination</label>
-            <div className="wallet-kind-toggle" role="tablist" aria-label="Destination type">
+          {/* Destination Selection */}
+          <div className="stack" style={{ gap: "8px" }}>
+            <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Destination Target</label>
+            <div className="modal-segmented-control" role="tablist" aria-label="Destination category">
               <button
                 type="button"
-                className={destinationType === "agent" ? "workspace-tab active" : "workspace-tab"}
+                className={destinationType === "agent" ? "modal-segment-btn active" : "modal-segment-btn"}
                 onClick={() => setDestinationType("agent")}
               >
-                Autonomous Agent
+                <Bot size={14} /> Autonomous Agent
               </button>
               <button
                 type="button"
-                className={destinationType === "treasury" ? "workspace-tab active" : "workspace-tab"}
+                className={destinationType === "treasury" ? "modal-segment-btn active" : "modal-segment-btn"}
                 onClick={() => setDestinationType("treasury")}
               >
-                Treasury Wallet
+                <Landmark size={14} /> Treasury Vault
               </button>
               <button
                 type="button"
-                className={destinationType === "custom" ? "workspace-tab active" : "workspace-tab"}
+                className={destinationType === "custom" ? "modal-segment-btn active" : "modal-segment-btn"}
                 onClick={() => setDestinationType("custom")}
               >
-                External Address
+                <ExternalLink size={14} /> External Address
               </button>
             </div>
 
             {destinationType === "agent" && (
               agentsQuery.data?.length ? (
-                <select
-                  value={selectedAgentAddress}
-                  onChange={(e) => setSelectedAgentAddress(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "var(--radius-input)",
-                    background: "var(--surface-container-high)",
-                    border: "1px solid var(--outline-variant)",
-                    color: "var(--on-surface)",
-                  }}
-                >
-                  {agentsQuery.data.map((agent) => (
-                    <option key={agent.address} value={agent.address}>
-                      {agent.address.slice(0, 8)}…{agent.address.slice(-6)} ({agent.environment} · {agent.riskTier})
-                    </option>
-                  ))}
-                </select>
+                <div className="stack" style={{ gap: "6px" }}>
+                  <select
+                    value={selectedAgentAddress}
+                    onChange={(e) => setSelectedAgentAddress(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius-input)",
+                      background: "var(--surface-container-high)",
+                      border: "1px solid var(--outline-variant)",
+                      color: "var(--on-surface)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    {agentsQuery.data.map((agent) => (
+                      <option key={agent.address} value={agent.address}>
+                        {truncateMiddle(agent.address, 8, 6)} ({agent.environment} · {agent.riskTier.replace("_", " ")})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedAgent && (
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "0.78rem", color: "var(--muted)", padding: "2px 2px" }}>
+                      <Badge tone="info">{selectedAgent.environment.toUpperCase()}</Badge>
+                      <Badge tone="neutral">{selectedAgent.riskTier.replace("_", " ").toUpperCase()}</Badge>
+                      <span>Float: {liveAgentUsdc.data ? (Number(liveAgentUsdc.data) / 1e6).toFixed(2) : "0.00"} USDC</span>
+                    </div>
+                  )}
+                </div>
               ) : (
-                <TextField
-                  label="Agent Address (0x…)"
-                  value={selectedAgentAddress}
-                  onChange={(e) => setSelectedAgentAddress(e.target.value)}
-                  placeholder="0x…"
-                />
+                <div className="stack" style={{ gap: "6px" }}>
+                  <TextField
+                    label="Agent Address (0x…)"
+                    value={selectedAgentAddress}
+                    onChange={(e) => setSelectedAgentAddress(e.target.value)}
+                    placeholder="0x…"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <small style={{ color: "var(--muted)", fontSize: "0.76rem" }}>
+                    No fleet agents registered yet. Enter the recipient agent account address.
+                  </small>
+                </div>
               )
             )}
 
             {destinationType === "treasury" && (
-              <select
-                value={selectedTreasuryId}
-                onChange={(e) => setSelectedTreasuryId(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  borderRadius: "var(--radius-input)",
-                  background: "var(--surface-container-high)",
-                  border: "1px solid var(--outline-variant)",
-                  color: "var(--on-surface)",
-                }}
-              >
-                {rows
-                  .filter((w) => w.id !== sourceWallet?.id)
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label} ({w.address.slice(0, 6)}…{w.address.slice(-4)})
-                    </option>
-                  ))}
-              </select>
+              rows.filter((w) => w.id !== sourceWallet?.id).length > 0 ? (
+                <select
+                  value={selectedTreasuryId}
+                  onChange={(e) => setSelectedTreasuryId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    borderRadius: "var(--radius-input)",
+                    background: "var(--surface-container-high)",
+                    border: "1px solid var(--outline-variant)",
+                    color: "var(--on-surface)",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  {rows
+                    .filter((w) => w.id !== sourceWallet?.id)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label} ({w.kind === "sovereign" ? "Managed Vault" : "Connected"}) — {truncateMiddle(w.address, 8, 4)}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <div style={{ padding: "10px 14px", borderRadius: "8px", background: "var(--surface-sunken)", border: "1px solid var(--outline-soft)", fontSize: "0.8rem", color: "var(--muted)" }}>
+                  Only 1 treasury wallet is currently registered. To transfer between treasury vaults, register an additional vault first.
+                </div>
+              )
             )}
 
             {destinationType === "custom" && (
-              <TextField
-                label="Recipient EVM Address (0x…)"
-                value={customAddress}
-                onChange={(e) => setCustomAddress(e.target.value)}
-                placeholder="0x…"
-              />
+              <div className="stack" style={{ gap: "4px" }}>
+                <TextField
+                  label="Recipient EVM Address (0x…)"
+                  value={customAddress}
+                  onChange={(e) => setCustomAddress(e.target.value)}
+                  placeholder="0x… (paste recipient wallet or smart contract)"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {customAddress.trim() && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem" }}>
+                    {isAddress(customAddress.trim()) ? (
+                      <span style={{ color: "var(--status-good)" }}>✓ Valid EVM destination address on Monad</span>
+                    ) : (
+                      <span style={{ color: "var(--status-critical)" }}>✕ Invalid hexadecimal EVM address</span>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: "var(--space-8)" }}>
-            <TextField
-              label="Amount"
-              value={transferAmount}
-              onChange={(e) => setTransferAmount(e.target.value)}
-              placeholder="0.00"
-            />
-            <div className="stack" style={{ gap: "var(--space-4)" }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Asset</label>
-              <select
-                value={tokenSymbol}
-                onChange={(e) => setTokenSymbol(e.target.value as "USDC" | "MON")}
-                style={{
-                  height: "40px",
-                  padding: "6px 10px",
-                  borderRadius: "var(--radius-input)",
-                  background: "var(--surface-container-high)",
-                  border: "1px solid var(--outline-variant)",
-                  color: "var(--on-surface)",
-                }}
-              >
-                <option value="USDC">USDC</option>
-                <option value="MON">MON (Gas)</option>
-              </select>
+          {/* Amount and Asset Selection */}
+          <div className="stack" style={{ gap: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Transfer Amount</label>
+              <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
+                Max sendable:{" "}
+                <strong style={{ color: "var(--on-surface)" }}>
+                  {tokenSymbol === "USDC" ? `${availableUsdcNumber.toFixed(2)} USDC` : `${availableMonNumber.toFixed(4)} MON`}
+                </strong>
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: "var(--space-8)", alignItems: "center" }}>
+              <div style={{ position: "relative" }}>
+                <TextField
+                  label="Amount"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  placeholder="0.00"
+                  autoComplete="off"
+                />
+                {Number(tokenSymbol === "USDC" ? availableUsdcNumber : availableMonNumber) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (tokenSymbol === "USDC") {
+                        setTransferAmount(availableUsdcNumber.toFixed(2));
+                      } else {
+                        setTransferAmount(Math.max(0, availableMonNumber - 0.005).toFixed(4));
+                      }
+                    }}
+                    style={{
+                      position: "absolute",
+                      right: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      padding: "3px 8px",
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      borderRadius: "5px",
+                      background: "var(--primary-soft)",
+                      color: "var(--primary)",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    MAX
+                  </button>
+                )}
+              </div>
+
+              <div className="stack" style={{ gap: "var(--space-4)" }}>
+                <select
+                  value={tokenSymbol}
+                  onChange={(e) => {
+                    setTokenSymbol(e.target.value as "USDC" | "MON");
+                    setTransferAmount("");
+                  }}
+                  aria-label="Settlement Asset"
+                  disabled={sourceWallet?.kind === "sovereign"}
+                  style={{
+                    height: "42px",
+                    padding: "6px 12px",
+                    borderRadius: "var(--radius-input)",
+                    background: "var(--surface-container-high)",
+                    border: "1px solid var(--outline-variant)",
+                    color: "var(--on-surface)",
+                    fontWeight: 600,
+                    cursor: sourceWallet?.kind === "sovereign" ? "not-allowed" : "pointer",
+                    opacity: sourceWallet?.kind === "sovereign" ? 0.8 : 1,
+                  }}
+                >
+                  <option value="USDC">USDC (Token)</option>
+                  {sourceWallet?.kind !== "sovereign" && <option value="MON">MON (Gas)</option>}
+                </select>
+              </div>
+            </div>
+
+            {sourceWallet?.kind === "sovereign" && (
+              <small style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "-2px" }}>
+                ℹ Sovereign vaults disburse USDC float. For agent native MON gas sponsorship, replenish the Paymaster.
+              </small>
+            )}
+
+            {/* Quick Amount Chips */}
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", paddingTop: "2px" }}>
+              <span style={{ fontSize: "0.74rem", color: "var(--muted)", marginRight: "2px" }}>Quick:</span>
+              {(tokenSymbol === "USDC" ? ["10", "25", "50", "100", "250"] : ["0.5", "1.0", "2.0", "5.0"]).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className={transferAmount === preset ? "amount-quick-chip active" : "amount-quick-chip"}
+                  onClick={() => setTransferAmount(preset)}
+                >
+                  {preset} {tokenSymbol}
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* Transfer Route Preview Card */}
+          <div className="transfer-route-preview">
+            <div className="transfer-route-flow">
+              <div className="transfer-route-node">
+                <small style={{ color: "var(--muted)", textTransform: "uppercase", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.04em" }}>
+                  Origin Source
+                </small>
+                <strong>{sourceWallet?.label || "Select Wallet"}</strong>
+                <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
+                  <Mono>{sourceWallet ? truncateMiddle(sourceWallet.address, 8, 4) : "—"}</Mono>
+                </span>
+              </div>
+
+              <div className="transfer-route-arrow">
+                <ArrowRight size={15} />
+              </div>
+
+              <div className="transfer-route-node" style={{ textAlign: "right" }}>
+                <small style={{ color: "var(--muted)", textTransform: "uppercase", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.04em" }}>
+                  Recipient Target
+                </small>
+                <strong>
+                  {destinationType === "agent"
+                    ? selectedAgent ? `Agent (${selectedAgent.environment})` : "Autonomous Agent"
+                    : destinationType === "treasury"
+                      ? rows.find((w) => w.id === selectedTreasuryId)?.label || "Treasury Vault"
+                      : "External Recipient"}
+                </strong>
+                <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
+                  <Mono>
+                    {truncateMiddle(
+                      destinationType === "agent"
+                        ? selectedAgentAddress
+                        : destinationType === "treasury"
+                          ? rows.find((w) => w.id === selectedTreasuryId)?.address || ""
+                          : customAddress || "0x…",
+                      8,
+                      4,
+                    )}
+                  </Mono>
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "8px", borderTop: "1px solid var(--outline-soft)", fontSize: "0.76rem", color: "var(--muted)", flexWrap: "wrap", gap: "6px" }}>
+              <span>
+                {sourceWallet?.kind === "sovereign"
+                  ? "✨ Sovereign Enclave · Programmatic Execution"
+                  : "💼 Browser Extension · 1 Signature Required"}
+              </span>
+              <span style={{ color: "var(--status-good)", fontWeight: 600 }}>
+                Monad Fast Finality (~400ms)
+              </span>
+            </div>
+          </div>
+
+          {/* Feedback & Confirmation Message */}
           {transferFeedback && (
             <div
               style={{

@@ -825,7 +825,7 @@ pub async fn create_tenant_handler(
     .map_err(|_| {
         invalid_request("The tenant identifier or enterprise address is already in use.")
     })?;
-    sqlx::query("INSERT INTO operators (org_id, subject, role) VALUES ($1, $2, 'agent_developer')")
+    sqlx::query("INSERT INTO operators (org_id, subject, role) VALUES ($1, $2, 'super_admin')")
         .bind(&tenant_id)
         .bind(payload.owner_subject.trim())
         .execute(&mut *transaction)
@@ -920,7 +920,7 @@ async fn provision_tenant(
     .map_err(|_| {
         invalid_request("The organization name or enterprise address is already in use.")
     })?;
-    sqlx::query("INSERT INTO operators (org_id, subject, role) VALUES ($1, $2, 'agent_developer')")
+    sqlx::query("INSERT INTO operators (org_id, subject, role) VALUES ($1, $2, 'super_admin')")
         .bind(&tenant_id)
         .bind(owner_subject)
         .execute(&mut *transaction)

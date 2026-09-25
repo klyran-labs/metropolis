@@ -4,6 +4,7 @@ import { request, toUserFacingError } from "./api";
 import { Button, Mono, Surface, TextField } from "./design-system";
 import { useIdentity } from "./identity";
 import { useWallets } from "@privy-io/react-auth";
+import { stringToHex } from "viem";
 
 function ownershipMessage(subject: string, displayName: string) {
   return `AgentGuard organization ownership proof\nSubject: ${subject}\nOrganization: ${displayName}`;
@@ -28,12 +29,25 @@ export function TenantOnboarding({ identity }: { identity: ReturnType<typeof use
     setWorking(true);
     setMessage("Confirm ownership with your enterprise wallet…");
     try {
-      const provider = await wallet.getEthereumProvider();
       const proof = ownershipMessage(identity.subject, displayName.trim());
-      const signature = (await provider.request({
-        method: "personal_sign",
-        params: [proof, wallet.address],
-      })) as string;
+      let signature: string;
+      if (typeof (wallet as any).sign === "function") {
+        signature = await (wallet as any).sign(proof);
+      } else {
+        const provider = await wallet.getEthereumProvider();
+        const hexMessage = stringToHex(proof);
+        try {
+          signature = (await provider.request({
+            method: "personal_sign",
+            params: [hexMessage, wallet.address],
+          })) as string;
+        } catch {
+          signature = (await provider.request({
+            method: "personal_sign",
+            params: [wallet.address, hexMessage],
+          })) as string;
+        }
+      }
       await request("/onboarding/tenant", {
         method: "POST",
         body: JSON.stringify({

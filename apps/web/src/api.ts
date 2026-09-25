@@ -320,23 +320,28 @@ export class RequestError extends Error {
   }
 }
 
-/** Converts transport, wallet, and policy failures into safe operator-facing copy. */
 export function toUserFacingError(error: unknown, fallback: string): string {
   if (error instanceof RequestError) {
+    if (error.message && error.message !== "The service could not complete the request." && error.message !== "Internal Server Error") {
+      return error.message;
+    }
     const reasonMessages: Record<string, string> = {
       ERR_UNAUTHENTICATED: "Your session has expired. Sign in again to continue.",
       ERR_ROLE_FORBIDDEN: "Your role does not permit this action.",
       ERR_TENANT_SCOPE: "This resource is outside your organization workspace.",
       ERR_POLICY_DENIED: "The policy engine denied this action.",
       ERR_RATE_LIMITED: "The workspace is busy. Retry when the current operations finish.",
-      ERR_DEPENDENCY_UNAVAILABLE: "A required service is temporarily unavailable.",
+      ERR_DEPENDENCY_UNAVAILABLE: "The Sovereign Key Vault service is temporarily unavailable.",
       ERR_TIMEOUT: "The request timed out before a response was received.",
     };
-    return reasonMessages[error.reasonCode] ?? fallback;
+    if (error.reasonCode && reasonMessages[error.reasonCode]) {
+      return reasonMessages[error.reasonCode];
+    }
+    return fallback;
   }
 
   const message = error instanceof Error ? error.message : "";
-  if (/user rejected|user denied|rejected the request/i.test(message)) {
+  if (/user rejected|user denied|rejected the request|user cancelled|user canceled|exited signature flow|modal closed/i.test(message)) {
     return "Wallet approval was cancelled.";
   }
   if (/wrong network|chain id|unsupported chain/i.test(message)) {
@@ -530,7 +535,10 @@ export const useOrganizationWallets = (enabled: boolean) =>
     enabled,
   });
 
-export const useRegisterOrganizationWallet = (onSuccess: () => void) =>
+export const useRegisterOrganizationWallet = (
+  onSuccess: () => void,
+  onError?: (error: unknown) => void,
+) =>
   useMutation({
     mutationFn: (payload: {
       kind: "external" | "sovereign";
@@ -543,6 +551,7 @@ export const useRegisterOrganizationWallet = (onSuccess: () => void) =>
         body: JSON.stringify(payload),
       }),
     onSuccess,
+    onError,
   });
 
 export const useWalletAccess = (walletId: string, enabled: boolean) =>

@@ -34,6 +34,21 @@ if (existingPrivateKey && existingPrivateKey.toLowerCase() !== derivedPrivateKey
   );
 }
 
+const requiredDefaults = {
+  PAYMASTER_VERIFICATION_GAS_LIMIT: '100000',
+  PAYMASTER_POST_OP_GAS_LIMIT: '40000',
+  TENANT_MAX_CONCURRENCY: '64',
+  MAX_TRACKED_TENANTS: '10000',
+  PROVIDER_MAX_CONCURRENCY: '32',
+  RPC_MAX_CONCURRENCY: '128',
+};
+
+for (const [key, defaultValue] of Object.entries(requiredDefaults)) {
+  if (!readValue(key)) {
+    writeValue(key, defaultValue);
+  }
+}
+
 writeValue('ANVIL_MNEMONIC', mnemonic);
 writeValue('DEPLOYER_PRIVATE_KEY', derivedPrivateKey);
 writeFileSync(envFilePath, envContent);
