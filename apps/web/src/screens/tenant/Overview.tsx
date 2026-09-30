@@ -12,6 +12,7 @@ import {
   Lock,
   PauseCircle,
   Radio,
+  RefreshCw,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -35,6 +36,8 @@ import { Breakdown, Gauge, StatTile, TrendArea } from "../../charts";
 import { useIdentity } from "../../identity";
 import { AgentInspector } from "./AgentInspector";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
+import { useToast } from "../../components/UndoToast";
+import { AgentOnboardingModal } from "../../components/AgentOnboardingModal";
 
 function computeStats(agents: Agent[] | undefined, telemetryCount: number) {
   const active = agents?.filter((agent) => agent.status === "active").length ?? 0;
@@ -44,6 +47,7 @@ function computeStats(agents: Agent[] | undefined, telemetryCount: number) {
 
 export function Overview() {
   const identity = useIdentity();
+  const { toast } = useToast();
   const agents = useAgents(Boolean(identity.authenticated));
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
   const subscription = useSubscription(Boolean(identity.authenticated));
@@ -52,7 +56,7 @@ export function Overview() {
   const [agentSearch, setAgentSearch] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [emergencyAddress, setEmergencyAddress] = useState("");
-  const [emergencyMessage, setEmergencyMessage] = useState("");
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   const { active, paused, total } = computeStats(agents.data, telemetry.data?.length ?? 0);
   const recentEvents = telemetry.data?.slice(0, 6) ?? [];
@@ -97,19 +101,35 @@ export function Overview() {
 
   const handleTripEmergency = async () => {
     if (!emergencyAddress.trim()) return;
-    setEmergencyMessage(`Broadcasting O(1) Kill-Switch freeze for ${emergencyAddress.slice(0, 10)}…`);
+    const target = emergencyAddress.trim();
     try {
       await tripKillSwitch.mutateAsync({
-        agentAddress: emergencyAddress.trim(),
+        agentAddress: target,
         active: true,
       });
-      setEmergencyMessage(`Kill-Switch active onchain for ${emergencyAddress.slice(0, 10)}… Invariant enforced.`);
+      toast({
+        title: "Circuit Breaker Tripped",
+        message: `Agent ${truncateMiddle(target, 8, 4)} is frozen from spending onchain in O(1) time.`,
+        tone: "critical",
+        onUndo: async () => {
+          await tripKillSwitch.mutateAsync({ agentAddress: target, active: false });
+          void agents.refetch();
+          toast({
+            title: "Circuit Breaker Reset",
+            message: `Spending authority restored for ${truncateMiddle(target, 8, 4)}.`,
+            tone: "success",
+          });
+        },
+      });
       setEmergencyAddress("");
       void agents.refetch();
     } catch (err) {
-      setEmergencyMessage(toUserFacingError(err, "Kill-switch transaction failed."));
+      toast({
+        title: "Kill-Switch Failed",
+        message: toUserFacingError(err, "Kill-switch transaction failed."),
+        tone: "critical",
+      });
     }
-    setTimeout(() => setEmergencyMessage(""), 6000);
   };
 
   const operatorLabel = identity.subject?.split(":").at(-1)?.slice(0, 8) ?? "operator";
@@ -148,19 +168,44 @@ export function Overview() {
           <p>Real-time autonomous spend evaluation, parallel EVM settlement, and telemetry.</p>
         </div>
         <div className="dashboard-actions">
-          <Link to="/app/fleet" className="control control-filled">
+          <Button
+            variant="tonal"
+            onClick={() => {
+              void agents.refetch();
+              void wallets.refetch();
+              void telemetry.refetch();
+              toast({
+                title: "Overview Synchronized",
+                message: "Refreshed onchain agent records and real-time telemetry.",
+                tone: "info",
+              });
+            }}
+            title="Refresh onchain state"
+          >
+            <RefreshCw size={14} className={agents.isFetching || telemetry.isFetching ? "spin" : ""} />
+            <span>Refresh</span>
+          </Button>
+          <Button onClick={() => setOnboardingOpen(true)}>
             <Bot size={15} />
             <span>Provision Agent</span>
-          </Link>
+          </Button>
         </div>
       </header>
 
-      {/* Stat Tiles Row */}
+      {/* Stat Tiles Row with Interactive Navigation */}
       <div className="stat-row">
-        <StatTile label="Fleet size" value={String(total)} icon={<Bot size={18} />} accent={0} />
-        <StatTile label="Active & Guarded" value={String(active)} icon={<Activity size={18} />} accent={2} />
-        <StatTile label="Circuit Paused" value={String(paused)} icon={<PauseCircle size={18} />} accent={1} />
-        <StatTile label="Verified Telemetry" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
+        <Link to="/app/fleet" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View all agents in Fleet">
+          <StatTile label="Fleet size" value={String(total)} icon={<Bot size={18} />} accent={0} />
+        </Link>
+        <Link to="/app/fleet" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Active agents in Fleet">
+          <StatTile label="Active & Guarded" value={String(active)} icon={<Activity size={18} />} accent={2} />
+        </Link>
+        <Link to="/app/fleet" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Paused agents in Fleet">
+          <StatTile label="Circuit Paused" value={String(paused)} icon={<PauseCircle size={18} />} accent={1} />
+        </Link>
+        <Link to="/app/activity" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Verified Telemetry in Activity Waterfall">
+          <StatTile label="Verified Telemetry" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
+        </Link>
       </div>
 
       {showReadiness && (
@@ -459,13 +504,6 @@ export function Overview() {
             </button>
           </div>
 
-          {emergencyMessage && (
-            <div className="circuit-alert-banner">
-              <ShieldAlert size={14} />
-              <span>{emergencyMessage}</span>
-            </div>
-          )}
-
           <div className="circuit-stats-footer">
             <div className="circuit-stat">
               <small>Kill-Switch Invariant</small>
@@ -532,18 +570,30 @@ export function Overview() {
           agent={selectedAgent}
           onClose={() => setSelectedAgent(null)}
           onTripCircuit={async (addr, trip) => {
-            setEmergencyMessage(`Updating circuit status onchain for ${addr.slice(0, 10)}…`);
             try {
               await tripKillSwitch.mutateAsync({ agentAddress: addr, active: trip });
-              setEmergencyMessage(`Agent ${addr.slice(0, 10)}… ${trip ? "frozen onchain" : "resumed onchain"}.`);
+              toast({
+                title: trip ? "Circuit Breaker Tripped" : "Circuit Breaker Reset",
+                message: `Agent ${truncateMiddle(addr, 8, 4)} is ${trip ? "frozen from spending onchain" : "active onchain"}.`,
+                tone: trip ? "critical" : "success",
+              });
               void agents.refetch();
             } catch (err) {
-              setEmergencyMessage(toUserFacingError(err, "Circuit update failed."));
+              toast({
+                title: "Circuit Update Failed",
+                message: toUserFacingError(err, "Circuit update failed."),
+                tone: "critical",
+              });
             }
-            setTimeout(() => setEmergencyMessage(""), 5000);
           }}
         />
       )}
+
+      <AgentOnboardingModal
+        open={onboardingOpen}
+        onClose={() => setOnboardingOpen(false)}
+        onSuccess={() => void agents.refetch()}
+      />
     </div>
   );
 }

@@ -476,4 +476,135 @@ test("Tier-1 Recommendations: ERC-4337 Paymaster sponsorship and ERC-6551 Token 
   assert.match(treasurySrc, /Replenish Gas Float/);
 });
 
+test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, TEE/Passport Tabs, 4-Scenario Testbench, and Compliance Manifest", async () => {
+  const [fleetSrc, policySrc, inspectorSrc, simulatorSrc, activitySrc, globalsCss] = await Promise.all([
+    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/AgentInspector.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/PolicySimulator.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/ActivityTrace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // Feature 1: Fleet Management Batch Actions, Faceted Filters & Export
+  assert.match(fleetSrc, /selectedAgents/);
+  assert.match(fleetSrc, /fleet-batch-bar/);
+  assert.match(fleetSrc, /Freeze Selected/);
+  assert.match(fleetSrc, /Resume Selected/);
+  assert.match(fleetSrc, /Export CSV/);
+  assert.match(fleetSrc, /Export JSON/);
+  assert.match(fleetSrc, /statusFilter/);
+  assert.match(fleetSrc, /sourceFilter/);
+  assert.match(fleetSrc, /riskFilter/);
+
+  // Feature 2: Policy Studio Live Pre-Flight Sandbox & Staged Diff Analysis
+  assert.match(policySrc, /policy-diff-section/);
+  assert.match(policySrc, /policy-diff-table/);
+  assert.match(policySrc, /policy-dryrun-section/);
+  assert.match(policySrc, /dryRunVerdict/);
+  assert.match(policySrc, /Pre-Flight Spend Invariant Simulator/);
+  assert.match(policySrc, /ERR_MAX_PER_TX_EXCEEDED/);
+  assert.match(policySrc, /ERR_MAX_PER_WINDOW_EXCEEDED/);
+  assert.match(policySrc, /ERR_MERCHANT_NOT_WHITELISTED/);
+
+  // Feature 3: Agent Inspector TEE Remote Attestation & ERC-6551 Passport Tabs
+  assert.match(inspectorSrc, /activeTab === "attestation"/);
+  assert.match(inspectorSrc, /activeTab === "passport"/);
+  assert.match(inspectorSrc, /EnclaveAttestationRegistry\.sol/);
+  assert.match(inspectorSrc, /AWS Nitro Enclave/);
+  assert.match(inspectorSrc, /PCR0/);
+  assert.match(inspectorSrc, /AgentAccount\.sol/);
+  assert.match(inspectorSrc, /AgentIdentityRegistry\.sol/);
+  assert.match(inspectorSrc, /ReputationRegistry\.sol/);
+  assert.match(inspectorSrc, /Sliding Window Epoch/);
+
+  // Feature 4: Policy Simulator 4-Scenario Adversarial Threat Suite & Visual Pipeline
+  assert.match(simulatorSrc, /physics-pipeline-container/);
+  assert.match(simulatorSrc, /pipelineSteps/);
+  assert.match(simulatorSrc, /threat-scenarios-grid/);
+  assert.match(simulatorSrc, /runRunawayCircuitBreaker/);
+  assert.match(simulatorSrc, /runSybilFloodingTest/);
+  assert.match(simulatorSrc, /runPromptInjectionTest/);
+  assert.match(simulatorSrc, /runReplayAttackTest/);
+
+  // Feature 5: Activity & Audit Compliance Manifest Export & Live Stream Mode
+  assert.match(activitySrc, /liveStreamActive/);
+  assert.match(activitySrc, /exportComplianceJson/);
+  assert.match(activitySrc, /exportComplianceCsv/);
+  assert.match(activitySrc, /SOC2-CC6\.1 \/ MiCA Title III/);
+
+  // CSS Tokens & styling verification
+  assert.match(globalsCss, /\.fleet-batch-bar/);
+  assert.match(globalsCss, /\.policy-dryrun-section/);
+  assert.match(globalsCss, /\.policy-diff-table/);
+  assert.match(globalsCss, /\.physics-pipeline-container/);
+  assert.match(globalsCss, /\.threat-scenarios-grid/);
+});
+
+test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollback, and Predictive Threat Radar are integrated", async () => {
+  const [fleetSrc, swarmSrc, policySrc, activitySrc, apiSrc, globalsCss] = await Promise.all([
+    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/SwarmTopologyVisualizer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/screens/tenant/ActivityTrace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // Option 1: Hierarchical Swarm Governance & Interactive DAG Visualizer
+  assert.match(fleetSrc, /fleet-view-toggle/);
+  assert.match(fleetSrc, /Swarm Topology \(DAG\)/);
+  assert.match(fleetSrc, /SwarmTopologyVisualizer/);
+  assert.match(swarmSrc, /swarm-topology-container/);
+  assert.match(swarmSrc, /supervisor-tier/);
+  assert.match(swarmSrc, /workers-tier/);
+  assert.match(swarmSrc, /pulsing-connector/);
+  assert.match(swarmSrc, /Isolate Node/);
+  assert.match(swarmSrc, /Delegate Sub-Budget/);
+  assert.match(swarmSrc, /Confirm Delegation/);
+  assert.match(swarmSrc, /useTripKillSwitch/);
+  assert.match(apiSrc, /SwarmNode/);
+  assert.match(apiSrc, /SwarmDelegation/);
+
+  // Option 2: Canary Policy Deployments with Automated Onchain Rollback
+  assert.match(policySrc, /policy-canary-section/);
+  assert.match(policySrc, /canary-stepper/);
+  assert.match(policySrc, /0% Staged/);
+  assert.match(policySrc, /10% Pilot/);
+  assert.match(policySrc, /25% Scale/);
+  assert.match(policySrc, /50% Trial/);
+  assert.match(policySrc, /100% Consensus/);
+  assert.match(policySrc, /Emergency Atomic Rollback to Baseline/);
+  assert.match(policySrc, /handleEmergencyRollback/);
+  assert.match(policySrc, /handleAdvanceCanary/);
+  assert.match(policySrc, /ANOMALOUS BREACH RATE DETECTED/);
+  assert.match(apiSrc, /CanaryDeployment/);
+  assert.match(apiSrc, /CanaryStage/);
+
+  // Option 3: Predictive Threat Radar & Counterparty Category Drift Engine
+  assert.match(activitySrc, /threat-radar-surface/);
+  assert.match(activitySrc, /threatIntelligence/);
+  assert.match(activitySrc, /Fleet Threat Index/);
+  assert.match(activitySrc, /Max Velocity Deviation/);
+  assert.match(activitySrc, /Counterparty Drift Ratio/);
+  assert.match(activitySrc, /Sub-Ceiling Probes/);
+  assert.match(activitySrc, /threat-categories/);
+  assert.match(activitySrc, /handleRemediate/);
+  assert.match(activitySrc, /Trip Circuit Breaker/);
+  assert.match(activitySrc, /Fleet Armored: Zero Adversarial Drift Signatures Detected/);
+  assert.match(apiSrc, /ThreatAnomaly/);
+  assert.match(apiSrc, /ThreatAnomalyType/);
+
+  // CSS Tokens verification for Options 1-3
+  assert.match(globalsCss, /\.fleet-view-toggle/);
+  assert.match(globalsCss, /\.swarm-topology-container/);
+  assert.match(globalsCss, /\.swarm-node-card/);
+  assert.match(globalsCss, /\.pulsing-connector/);
+  assert.match(globalsCss, /\.policy-canary-section/);
+  assert.match(globalsCss, /\.canary-stepper/);
+  assert.match(globalsCss, /\.threat-radar-surface/);
+  assert.match(globalsCss, /\.threat-anomaly-card/);
+});
+
+
 

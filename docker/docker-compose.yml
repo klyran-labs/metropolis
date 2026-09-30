@@ -20,15 +20,39 @@ services:
   monad-devnet:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: monad-devnet
+    user: "0:0"
     restart: unless-stopped
-    entrypoint: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "10143", "--block-time", "1", "--mnemonic", "${ANVIL_MNEMONIC:?ANVIL_MNEMONIC is required}"]
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--port", "8545", "--chain-id", "10143", "--block-time", "1", "--mnemonic", "${ANVIL_MNEMONIC:?ANVIL_MNEMONIC is required}", "--state", "/data/anvil-state.json", "--state-interval", "5"]
     ports:
       - "8545:8545"
+    volumes:
+      - monad-devnet-data:/data
     healthcheck:
       test: ["CMD-SHELL", "cast block-number --rpc-url http://127.0.0.1:8545 || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - agentguard-network
+
+  agentguard-contracts-init:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.init
+    container_name: agentguard-contracts-init
+    restart: "no"
+    depends_on:
+      monad-devnet:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=development
+      - RPC_URL=http://monad-devnet:8545
+      - MONAD_RPC_URL=http://monad-devnet:8545
+      - ANVIL_MNEMONIC=${ANVIL_MNEMONIC:?ANVIL_MNEMONIC is required}
+      - DEPLOYER_PRIVATE_KEY=${DEPLOYER_PRIVATE_KEY:-}
+      - DEPLOYMENT_MANIFEST_PATH=/app/deploy/environments/local/deployment-manifest.json
+    volumes:
+      - ../deploy/environments:/app/deploy/environments
     networks:
       - agentguard-network
 
@@ -105,6 +129,8 @@ services:
     depends_on:
       monad-devnet:
         condition: service_healthy
+      agentguard-contracts-init:
+        condition: service_completed_successfully
       agentguard-postgres:
         condition: service_healthy
       agentguard-opensigner:
@@ -145,6 +171,8 @@ services:
       interval: 15s
       timeout: 3s
       retries: 3
+    volumes:
+      - ../deploy/environments:/app/deploy/environments:ro
     networks:
       - agentguard-network
 
@@ -154,6 +182,11 @@ services:
       dockerfile: docker/Dockerfile.opensigner
     container_name: agentguard-opensigner
     restart: unless-stopped
+    depends_on:
+      monad-devnet:
+        condition: service_healthy
+      agentguard-contracts-init:
+        condition: service_completed_successfully
     ports:
       - "3001:3001"
     environment:
@@ -182,6 +215,7 @@ services:
 volumes:
   agentguard-postgres-v18-data:
   opensigner-data:
+  monad-devnet-data:
 
 networks:
   agentguard-network:

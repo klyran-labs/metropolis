@@ -69,3 +69,22 @@ impl Default for EventHub {
         Self::new()
     }
 }
+
+/// Generates or extracts a standard W3C Trace Context (traceparent: 00-<trace_id>-<span_id>-01).
+pub fn extract_or_generate_traceparent(headers: &axum::http::HeaderMap) -> (String, String) {
+    if let Some(traceparent) = headers.get("traceparent").and_then(|v| v.to_str().ok()) {
+        let parts: Vec<&str> = traceparent.split('-').collect();
+        if parts.len() == 4 && parts[0] == "00" && parts[1].len() == 32 {
+            let trace_id = parts[1].to_string();
+            return (traceparent.to_string(), trace_id);
+        }
+    }
+    // Generate standard W3C Trace ID (16 bytes = 32 hex chars) and Span ID (8 bytes = 16 hex chars)
+    let trace_uuid = uuid::Uuid::now_v7();
+    let span_uuid = uuid::Uuid::now_v7();
+    let trace_id = hex::encode(trace_uuid.as_bytes());
+    let span_id = hex::encode(&span_uuid.as_bytes()[0..8]);
+    let traceparent = format!("00-{trace_id}-{span_id}-01");
+    (traceparent, trace_id)
+}
+

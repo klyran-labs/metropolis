@@ -77,11 +77,27 @@ interface IPolicyEngine {
     event SpendEvaluated(
         address indexed agent, address indexed merchant, uint256 amount, bool allowed, ReasonCode reasonCode
     );
+    enum CircuitState {
+        CLOSED,     // 0: Normal operation - full policy limits active
+        OPEN,       // 1: Tripped - O(1) kill switch blocks all spends
+        HALF_OPEN   // 2: Canary probing - throttled testing before automatic promotion
+    }
+
+    struct CanaryConfig {
+        uint128 canaryMaxPerTx;
+        uint32 requiredCleanTx;
+        uint32 cleanTxCount;
+        uint32 cooldownUntil;
+        uint32 backoffSeconds;
+    }
+
     event SpendRecorded(address indexed agent, uint256 amount, uint128 totalSpentInWindow, uint32 txCountInWindow);
     event BudgetPoolCreated(bytes32 indexed poolId, uint96 indexed orgId, uint128 totalBudget, uint32 windowSeconds);
     event AgentAssignedToPool(address indexed agent, bytes32 indexed poolId);
     event BudgetPoolSpent(bytes32 indexed poolId, uint128 amount, uint128 totalSpent);
     event AgentAdminUpdated(address indexed agent, address indexed newAdmin);
+    event CircuitBreakerCanaryStarted(address indexed agent, uint128 canaryMaxPerTx, uint32 requiredCleanTx);
+    event CircuitBreakerHealed(address indexed agent);
 
     function setAgentAdmin(address agent, address admin) external;
     function agentAdmin(address agent) external view returns (address);
@@ -92,6 +108,17 @@ interface IPolicyEngine {
     function setKillSwitch(address agent, bool active) external;
     function tripCircuitBreaker(address agent) external;
     function resetCircuitBreaker(address agent) external;
+    function enterCanaryMode(address agent, uint128 canaryMaxPerTx, uint32 requiredCleanTx) external;
+    function getCircuitState(address agent)
+        external
+        view
+        returns (
+            CircuitState state,
+            uint128 canaryMaxPerTx,
+            uint32 requiredCleanTx,
+            uint32 cleanTxCount,
+            uint32 cooldownUntil
+        );
     function isCircuitBroken(address agent) external view returns (bool);
     function circuitBroken(address agent) external view returns (bool);
     function setAuthorizedCaller(address caller, bool allowed) external;

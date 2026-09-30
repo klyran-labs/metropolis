@@ -418,4 +418,55 @@ export interface ComplianceAuditReport {
   complianceStatus: 'COMPLIANT' | 'NON_COMPLIANT';
 }
 
+/**
+ * Hierarchical Ephemeral Session Certificate & Delegation (Pillar 4)
+ */
+export interface SessionCertificate {
+  supervisor: Address;
+  workerSigner: Address;
+  validAfter: bigint;
+  validUntil: bigint;
+  subBudgetCap: bigint;
+  capabilityMerkleRoot: Hash;
+  sessionNonce: bigint;
+}
+
+export interface SessionDelegationPayment {
+  merchant: Address;
+  amount: bigint;
+  token: Address;
+  category: Hash;
+  deadline: bigint;
+  nonce: bigint;
+  extraCallData: Hash;
+}
+
+export interface SessionDelegationPayload {
+  certificate: SessionCertificate;
+  certificateSignature: Hash;
+  payment: SessionDelegationPayment;
+  workerSignature: Hash;
+}
+
+/**
+ * Omnichain Policy Brain & Remote Spend Permit (Pillar 6)
+ */
+export interface CrossChainSpendPermit {
+  agent: Address;
+  targetChainId: bigint;
+  targetMerchant: Address;
+  targetToken: Address;
+  amount: bigint;
+  validUntil: bigint;
+  monadPolicyBlock: bigint;
+  monadPolicyNonce: bigint;
+  capabilityHash: Hash;
+}
+
+export interface CrossChainPermitPayload {
+  permit: CrossChainSpendPermit;
+  validatorSignature: Hash;
+}
+
+
 

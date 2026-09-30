@@ -1,5 +1,7 @@
 use crate::{
     config::Config,
+    nonce_sequencer::NonceSequencer,
+    policy_cache::PolicyEngineCache,
     repository::{ChainEventRecord, PgRepository},
     telemetry::{EventHub, GatewayEvent},
     types::{ICircuitPaymaster, IERC20Balance, IERC1271, IPolicyEngine, SpendRequest},
@@ -13,11 +15,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, time::sleep};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Clone)]
 pub struct ChainClient {
     pub provider: Arc<ReqwestProvider>,
+    pub fallback_providers: Vec<Arc<ReqwestProvider>>,
+    pub policy_cache: Arc<PolicyEngineCache>,
+    pub nonce_sequencer: Arc<NonceSequencer>,
     http: Client,
     config: Config,
     rpc_bulkhead: Arc<Semaphore>,
@@ -33,8 +38,22 @@ impl ChainClient {
             .parse()
             .map_err(|error| format!("Invalid MONAD_RPC_URL: {error}"))?;
         let provider = ProviderBuilder::new().on_http(url);
+
+        let mut fallback_providers = Vec::new();
+        for fallback_url in &config.rpc_fallback_urls {
+            if let Ok(parsed) = fallback_url.parse() {
+                fallback_providers.push(Arc::new(ProviderBuilder::new().on_http(parsed)));
+            }
+        }
+
+        let policy_cache = Arc::new(PolicyEngineCache::new(config.policy_cache_ttl_ms));
+        let nonce_sequencer = Arc::new(NonceSequencer::new(config.nonce_lease_ttl_ms));
+
         Ok(Self {
             provider: Arc::new(provider),
+            fallback_providers,
+            policy_cache,
+            nonce_sequencer,
             http,
             config,
             rpc_bulkhead: Arc::new(Semaphore::new(rpc_max_concurrency)),
@@ -52,21 +71,60 @@ impl ChainClient {
         &self,
         request: SpendRequest,
     ) -> Result<(bool, U256, u8, U256), String> {
+        // 1. Fast-path: Check in-memory policy cache (<1 microsecond)
+        if let Some((false, reason_code)) = self.policy_cache.evaluate_fast_path(&request) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            return Ok((false, U256::ZERO, reason_code, U256::from(now)));
+        }
+
+        // 2. Authoritative onchain call with multi-provider failover
         let _rpc_permit = self.try_rpc_permit()?;
+
         let contract = IPolicyEngine::new(self.config.policy_engine_address, self.provider.clone());
-        contract
-            .evaluate(request)
-            .call()
-            .await
-            .map(|result| {
-                (
+        match contract.evaluate(request.clone()).call().await {
+            Ok(result) => {
+                // Populate/refresh cache on success
+                if let Ok(pol) = contract.getAgentPolicy(request.agent).call().await {
+                    self.policy_cache.put_policy(
+                        request.agent,
+                        crate::policy_cache::CachedPolicyRecord {
+                            max_per_tx: U256::from(pol.maxPerTx),
+                            max_per_window: U256::from(pol.maxPerWindow),
+                            window_seconds: pol.windowSeconds as u64,
+                            max_velocity: pol.maxVelocity as u64,
+                            kill_switch: pol.killSwitch,
+                            whitelist_enabled: pol.whitelistEnabled,
+                            cached_at: std::time::Instant::now(),
+                        },
+                    );
+                }
+                Ok((
                     result.allowed,
                     result.allowedAmount,
                     result.reasonCode,
                     result.evaluatedAtTimestamp,
-                )
-            })
-            .map_err(|error| error.to_string())
+                ))
+            }
+            Err(primary_err) => {
+                warn!(error = %primary_err, "Primary Monad RPC provider failed during policy evaluation; testing fallback providers");
+                for (i, fallback) in self.fallback_providers.iter().enumerate() {
+                    let fallback_contract = IPolicyEngine::new(self.config.policy_engine_address, fallback.clone());
+                    if let Ok(result) = fallback_contract.evaluate(request.clone()).call().await {
+                        info!(fallback_index = i, "Successfully recovered using fallback Monad RPC provider");
+                        return Ok((
+                            result.allowed,
+                            result.allowedAmount,
+                            result.reasonCode,
+                            result.evaluatedAtTimestamp,
+                        ));
+                    }
+                }
+                Err(primary_err.to_string())
+            }
+        }
     }
 
     pub async fn agent_policy(&self, agent: Address) -> Result<AgentPolicy, String> {
@@ -357,36 +415,58 @@ impl ChainClient {
             .ok_or_else(|| "Monad returned no block for checkpoint".to_string())
     }
 
-    async fn rpc<T: for<'de> Deserialize<'de>>(
+    pub async fn rpc<T: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
         params: Value,
     ) -> Result<T, String> {
         let _rpc_permit = self.try_rpc_permit()?;
-        let response = self
-            .http
-            .post(&self.config.rpc_url)
-            .json(&json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": method,
-                "params": params,
-            }))
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
-        let status = response.status();
-        let body = response
-            .json::<RpcResponse<T>>()
-            .await
-            .map_err(|error| error.to_string())?;
-        if !status.is_success() {
-            return Err(format!("Monad RPC returned HTTP {status}"));
+
+        let mut candidate_urls = vec![&self.config.rpc_url];
+        for fallback in &self.config.rpc_fallback_urls {
+            candidate_urls.push(fallback);
         }
-        body.result.ok_or_else(|| {
-            body.error
-                .map(|error| error.message)
-                .unwrap_or_else(|| "Monad RPC returned no result".to_string())
+
+        let mut last_error = String::new();
+        for (idx, target_url) in candidate_urls.iter().enumerate() {
+            let res = self
+                .http
+                .post(*target_url)
+                .json(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": method,
+                    "params": params.clone(),
+                }))
+                .send()
+                .await;
+
+            match res {
+                Ok(response) => {
+                    let status = response.status();
+                    if let Ok(body) = response.json::<RpcResponse<T>>().await {
+                        if !status.is_success() {
+                            last_error = format!("Monad RPC at {target_url} returned HTTP {status}");
+                            continue;
+                        }
+                        if let Some(result) = body.result {
+                            return Ok(result);
+                        } else if let Some(error) = body.error {
+                            return Err(error.message);
+                        }
+                    }
+                }
+                Err(err) => {
+                    warn!(endpoint_index = idx, error = %err, "RPC candidate failed; trying fallback");
+                    last_error = err.to_string();
+                }
+            }
+        }
+
+        Err(if last_error.is_empty() {
+            "All Monad RPC endpoints exhausted".to_string()
+        } else {
+            last_error
         })
     }
 }

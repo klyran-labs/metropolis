@@ -7,7 +7,8 @@ import { AdminNav, TenantNav } from "./navigation";
 import { TopBar } from "./components/TopBar";
 import { CommandPalette } from "./command-palette";
 import { AICopilot } from "./components/AICopilot";
-import { UndoToastContainer, type ToastAction } from "./components/UndoToast";
+import { ToastProvider } from "./components/UndoToast";
+import { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal";
 import { TenantOnboarding } from "./onboarding";
 import { InlineSignIn } from "./signin";
 
@@ -240,30 +241,26 @@ function AppLayout() {
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
-  const [toastActions, setToastActions] = useState<ToastAction[]>([]);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
         setPaletteOpen((prev) => !prev);
+        return;
+      }
+      if (
+        event.key === "?" &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement)?.tagName)
+      ) {
+        event.preventDefault();
+        setShortcutsOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-
-  const handleDismissToast = (id: string) => {
-    setToastActions((prev) => prev.filter((a) => a.id !== id));
-  };
-
-  const handleUndoToast = (id: string) => {
-    const action = toastActions.find((a) => a.id === id);
-    if (action) {
-      action.onUndo();
-      setToastActions((prev) => prev.filter((a) => a.id !== id));
-    }
-  };
 
   useEffect(() => {
     if (!identity.ready) return;
@@ -282,37 +279,43 @@ function AppLayout() {
   if (identity.needsOnboarding) return null;
 
   return (
-    <div className="app-shell">
-      <TenantNav />
-      <div className="content-container">
-        <TopBar
-          onOpenCommandPalette={() => setPaletteOpen(true)}
-          onOpenCopilot={() => setCopilotOpen(true)}
+    <ToastProvider>
+      <div className="app-shell">
+        <TenantNav />
+        <div className="content-container">
+          <TopBar
+            onOpenCommandPalette={() => setPaletteOpen(true)}
+            onOpenCopilot={() => setCopilotOpen(true)}
+            onOpenShortcuts={() => setShortcutsOpen(true)}
+          />
+          <main className="content">
+            <Suspense fallback={<div className="app-loading">Loading workspace…</div>}>
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onOpenCopilot={() => {
+            setPaletteOpen(false);
+            setCopilotOpen(true);
+          }}
+          onOpenShortcuts={() => {
+            setPaletteOpen(false);
+            setShortcutsOpen(true);
+          }}
         />
-        <main className="content">
-          <Suspense fallback={<div className="app-loading">Loading workspace…</div>}>
-            <Outlet />
-          </Suspense>
-        </main>
+        <AICopilot
+          open={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+        />
+        <KeyboardShortcutsModal
+          open={shortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
+        />
       </div>
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onOpenCopilot={() => {
-          setPaletteOpen(false);
-          setCopilotOpen(true);
-        }}
-      />
-      <AICopilot
-        open={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
-      />
-      <UndoToastContainer
-        actions={toastActions}
-        onUndo={handleUndoToast}
-        onDismiss={handleDismissToast}
-      />
-    </div>
+    </ToastProvider>
   );
 }
 
@@ -321,6 +324,7 @@ function AdminLayout() {
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const platformResolved = !identity.platformAccessLoading;
 
   useEffect(() => {
@@ -328,6 +332,14 @@ function AdminLayout() {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
         event.preventDefault();
         setPaletteOpen((prev) => !prev);
+        return;
+      }
+      if (
+        event.key === "?" &&
+        !["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement)?.tagName)
+      ) {
+        event.preventDefault();
+        setShortcutsOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -366,32 +378,43 @@ function AdminLayout() {
   }
 
   return (
-    <div className="app-shell">
-      <AdminNav />
-      <div className="content-container">
-        <TopBar
-          onOpenCommandPalette={() => setPaletteOpen(true)}
-          onOpenCopilot={() => setCopilotOpen(true)}
+    <ToastProvider>
+      <div className="app-shell">
+        <AdminNav />
+        <div className="content-container">
+          <TopBar
+            onOpenCommandPalette={() => setPaletteOpen(true)}
+            onOpenCopilot={() => setCopilotOpen(true)}
+            onOpenShortcuts={() => setShortcutsOpen(true)}
+          />
+          <main className="content">
+            <Suspense fallback={<div className="app-loading">Loading administration…</div>}>
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onOpenCopilot={() => {
+            setPaletteOpen(false);
+            setCopilotOpen(true);
+          }}
+          onOpenShortcuts={() => {
+            setPaletteOpen(false);
+            setShortcutsOpen(true);
+          }}
         />
-        <main className="content">
-          <Suspense fallback={<div className="app-loading">Loading administration…</div>}>
-            <Outlet />
-          </Suspense>
-        </main>
+        <AICopilot
+          open={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+        />
+        <KeyboardShortcutsModal
+          open={shortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
+        />
       </div>
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onOpenCopilot={() => {
-          setPaletteOpen(false);
-          setCopilotOpen(true);
-        }}
-      />
-      <AICopilot
-        open={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
-      />
-    </div>
+    </ToastProvider>
   );
 }
 

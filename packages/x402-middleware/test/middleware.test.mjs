@@ -6,6 +6,10 @@ import {
   parseX402Authorization,
   verifySpendRequestSignature,
   createPolicyRejectionResponse,
+  encodeX402SessionAuthorization,
+  parseX402SessionAuthorization,
+  encodeX402OmnichainAuthorization,
+  parseX402OmnichainAuthorization,
 } from "../dist/index.js";
 import { ReasonCode } from "@agentguard/shared-types";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -71,3 +75,78 @@ test("x402: policy rejection maps onchain reason code to diagnostic HTTP 403", (
   assert.equal(budgetRejection.body.reasonCode, ReasonCode.ERR_BUDGET_DEPLETED);
   assert.ok(budgetRejection.body.remediation.includes("Replenish the assigned organizational budget pool"));
 });
+
+test("x402-session: encode and parse roundtrip preserves hierarchical session parameters", () => {
+  const supervisor = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const workerSigner = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const merchant = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+  const sessionPayload = {
+    certificate: {
+      supervisor,
+      workerSigner,
+      validAfter: 1720000000n,
+      validUntil: 1720003600n,
+      subBudgetCap: 50000000n, // 50 USDC
+      capabilityMerkleRoot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      sessionNonce: 7702n,
+    },
+    certificateSignature: "0xdeadbeef1111",
+    payment: {
+      merchant,
+      amount: 10000000n,
+      token: "0xdddddddddddddddddddddddddddddddddddddddd",
+      category: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      deadline: 1720003000n,
+      nonce: 1n,
+      extraCallData: "0x",
+    },
+    workerSignature: "0xfeedbeef2222",
+  };
+
+  const header = encodeX402SessionAuthorization(sessionPayload);
+  assert.ok(header.startsWith("x402-session "));
+
+  const parsed = parseX402SessionAuthorization(header);
+  assert.notEqual(parsed, null);
+  assert.equal(parsed.certificate.supervisor, supervisor);
+  assert.equal(parsed.certificate.workerSigner, workerSigner);
+  assert.equal(parsed.certificate.subBudgetCap, 50000000n);
+  assert.equal(parsed.certificate.sessionNonce, 7702n);
+  assert.equal(parsed.payment.amount, 10000000n);
+  assert.equal(parsed.workerSignature, "0xfeedbeef2222");
+});
+
+test("x402-omnichain: encode and parse roundtrip preserves remote chain execution permit", () => {
+  const agent = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const targetMerchant = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const targetToken = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+  const permitPayload = {
+    permit: {
+      agent,
+      targetChainId: 8453n, // Base Mainnet
+      targetMerchant,
+      targetToken,
+      amount: 75000000n, // 75 USDC
+      validUntil: 1720003600n,
+      monadPolicyBlock: 120500n,
+      monadPolicyNonce: 99n,
+      capabilityHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    },
+    validatorSignature: "0x1234567890abcdef1234567890abcdef",
+  };
+
+  const header = encodeX402OmnichainAuthorization(permitPayload);
+  assert.ok(header.startsWith("x402-omnichain "));
+
+  const parsed = parseX402OmnichainAuthorization(header);
+  assert.notEqual(parsed, null);
+  assert.equal(parsed.permit.agent, agent);
+  assert.equal(parsed.permit.targetChainId, 8453n);
+  assert.equal(parsed.permit.amount, 75000000n);
+  assert.equal(parsed.permit.monadPolicyBlock, 120500n);
+  assert.equal(parsed.validatorSignature, "0x1234567890abcdef1234567890abcdef");
+});
+
+

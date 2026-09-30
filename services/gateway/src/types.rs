@@ -50,12 +50,23 @@ sol! {
 
     #[sol(rpc)]
     interface IAgentWalletGuard {
+        struct BatchPaymentItem {
+            SpendRequest req;
+            bytes signature;
+            address token;
+            bytes extraCallData;
+        }
+
         function executeGatedPayment(
             SpendRequest calldata req,
             bytes calldata signature,
             address token,
             bytes calldata data
         ) external;
+
+        function executeBatchGatedPayment(
+            BatchPaymentItem[] calldata items
+        ) external returns (bool[] memory successes);
     }
 
     #[sol(rpc)]

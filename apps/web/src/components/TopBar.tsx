@@ -11,6 +11,7 @@ import {
   Shield,
   Bot,
   ExternalLink,
+  Keyboard,
 } from "lucide-react";
 import { useIdentity } from "../identity";
 import { Badge, Mono, ThemeToggle, roleLabel, truncateMiddle } from "../design-system";
@@ -19,9 +20,11 @@ import { networkLabel } from "../configuration";
 export function TopBar({
   onOpenCommandPalette,
   onOpenCopilot,
+  onOpenShortcuts,
 }: {
   onOpenCommandPalette: () => void;
   onOpenCopilot: () => void;
+  onOpenShortcuts?: () => void;
 }) {
   const identity = useIdentity();
   const navigate = useNavigate();
@@ -165,6 +168,19 @@ export function TopBar({
           <span className="copilot-pill">AI Copilot</span>
         </button>
 
+        {/* Keyboard Shortcuts Help */}
+        {onOpenShortcuts && (
+          <button
+            type="button"
+            className="top-bar-icon-btn"
+            onClick={onOpenShortcuts}
+            title="Keyboard Shortcuts (?)"
+            aria-label="Keyboard Shortcuts"
+          >
+            <Keyboard size={16} />
+          </button>
+        )}
+
         {/* Ambient Monad Finality Beacon */}
         <div className="top-bar-finality-beacon" title="Configured Monad block cadence (400ms blocks)">
           <span className="beacon-radar" aria-hidden="true">
@@ -199,6 +215,24 @@ export function TopBar({
                 <span>Theme</span>
                 <ThemeToggle />
               </div>
+              {onOpenShortcuts && (
+                <>
+                  <div className="dropdown-divider" />
+                  <button
+                    type="button"
+                    className="dropdown-menu-item"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onOpenShortcuts();
+                    }}
+                    style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "none", border: "none", color: "var(--on-surface)", cursor: "pointer", borderRadius: "6px" }}
+                  >
+                    <Keyboard size={14} />
+                    <span style={{ fontSize: "0.85rem" }}>Shortcuts</span>
+                    <kbd className="cmd-k-badge" style={{ marginLeft: "auto" }}>?</kbd>
+                  </button>
+                </>
+              )}
               <div className="dropdown-divider" />
               <button
                 type="button"

@@ -26,6 +26,7 @@
     "typecheck": "npm run typecheck --workspace=@agentguard/web",
     "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs contracts/test/circuit-vault.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs services/opensigner/test/opensigner.test.mjs packages/cli/test/cli.test.mjs packages/mcp-server/test/mcp.test.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
+    "test:chaos": "node scripts/chaos-swarm-test.mjs",
     "test:gateway": "cargo test --manifest-path services/gateway/Cargo.toml",
     "bench:gateway": "cargo bench --manifest-path services/gateway/Cargo.toml --bench gateway_latency",
     "test:opensigner": "node --test services/opensigner/test/opensigner.test.mjs",
@@ -38,5 +39,8 @@
   "devDependencies": {
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "viem": "^2.56.3"
   }
 }

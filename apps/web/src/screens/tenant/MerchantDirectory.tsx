@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { isAddress } from "viem";
 import { toUserFacingError, useAgents } from "../../api";
-import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
+import { AgentSelect, Badge, Button, EmptyState, Mono, Select, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
 import { useSetMerchantWhitelist, useIsMerchantWhitelisted } from "../../hooks/usePolicyContracts";
@@ -454,19 +454,17 @@ export function MerchantDirectory() {
                 placeholder="https://api.vendor.com/v1/service"
               />
 
-              <div className="m3-field">
-                <label>Category</label>
-                <select
-                  aria-label="Category"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value as any)}
-                >
-                  <option value="inference">AI Inference (LLM / Embeddings)</option>
-                  <option value="compute">Cloud & Compute Infrastructure</option>
-                  <option value="rpc">RPC Nodes & Oracles</option>
-                  <option value="defi">DeFi & DEX Execution</option>
-                </select>
-              </div>
+              <Select
+                label="Category"
+                value={newCategory}
+                onChange={(val) => setNewCategory(val as any)}
+                options={[
+                  { value: "inference", label: "AI Inference (LLM / Embeddings)" },
+                  { value: "compute", label: "Cloud & Compute Infrastructure" },
+                  { value: "rpc", label: "RPC Nodes & Oracles" },
+                  { value: "defi", label: "DeFi & DEX Execution" },
+                ]}
+              />
 
               <TextField
                 label="Default Spend Cap (USDC)"

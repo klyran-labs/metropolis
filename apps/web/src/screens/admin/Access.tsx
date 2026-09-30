@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toUserFacingError, usePlatformOperators, useUpsertPlatformOperator } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField, formatPlatformRole } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, Select, Surface, TextField, formatPlatformRole } from "../../design-system";
 import { useIdentity } from "../../identity";
 
 const platformRoles = [
@@ -42,13 +42,15 @@ export function AdminAccess() {
         </div>
         <div className="inline-form">
           <TextField label="Identity subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
-          <select aria-label="Platform role" value={role} onChange={(event) => setRole(event.target.value as (typeof platformRoles)[number])}>
-            {platformRoles.map((item) => (
-              <option key={item} value={item}>
-                {formatPlatformRole(item)}
-              </option>
-            ))}
-          </select>
+          <Select
+            label="Platform Role"
+            value={role}
+            onChange={(val) => setRole(val as (typeof platformRoles)[number])}
+            options={platformRoles.map((item) => ({
+              value: item,
+              label: formatPlatformRole(item),
+            }))}
+          />
           <Button
             onClick={() => {
               setMessage("");

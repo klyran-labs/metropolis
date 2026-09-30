@@ -3,11 +3,12 @@ use crate::{
     auth::{ApiKeyIdentity, OperatorIdentity},
     pbac::PbacPolicy,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{Row, postgres::PgPool};
+use uuid::Uuid;
 
 fn pricing_decode_error(message: impl Into<String>) -> sqlx::Error {
     sqlx::Error::Decode(Box::new(std::io::Error::new(
@@ -633,4 +634,289 @@ impl PgRepository {
         let consumed: i64 = row.try_get("monthly_tokens_consumed")?;
         nonnegative_u64(consumed, "monthly_tokens_consumed")
     }
+
+    /// Atomically inserts a verified payment voucher into the durable PostgreSQL transactional outbox.
+    pub async fn insert_settlement_outbox(
+        &self,
+        record: &NewSettlementOutboxRecord<'_>,
+    ) -> Result<SettlementOutboxRecord, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO settlement_outbox (
+                task_id, agent_address, merchant_address, token_address,
+                amount, nonce, signature, category, timestamp_val, deadline,
+                status, trace_id, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, NOW(), NOW())
+            RETURNING
+                id, task_id, agent_address, merchant_address, token_address,
+                amount, nonce, signature, category, timestamp_val, deadline,
+                status, tx_hash, attempt_count, max_attempts, next_retry_at,
+                last_error, trace_id, created_at, updated_at
+            "#,
+        )
+        .bind(record.task_id)
+        .bind(format!("{:#x}", record.agent))
+        .bind(format!("{:#x}", record.merchant))
+        .bind(format!("{:#x}", record.token))
+        .bind(record.amount.to_string())
+        .bind(record.nonce.to_string())
+        .bind(record.signature)
+        .bind(record.category)
+        .bind(record.timestamp.to_string())
+        .bind(record.deadline.to_string())
+        .bind(record.trace_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        map_outbox_row(&row)
+    }
+
+    /// Pessimistically claims a batch of pending settlement vouchers for clearing using SELECT ... FOR UPDATE SKIP LOCKED.
+    pub async fn claim_pending_settlement_batch(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<SettlementOutboxRecord>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE settlement_outbox
+            SET status = 'dispatched',
+                attempt_count = attempt_count + 1,
+                updated_at = NOW()
+            WHERE id IN (
+                SELECT id FROM settlement_outbox
+                WHERE status IN ('pending', 'failed')
+                  AND next_retry_at <= NOW()
+                  AND attempt_count < max_attempts
+                ORDER BY created_at ASC
+                LIMIT $1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING
+                id, task_id, agent_address, merchant_address, token_address,
+                amount, nonce, signature, category, timestamp_val, deadline,
+                status, tx_hash, attempt_count, max_attempts, next_retry_at,
+                last_error, trace_id, created_at, updated_at
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(map_outbox_row).collect()
+    }
+
+    /// Marks a settlement voucher as confirmed and mined on Monad Parallel EVM.
+    pub async fn mark_settlement_mined(
+        &self,
+        id: Uuid,
+        tx_hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE settlement_outbox
+            SET status = 'mined',
+                tx_hash = $2,
+                last_error = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(tx_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Marks a settlement attempt as failed and schedules a retry with exponential backoff.
+    pub async fn mark_settlement_failed(
+        &self,
+        id: Uuid,
+        error_msg: &str,
+        next_retry_at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE settlement_outbox
+            SET status = CASE WHEN attempt_count >= max_attempts THEN 'dead_letter' ELSE 'failed' END,
+                last_error = $2,
+                next_retry_at = $3,
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(error_msg)
+        .bind(next_retry_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Lists settlement outbox records with optional status filtering.
+    pub async fn list_settlement_outbox(
+        &self,
+        limit: i64,
+        status_filter: Option<&str>,
+    ) -> Result<Vec<SettlementOutboxRecord>, sqlx::Error> {
+        let rows = match status_filter {
+            Some(status) => {
+                sqlx::query(
+                    r#"
+                    SELECT id, task_id, agent_address, merchant_address, token_address,
+                           amount, nonce, signature, category, timestamp_val, deadline,
+                           status, tx_hash, attempt_count, max_attempts, next_retry_at,
+                           last_error, trace_id, created_at, updated_at
+                    FROM settlement_outbox
+                    WHERE status = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(status)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query(
+                    r#"
+                    SELECT id, task_id, agent_address, merchant_address, token_address,
+                           amount, nonce, signature, category, timestamp_val, deadline,
+                           status, tx_hash, attempt_count, max_attempts, next_retry_at,
+                           last_error, trace_id, created_at, updated_at
+                    FROM settlement_outbox
+                    ORDER BY created_at DESC
+                    LIMIT $1
+                    "#,
+                )
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+
+        rows.iter().map(map_outbox_row).collect()
+    }
+
+    /// Re-queues a dead-letter settlement voucher for immediate retry.
+    pub async fn retry_dead_letter_settlement(&self, id: Uuid) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE settlement_outbox
+            SET status = 'pending',
+                attempt_count = 0,
+                next_retry_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1 AND status = 'dead_letter'
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Computes aggregated settlement queue statistics.
+    pub async fn get_settlement_queue_stats(&self) -> Result<SettlementQueueStats, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                COALESCE(COUNT(*) FILTER (WHERE status = 'pending'), 0) as pending_count,
+                COALESCE(COUNT(*) FILTER (WHERE status = 'dispatched'), 0) as dispatched_count,
+                COALESCE(COUNT(*) FILTER (WHERE status = 'mined'), 0) as mined_count,
+                COALESCE(COUNT(*) FILTER (WHERE status = 'failed'), 0) as failed_count,
+                COALESCE(COUNT(*) FILTER (WHERE status = 'dead_letter'), 0) as dead_letter_count,
+                COUNT(*) as total_count
+            FROM settlement_outbox
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(SettlementQueueStats {
+            pending: row.try_get("pending_count")?,
+            dispatched: row.try_get("dispatched_count")?,
+            mined: row.try_get("mined_count")?,
+            failed: row.try_get("failed_count")?,
+            dead_letter: row.try_get("dead_letter_count")?,
+            total: row.try_get("total_count")?,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewSettlementOutboxRecord<'a> {
+    pub task_id: Uuid,
+    pub agent: Address,
+    pub merchant: Address,
+    pub token: Address,
+    pub amount: U256,
+    pub nonce: U256,
+    pub signature: &'a [u8],
+    pub category: &'a [u8],
+    pub timestamp: U256,
+    pub deadline: U256,
+    pub trace_id: Option<&'a str>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SettlementOutboxRecord {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub agent_address: String,
+    pub merchant_address: String,
+    pub token_address: String,
+    pub amount: String,
+    pub nonce: String,
+    pub signature: Vec<u8>,
+    pub category: Vec<u8>,
+    pub timestamp_val: String,
+    pub deadline: String,
+    pub status: String,
+    pub tx_hash: Option<String>,
+    pub attempt_count: i32,
+    pub max_attempts: i32,
+    pub next_retry_at: DateTime<Utc>,
+    pub last_error: Option<String>,
+    pub trace_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct SettlementQueueStats {
+    pub pending: i64,
+    pub dispatched: i64,
+    pub mined: i64,
+    pub failed: i64,
+    pub dead_letter: i64,
+    pub total: i64,
+}
+
+fn map_outbox_row(row: &sqlx::postgres::PgRow) -> Result<SettlementOutboxRecord, sqlx::Error> {
+    Ok(SettlementOutboxRecord {
+        id: row.try_get("id")?,
+        task_id: row.try_get("task_id")?,
+        agent_address: row.try_get("agent_address")?,
+        merchant_address: row.try_get("merchant_address")?,
+        token_address: row.try_get("token_address")?,
+        amount: row.try_get("amount")?,
+        nonce: row.try_get("nonce")?,
+        signature: row.try_get("signature")?,
+        category: row.try_get("category")?,
+        timestamp_val: row.try_get("timestamp_val")?,
+        deadline: row.try_get("deadline")?,
+        status: row.try_get("status")?,
+        tx_hash: row.try_get("tx_hash")?,
+        attempt_count: row.try_get("attempt_count")?,
+        max_attempts: row.try_get("max_attempts")?,
+        next_retry_at: row.try_get("next_retry_at")?,
+        last_error: row.try_get("last_error")?,
+        trace_id: row.try_get("trace_id")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
 }

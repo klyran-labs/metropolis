@@ -162,6 +162,7 @@ AgentGuard/
 │   ├── gateway/                      # High-throughput Rust Axum x402 payment gateway
 │   └── opensigner/                   # Self-hosted sealed agent key vault & EIP-712 signer
 └── scripts/
+    ├── test-e2e.mjs                     # 20-point live cross-service E2E integration runner
     ├── agentguard-live-demo.mjs         # Automated end-to-end live CLI demonstration
     └── agentguard-fleet-demo.mjs        # 20-agent multi-scenario fleet simulation
 ```
@@ -174,10 +175,18 @@ AgentGuard/
    ```bash
    npm test
    ```
-2. **Production Build**: Sub-second zero-error Vite production build:
+2. **Foundry Formal Invariants**: 100% pass rate:
+   ```bash
+   npm run test:forge
+   ```
+3. **Live Cross-Tier E2E Integration**: 100% pass rate:
+   ```bash
+   npm run test:e2e
+   ```
+4. **Production Build**: Sub-second zero-error Vite production build:
    ```bash
    npm run build
    ```
-3. **Zero-Mock Verification**:
+5. **Zero-Mock Verification**:
    - `grep -rn "Math.random" apps/web/src` must return 0 runtime matches.
    - `grep -rn "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" apps/web/src` must return 0 matches.

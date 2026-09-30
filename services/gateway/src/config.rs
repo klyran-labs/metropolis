@@ -71,6 +71,8 @@ pub struct DeploymentContracts {
     pub circuit_paymaster: Option<DeploymentContract>,
     #[serde(rename = "circuitVault")]
     pub circuit_vault: Option<DeploymentContract>,
+    #[serde(rename = "settlementToken")]
+    pub settlement_token: Option<DeploymentContract>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -118,6 +120,9 @@ pub struct Config {
     pub max_tracked_tenants: usize,
     pub provider_max_concurrency: usize,
     pub rpc_max_concurrency: usize,
+    pub rpc_fallback_urls: Vec<String>,
+    pub policy_cache_ttl_ms: u64,
+    pub nonce_lease_ttl_ms: u64,
 }
 
 fn required(name: &str) -> Result<String, String> {
@@ -193,6 +198,25 @@ fn parse_manifest_address(
         ));
     }
     Ok(address)
+}
+
+fn parse_address_with_manifest_fallback(
+    name: &str,
+    manifest_name: &str,
+    manifest_contract: Option<&DeploymentContract>,
+) -> Result<Address, String> {
+    let manifest_addr = parse_manifest_address(manifest_name, manifest_contract)?;
+    match env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        Some(value) => {
+            let address = Address::from_str(&value).map_err(|error| format!("Invalid {name}: {error}"))?;
+            if address == Address::ZERO {
+                return Err(format!("{name} must not be the zero address"));
+            }
+            require_manifest_match(name, address, manifest_addr)?;
+            Ok(address)
+        }
+        None => Ok(manifest_addr),
+    }
 }
 
 fn load_manifest(
@@ -278,9 +302,21 @@ impl Config {
         let environment = required("NODE_ENV")?;
         let deployment_manifest_path = PathBuf::from(required("DEPLOYMENT_MANIFEST_PATH")?);
         let manifest = load_manifest(&deployment_manifest_path, profile, chain_id)?;
-        let policy_engine_address = parse_address("POLICY_ENGINE_ADDRESS")?;
-        let reputation_registry_address = parse_address("REPUTATION_REGISTRY_ADDRESS")?;
-        let agent_wallet_guard_address = parse_address("AGENT_WALLET_GUARD_ADDRESS")?;
+        let policy_engine_address = parse_address_with_manifest_fallback(
+            "POLICY_ENGINE_ADDRESS",
+            "policyEngine",
+            manifest.contracts.policy_engine.as_ref(),
+        )?;
+        let reputation_registry_address = parse_address_with_manifest_fallback(
+            "REPUTATION_REGISTRY_ADDRESS",
+            "reputationRegistry",
+            manifest.contracts.reputation_registry.as_ref(),
+        )?;
+        let agent_wallet_guard_address = parse_address_with_manifest_fallback(
+            "AGENT_WALLET_GUARD_ADDRESS",
+            "agentWalletGuard",
+            manifest.contracts.agent_wallet_guard.as_ref(),
+        )?;
         let circuit_paymaster_address = parse_manifest_address(
             "circuitPaymaster",
             manifest.contracts.circuit_paymaster.as_ref(),
@@ -289,27 +325,6 @@ impl Config {
             parse_manifest_address("circuitVault", manifest.contracts.circuit_vault.as_ref())?;
         let paymaster_verification_gas_limit = parse_u256("PAYMASTER_VERIFICATION_GAS_LIMIT")?;
         let paymaster_post_op_gas_limit = parse_u256("PAYMASTER_POST_OP_GAS_LIMIT")?;
-        require_manifest_match(
-            "POLICY_ENGINE_ADDRESS",
-            policy_engine_address,
-            parse_manifest_address("policyEngine", manifest.contracts.policy_engine.as_ref())?,
-        )?;
-        require_manifest_match(
-            "REPUTATION_REGISTRY_ADDRESS",
-            reputation_registry_address,
-            parse_manifest_address(
-                "reputationRegistry",
-                manifest.contracts.reputation_registry.as_ref(),
-            )?,
-        )?;
-        require_manifest_match(
-            "AGENT_WALLET_GUARD_ADDRESS",
-            agent_wallet_guard_address,
-            parse_manifest_address(
-                "agentWalletGuard",
-                manifest.contracts.agent_wallet_guard.as_ref(),
-            )?,
-        )?;
 
         let event_finality_blocks = env::var("MONAD_FINALITY_BLOCKS")
             .ok()
@@ -359,7 +374,44 @@ impl Config {
             profile,
             chain_id,
             deployment_manifest_path,
-            rpc_url: required("MONAD_RPC_URL")?,
+            rpc_url: {
+                let raw_rpc = required("MONAD_RPC_URL")?;
+                let rpc_urls: Vec<String> = raw_rpc
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                rpc_urls.first().cloned().unwrap_or(raw_rpc)
+            },
+            rpc_fallback_urls: {
+                let raw_rpc = env::var("MONAD_RPC_URL").unwrap_or_default();
+                let rpc_urls: Vec<String> = raw_rpc
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let mut fallbacks = if rpc_urls.len() > 1 {
+                    rpc_urls[1..].to_vec()
+                } else {
+                    Vec::new()
+                };
+                if let Ok(env_fallbacks) = env::var("MONAD_RPC_FALLBACK_URLS") {
+                    for url in env_fallbacks.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+                        if !fallbacks.contains(&url) {
+                            fallbacks.push(url);
+                        }
+                    }
+                }
+                fallbacks
+            },
+            policy_cache_ttl_ms: env::var("POLICY_CACHE_TTL_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(3_000),
+            nonce_lease_ttl_ms: env::var("NONCE_LEASE_TTL_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5_000),
             policy_engine_address,
             reputation_registry_address,
             agent_wallet_guard_address,
@@ -367,7 +419,15 @@ impl Config {
             circuit_vault_address,
             paymaster_verification_gas_limit,
             paymaster_post_op_gas_limit,
-            usdc_token_address: parse_address("USDC_TOKEN_ADDRESS")?,
+            usdc_token_address: if manifest.contracts.settlement_token.is_some() {
+                parse_address_with_manifest_fallback(
+                    "USDC_TOKEN_ADDRESS",
+                    "settlementToken",
+                    manifest.contracts.settlement_token.as_ref(),
+                )?
+            } else {
+                parse_address("USDC_TOKEN_ADDRESS")?
+            },
             merchant_address: parse_address("GATEWAY_MERCHANT_ADDRESS")?,
             opensigner_url: required("OPENSIGNER_URL")?,
             opensigner_api_token: required("OPENSIGNER_API_TOKEN")?,
@@ -418,6 +478,9 @@ impl Config {
             chain_id: 10143,
             deployment_manifest_path: PathBuf::from("test/deployment-manifest.json"),
             rpc_url: "http://127.0.0.1:8545".to_string(),
+            rpc_fallback_urls: Vec::new(),
+            policy_cache_ttl_ms: 3_000,
+            nonce_lease_ttl_ms: 5_000,
             policy_engine_address: Address::repeat_byte(0x11),
             reputation_registry_address: Address::repeat_byte(0x12),
             agent_wallet_guard_address: Address::repeat_byte(0x13),

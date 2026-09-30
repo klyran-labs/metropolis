@@ -507,3 +507,156 @@ fn dispute_finalization_readiness_evaluation() {
         challenge_block
     ));
 }
+
+#[test]
+fn sharded_relayer_pool_stats_and_escalation_invariants() {
+    use agentguard_gateway::relayer_pool::RelayerPool;
+
+    let pool = RelayerPool::new(vec![]);
+    let stats = pool.stats();
+    assert_eq!(stats.total_shards, 4);
+    assert_eq!(stats.active_shards, 4);
+    assert_eq!(stats.total_in_flight, 0);
+    assert_eq!(stats.total_escalations, 0);
+
+    let shard = pool.acquire_least_loaded();
+    let nonce = shard.acquire_nonce();
+    assert_eq!(nonce, 0);
+
+    shard.record_escalation();
+    let stats_after = pool.stats();
+    assert_eq!(stats_after.total_escalations, 1);
+    assert_eq!(stats_after.total_in_flight, 1);
+
+    shard.release_in_flight();
+    let stats_released = pool.stats();
+    assert_eq!(stats_released.total_in_flight, 0);
+}
+
+#[test]
+fn zk_policy_confidential_spend_and_nullifier_invariants() {
+    use agentguard_gateway::zk::{ZkPolicyEngine, ZkSpendProofWire};
+
+    let engine = ZkPolicyEngine::new();
+    let agent = Address::repeat_byte(0x55);
+    let commitment = keccak256(b"CONFIDENTIAL_LIMIT_10_USDC");
+    let nullifier = keccak256(b"SECRET_NULLIFIER_12345");
+
+    engine.register_commitment(agent, commitment);
+
+    let proof = ZkSpendProofWire {
+        policy_commitment: format!("{:#x}", commitment),
+        merchant_whitelist_root: format!("{:#x}", keccak256(b"ROOT")),
+        nullifier: format!("{:#x}", nullifier),
+        epoch_window: 100000,
+        proof_a: ["0x1".into(), "0x2".into()],
+        proof_b: [["0x3".into(), "0x4".into()], ["0x5".into(), "0x6".into()]],
+        proof_c: ["0x7".into(), "0x8".into()],
+    };
+
+    let res = engine.verify_and_consume(agent, &proof);
+    assert!(res.allowed);
+    assert_eq!(res.reason_code, 0);
+    assert!(engine.is_nullifier_consumed(&nullifier));
+
+    // Replay attempt fails with ERR_NONCE_REUSED (8)
+    let res_replay = engine.verify_and_consume(agent, &proof);
+    assert!(!res_replay.allowed);
+    assert_eq!(res_replay.reason_code, 8);
+}
+
+#[tokio::test]
+async fn mev_shielded_bundle_dispatch_and_invariants() {
+    use agentguard_gateway::bundle_relay::{BundleRelayManager, MevBundleCall, MevBundleRequest};
+
+    let manager = BundleRelayManager::default();
+    let req = MevBundleRequest {
+        bundle_id: "bundle-eip-searcher-01".into(),
+        calls: vec![MevBundleCall {
+            target: "0x3333333333333333333333333333333333333333".into(),
+            value_wei: "1000000000000000".into(),
+            call_data: "0x".into(),
+        }],
+        target_block: 20000,
+        min_kickback_wei: 1000000000000,
+        max_priority_fee_gwei: 3,
+        beneficiary: "0x4444444444444444444444444444444444444444".into(),
+    };
+
+    let result = manager.dispatch_bundle(req).await;
+    assert_eq!(result.status, "INCLUDED_PRIVATE_BLOCK");
+    assert!(result.sandwich_risk_mitigated);
+    assert!(result.latency_ms >= 0.0);
+
+    let stats = manager.get_stats();
+    assert_eq!(stats.total_bundles_submitted, 1);
+    assert_eq!(stats.sandwich_attacks_deflected, 1);
+    assert_eq!(stats.total_kickbacks_wei, 1000000000000);
+}
+
+#[tokio::test]
+async fn calldata_clear_signing_and_risk_evaluation() {
+    use agentguard_gateway::calldata_decoder::{CalldataDecoder, CalldataInspectionRequest};
+
+    let transfer_req = CalldataInspectionRequest {
+        calldata: "0xa9059cbb0000000000000000000000005555555555555555555555555555555555555555000000000000000000000000000000000000000000000000000000000000000a".into(),
+        agent: "0x1111111111111111111111111111111111111111".into(),
+        target: "0x2222222222222222222222222222222222222222".into(),
+        msg_value: None,
+    };
+
+    let res = CalldataDecoder::inspect(&transfer_req);
+    assert_eq!(res.selector, "0xa9059cbb");
+    assert_eq!(res.risk_level, "nominal");
+    assert_eq!(res.fields.len(), 2);
+    assert!(res.clear_signing_summary.contains("Disburse 10 tokens"));
+}
+
+#[tokio::test]
+async fn agent_heartbeat_and_succession_liveness() {
+    use agentguard_gateway::heartbeat::{HeartbeatManager, AgentHeartbeatRequest};
+
+    let mgr = HeartbeatManager::new();
+    let agent = "0xAgentLivenessTest".to_string();
+
+    let rec = mgr.record_heartbeat(AgentHeartbeatRequest {
+        agent: agent.clone(),
+        timestamp: 100_000,
+        signature: None,
+    });
+    assert_eq!(rec.status, "HEALTHY");
+
+    // Nominal check within grace period
+    let status_healthy = mgr.get_status(&agent, 105_000);
+    assert_eq!(status_healthy.status, "HEALTHY");
+    assert_eq!(status_healthy.seconds_since_last_heartbeat, 5000);
+
+    // After 72h grace period (259,200s)
+    let status_expired = mgr.get_status(&agent, 100_000 + 260_000);
+    assert_eq!(status_expired.status, "SUCCESSION_PENDING");
+}
+
+#[tokio::test]
+async fn edge_sequencer_topology_and_disjoint_leases() {
+    use agentguard_gateway::edge_sequencer::EdgeSequencerManager;
+
+    let mgr = EdgeSequencerManager::new();
+    let agent = "0xAgentGlobalEdge";
+
+    // Acquire lease in US and EU
+    let us_lease = mgr.acquire_lease(agent, "us-east-1", 20_000_000, 1000);
+    assert_eq!(us_lease.nonce_range_start, 0);
+
+    let eu_lease = mgr.acquire_lease(agent, "eu-central-1", 10_000_000, 1000);
+    assert_eq!(eu_lease.nonce_range_start, 100_000);
+
+    let topo = mgr.get_topology();
+    assert_eq!(topo.global_active_edges, 3);
+    assert_eq!(topo.regions.len(), 3);
+    assert_eq!(topo.regions[0].active_leases, 1);
+    assert_eq!(topo.regions[1].active_leases, 1);
+}
+
+
+
+

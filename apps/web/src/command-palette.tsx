@@ -22,6 +22,7 @@ import {
   UsersRound,
   Shield,
   Building2,
+  Keyboard,
   type LucideIcon,
 } from "lucide-react";
 import { useAgents, type Agent } from "./api";
@@ -44,10 +45,12 @@ export function CommandPalette({
   open,
   onClose,
   onOpenCopilot,
+  onOpenShortcuts,
 }: {
   open: boolean;
   onClose: () => void;
   onOpenCopilot?: () => void;
+  onOpenShortcuts?: () => void;
 }) {
   const navigate = useNavigate();
   const identity = useIdentity();
@@ -252,6 +255,32 @@ export function CommandPalette({
         },
         keywords: "theme dark light mode color visual appearance",
       },
+      // Keyboard Shortcuts
+      {
+        id: "sys-shortcuts",
+        category: "System",
+        label: "View Keyboard Shortcuts Reference",
+        detail: "Institutional hotkeys for high-velocity fleet operations",
+        icon: Keyboard,
+        action: () => {
+          onClose();
+          onOpenShortcuts?.();
+        },
+        keywords: "keyboard shortcuts hotkeys keys reference help legend",
+      },
+      // Fleet Actions
+      {
+        id: "action-provision-agent",
+        category: "Fleet Actions",
+        label: "Provision New Autonomous Agent",
+        detail: "Deploy sovereign keypair with Monad Parallel EVM policy guardrails",
+        icon: Sparkles,
+        action: () => {
+          void navigate({ to: "/app/fleet" });
+          onClose();
+        },
+        keywords: "provision agent create new onboard bot keypair deploy register",
+      },
     ];
 
     // Append agent quick actions
@@ -389,6 +418,19 @@ export function CommandPalette({
             <span>
               <kbd>Esc</kbd> Dismiss
             </span>
+            {onOpenShortcuts && (
+              <button
+                type="button"
+                className="command-palette-shortcut-btn"
+                onClick={() => {
+                  onClose();
+                  onOpenShortcuts();
+                }}
+                style={{ background: "none", border: "none", padding: 0, color: "inherit", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px", font: "inherit" }}
+              >
+                <kbd>?</kbd> Shortcuts
+              </button>
+            )}
           </div>
           <div className="command-palette-network-tag">
             <span className="status-dot status-dot-success" />

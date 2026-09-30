@@ -38,6 +38,17 @@ interface IAgentWalletGuard {
         bytes calldata extraCallData
     ) external payable returns (bool success);
 
+    struct BatchPaymentItem {
+        IPolicyEngine.SpendRequest req;
+        bytes signature;
+        address token;
+        bytes extraCallData;
+    }
+
+    function executeBatchGatedPayment(
+        BatchPaymentItem[] calldata items
+    ) external payable returns (bool[] memory successes);
+
     function getPolicyEngine() external view returns (address);
     function getReputationRegistry() external view returns (address);
 }

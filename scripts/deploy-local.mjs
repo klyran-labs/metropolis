@@ -1,5 +1,5 @@
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, mnemonicToAccount } from 'viem/accounts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,51 +7,61 @@ import { fundAllWallets } from './fund-wallets.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const rootDirectory = join(scriptDirectory, '..');
-const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
-const chainId = 10143;
-const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
-const envFilePath = process.env.ENV_FILE || join(rootDirectory, '.env.local');
 
-if (!deployerPrivateKey) {
-  throw new Error('DEPLOYER_PRIVATE_KEY is required for a local deployment');
-}
+export async function deployLocalContracts(options = {}) {
+  const rpcUrl = options.rpcUrl || process.env.RPC_URL || 'http://127.0.0.1:8545';
+  const chainId = options.chainId || 10143;
+  let deployerPrivateKey = options.deployerPrivateKey || process.env.DEPLOYER_PRIVATE_KEY;
+  const envFilePath = options.envFilePath || process.env.ENV_FILE || join(rootDirectory, '.env.local');
+  const customManifestPath = options.manifestPath || process.env.DEPLOYMENT_MANIFEST_PATH;
 
-const account = privateKeyToAccount(deployerPrivateKey);
-const chain = {
-  id: chainId,
-  name: 'Monad Local Devnet',
-  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
-  rpcUrls: { default: { http: [rpcUrl] } },
-};
-const transport = http(rpcUrl);
-const publicClient = createPublicClient({ chain, transport });
-const walletClient = createWalletClient({ account, chain, transport });
-
-function loadArtifact(name) {
-  const artifactPath = join(rootDirectory, `contracts/out/${name}.sol/${name}.json`);
-  const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
-  return { abi: artifact.abi, bytecode: artifact.bytecode.object };
-}
-
-async function deployContract(name, args = []) {
-  const artifact = loadArtifact(name);
-  const hash = await walletClient.deployContract({
-    abi: artifact.abi,
-    bytecode: artifact.bytecode,
-    args,
-  });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (!receipt.contractAddress) {
-    throw new Error(`${name} deployment did not return a contract address`);
+  if (!deployerPrivateKey) {
+    const mnemonic = options.mnemonic || process.env.ANVIL_MNEMONIC;
+    if (mnemonic) {
+      const derived = mnemonicToAccount(mnemonic);
+      deployerPrivateKey = `0x${Buffer.from(derived.getHdKey().privateKey).toString('hex')}`;
+    }
   }
-  return {
-    address: receipt.contractAddress,
-    abi: artifact.abi,
-    blockNumber: receipt.blockNumber,
-  };
-}
 
-async function main() {
+  if (!deployerPrivateKey) {
+    throw new Error('DEPLOYER_PRIVATE_KEY or ANVIL_MNEMONIC is required for a local deployment');
+  }
+
+  const account = privateKeyToAccount(deployerPrivateKey);
+  const chain = {
+    id: chainId,
+    name: 'Monad Local Devnet',
+    nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+    rpcUrls: { default: { http: [rpcUrl] } },
+  };
+  const transport = http(rpcUrl);
+  const publicClient = createPublicClient({ chain, transport });
+  const walletClient = createWalletClient({ account, chain, transport });
+
+  function loadArtifact(name) {
+    const artifactPath = join(rootDirectory, `contracts/out/${name}.sol/${name}.json`);
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    return { abi: artifact.abi, bytecode: artifact.bytecode.object };
+  }
+
+  async function deployContract(name, args = []) {
+    const artifact = loadArtifact(name);
+    const hash = await walletClient.deployContract({
+      abi: artifact.abi,
+      bytecode: artifact.bytecode,
+      args,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (!receipt.contractAddress) {
+      throw new Error(`${name} deployment did not return a contract address`);
+    }
+    return {
+      address: receipt.contractAddress,
+      abi: artifact.abi,
+      blockNumber: receipt.blockNumber,
+    };
+  }
+
   console.log(`Deploying local contracts to ${rpcUrl}`);
   console.log(`Deployer: ${account.address}`);
 
@@ -75,6 +85,7 @@ async function main() {
   const agentIdentityRegistry = await deployContract('AgentIdentityRegistry');
   const agentAccountImplementation = await deployContract('AgentAccount');
   const agentPassportNFT = await deployContract('AgentPassportNFT');
+  const auditAnchorRegistry = await deployContract('AuditAnchorRegistry');
 
   const authorizePolicy = await walletClient.writeContract({
     address: policyEngine.address,
@@ -111,7 +122,9 @@ async function main() {
   mkdirSync(deploymentDirectory, { recursive: true });
 
   const contractsJsonPath = join(deploymentDirectory, 'contracts.json');
-  const manifestJsonPath = join(rootDirectory, 'deploy/environments/local/deployment-manifest.json');
+  const manifestJsonPath = customManifestPath || join(rootDirectory, 'deploy/environments/local/deployment-manifest.json');
+  mkdirSync(dirname(manifestJsonPath), { recursive: true });
+
   let existingContracts = {};
   if (existsSync(contractsJsonPath)) {
     try {
@@ -136,6 +149,7 @@ async function main() {
     agentIdentityRegistry: { address: agentIdentityRegistry.address },
     agentAccountImplementation: { address: agentAccountImplementation.address },
     agentPassportNFT: { address: agentPassportNFT.address },
+    auditAnchorRegistry: { address: auditAnchorRegistry.address },
   };
 
   const deployment = {
@@ -219,9 +233,21 @@ async function main() {
     policyEngineAddress: policyEngine.address,
     merchantAddress: account.address,
   });
+
+  return {
+    policyEngine: policyEngine.address,
+    reputationRegistry: reputationRegistry.address,
+    agentWalletGuard: agentWalletGuard.address,
+    settlementToken: settlementToken.address,
+    circuitVault: circuitVault.address,
+    circuitPaymaster: circuitPaymaster.address,
+    deployer: account.address,
+  };
 }
 
-main().catch((error) => {
-  console.error('Local deployment failed:', error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  deployLocalContracts().catch((error) => {
+    console.error('Local deployment failed:', error);
+    process.exitCode = 1;
+  });
+}

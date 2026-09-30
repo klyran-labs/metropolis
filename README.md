@@ -20,7 +20,9 @@
 - [5. Modern EIPs & Agentic Primitives](#5-modern-eips--agentic-primitives)
 - [6. Quickstart (Under 30 Seconds)](#6-quickstart-under-30-seconds)
 - [7. Docker Deployment Topologies](#7-docker-deployment-topologies)
-- [8. Hackathon Track & Roadmap](#8-hackathon-track--roadmap)
+- [8. Testing & Verification Hierarchy](#8-testing--verification-hierarchy)
+- [9. Hackathon Track & Roadmap](#9-hackathon-track--roadmap)
+- [10. Quality Gates & Linting](#10-quality-gates--linting)
 
 ---
 
@@ -242,7 +244,29 @@ make docker-prod-up
 
 ---
 
-## 8. Hackathon Track & Roadmap
+## 8. Testing & Verification Hierarchy
+
+AgentGuard enforces a 4-tier verification hierarchy to validate onchain invariants, cryptographic isolation, and live multi-container infrastructure:
+
+```bash
+# 1. Monorepo Quality Gates & Unit Tests (68/68 passing in <700ms)
+npm test
+
+# 2. Foundry Formal Invariant & Fuzzing Suite (45/45 passing, 64,000 state-space calls)
+npm run test:forge
+
+# 3. Live 5-Tier Docker Integration Runner (22/22 live checks)
+npm run test:e2e
+
+# 4. Automated 20-Agent Monad Parallel Fleet Simulation
+node scripts/agentguard-fleet-demo.mjs
+```
+
+Comprehensive test matrices and Monad testnet deployment runbooks are documented in [`docs/TESTING_AND_VERIFICATION_GUIDE.md`](docs/TESTING_AND_VERIFICATION_GUIDE.md).
+
+---
+
+## 9. Hackathon Track & Roadmap
 
 - **Main Track:** Trust, Identity & AI Infrastructure (30,000 USD Prize Pool)
 - **Target Sponsor Bounties:** 
@@ -255,7 +279,7 @@ make docker-prod-up
 
 ---
 
-## 9. Quality Gates & Linting
+## 10. Quality Gates & Linting
 
 ```bash
 # Run zero-mock integrity checks, UI interaction safety contract, and typechecks

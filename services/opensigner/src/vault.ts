@@ -10,20 +10,29 @@ export interface WalletMetadata {
   label?: string;
 }
 
-interface EncryptedWalletRecord extends WalletMetadata {
+export interface EncryptedWalletRecord extends WalletMetadata {
   encryptedPrivateKey: string; // hex
   iv: string; // hex
   authTag: string; // hex
 }
 
-interface VaultData {
+export interface VaultData {
   version: number;
   salt: string; // hex
   wallets: Record<string, EncryptedWalletRecord>;
 }
 
-export class EncryptedVault {
+export interface IKeyVault {
+  createWallet(label?: string): WalletMetadata;
+  listWallets(): WalletMetadata[];
+  getWallet(walletIdOrAddress: string): WalletMetadata | null;
+  getDecryptedPrivateKey(walletIdOrAddress: string): `0x${string}`;
+  count(): number;
+}
+
+export class EncryptedVault implements IKeyVault {
   private vaultPath: string;
+  private shardsDir: string;
   private masterKey: string;
   private derivedKey: Buffer;
   private salt: Buffer;
@@ -34,10 +43,14 @@ export class EncryptedVault {
     this.vaultPath = vaultPath;
     this.masterKey = masterKey;
     
-    // Ensure parent directory exists
+    // Ensure parent directory and shards directory exist
     const dir = path.dirname(vaultPath);
+    this.shardsDir = path.join(dir, 'shards');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(this.shardsDir)) {
+      fs.mkdirSync(this.shardsDir, { recursive: true });
     }
 
     if (fs.existsSync(vaultPath)) {
@@ -57,16 +70,46 @@ export class EncryptedVault {
     }
   }
 
+  /**
+   * Atomic, fsync-hardened POSIX file writer.
+   * Guarantees data durability across power loss, container kill, or filesystem re-ordering.
+   */
+  private atomicWriteFileSync(targetPath: string, content: string): void {
+    const tempPath = `${targetPath}.tmp.${Date.now()}.${randomBytes(4).toString('hex')}`;
+    const fd = fs.openSync(tempPath, 'w');
+    try {
+      fs.writeSync(fd, content, 0, 'utf8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempPath, targetPath);
+    
+    // Flush parent directory if supported
+    try {
+      const dirFd = fs.openSync(path.dirname(targetPath), 'r');
+      try {
+        fs.fsyncSync(dirFd);
+      } finally {
+        fs.closeSync(dirFd);
+      }
+    } catch {
+      // Parent directory fsync is best-effort across platforms
+    }
+  }
+
   private save(): void {
     const data: VaultData = {
       version: 1,
       salt: this.salt.toString('hex'),
       wallets: Object.fromEntries(this.wallets.entries())
     };
-    // Atomic file write using temp file
-    const tempPath = `${this.vaultPath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tempPath, this.vaultPath);
+    this.atomicWriteFileSync(this.vaultPath, JSON.stringify(data, null, 2));
+  }
+
+  private saveShard(record: EncryptedWalletRecord): void {
+    const shardPath = path.join(this.shardsDir, `${record.walletId}.enc.json`);
+    this.atomicWriteFileSync(shardPath, JSON.stringify(record, null, 2));
   }
 
   public createWallet(label?: string): WalletMetadata {
@@ -95,6 +138,9 @@ export class EncryptedVault {
 
     this.wallets.set(walletId, record);
     this.addressToId.set(address.toLowerCase(), walletId);
+    
+    // Persist to sharded store and vault index
+    this.saveShard(record);
     this.save();
 
     return {

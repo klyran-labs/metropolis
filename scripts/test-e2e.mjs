@@ -390,6 +390,84 @@ async function main() {
     return `Trust Score: ${(score / 10000).toFixed(2)}% (${score} / 1,000,000 ppm)`;
   });
 
+  let wirePayload = '';
+  await runStep('Rust Axum Gateway admits signed x402 payment & enqueues into asynchronous settlement pipeline', async () => {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const deadline = (Math.floor(Date.now() / 1000) + 3600).toString();
+    const nonce = Date.now().toString();
+    const spendReq = {
+      agent: provisionedAddress,
+      merchant: MERCHANT_ADDRESS,
+      amount: parseUnits('1.0', 6).toString(),
+      category: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      timestamp,
+      deadline,
+      nonce,
+    };
+    const signRes = await fetch(`${OPENSIGNER_URL}/api/v1/sign-spend-request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENSIGNER_TOKEN}`,
+      },
+      body: JSON.stringify({
+        walletIdOrAddress: provisionedAddress,
+        request: spendReq,
+        verifyingContract: AGENT_WALLET_GUARD_ADDRESS,
+        chainId: CHAIN_ID,
+      }),
+    });
+    const signJson = await signRes.json();
+    if (!signJson.success) throw new Error(signJson.error);
+
+    wirePayload = Buffer.from(
+      JSON.stringify({
+        request: spendReq,
+        signature: signJson.signature,
+      })
+    ).toString('base64');
+
+    const gatewayRes = await fetch(`${GATEWAY_URL}/v1/inference`, {
+      method: 'POST',
+      headers: {
+        Host: 'localhost',
+        Authorization: `x402 ${wirePayload}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt: 'Execute autonomous query' }),
+    });
+
+    if (!gatewayRes.ok) {
+      const errBody = await gatewayRes.text();
+      throw new Error(`Gateway returned HTTP ${gatewayRes.status}: ${errBody}`);
+    }
+    const gatewayJson = await gatewayRes.json();
+    if (gatewayJson.status !== 'policy_allowed') {
+      throw new Error(`Expected status policy_allowed, got ${gatewayJson.status}`);
+    }
+    return `Status: ${gatewayJson.status}, Settlement: ${gatewayJson.settlement.slice(0, 32)}...`;
+  });
+
+  await runStep('Rust Axum Gateway NonceSequencer blocks in-flight duplicate nonce', async () => {
+    const gatewayRes = await fetch(`${GATEWAY_URL}/v1/inference`, {
+      method: 'POST',
+      headers: {
+        Host: 'localhost',
+        Authorization: `x402 ${wirePayload}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (gatewayRes.status !== 403) {
+      throw new Error(`Expected HTTP 403 on nonce replay, got ${gatewayRes.status}`);
+    }
+    const reasonHeader = gatewayRes.headers.get('x-agentguard-reason-code');
+    if (reasonHeader !== '8') {
+      throw new Error(`Expected X-AgentGuard-Reason-Code: 8 (NonceReused), got ${reasonHeader}`);
+    }
+    return 'NonceReused (8) blocked in-flight in <1ms';
+  });
+
   // --- FINAL REPORT ---
   console.log('\n----------------------------------------------------------------');
   const total = passCount + failCount;

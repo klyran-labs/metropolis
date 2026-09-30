@@ -10,3 +10,6 @@ yarn-debug.log*
 yarn-error.log*
 .system_generated
 scratch
+contracts/cache
+cache
+contracts/out

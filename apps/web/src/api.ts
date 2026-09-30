@@ -103,6 +103,70 @@ export type PolicyUpdate = {
   whitelistEnabled: boolean;
 };
 
+export type SwarmNodeRole = "supervisor" | "worker" | "specialist";
+export type SwarmNodeStatus = "active" | "quarantined";
+
+export type SwarmNode = {
+  agentAddress: string;
+  label: string;
+  parentAddress: string | null;
+  role: SwarmNodeRole;
+  subBudgetCapUsdc: string;
+  allocatedSpendUsdc: string;
+  isolatedStatus: SwarmNodeStatus;
+  capabilities: string[];
+  environment: string;
+  riskTier: string;
+};
+
+export type SwarmDelegation = {
+  supervisorAddress: string;
+  workerAddress: string;
+  subBudgetCapUsdc: string;
+  role: SwarmNodeRole;
+  updatedAt: string;
+};
+
+export type CanaryStage =
+  | "staged"
+  | "canary_10"
+  | "canary_25"
+  | "canary_50"
+  | "promoted_100"
+  | "rolled_back";
+
+export type CanaryDeployment = {
+  agentAddress: string;
+  baselinePolicy: PolicyUpdate;
+  stagedPolicy: PolicyUpdate;
+  stage: CanaryStage;
+  trafficPct: number;
+  anomalyThresholdPct: number;
+  observedBreachRatePct: number;
+  updatedAt: string;
+};
+
+export type ThreatAnomalyType =
+  | "velocity_spike"
+  | "category_drift"
+  | "cadence_jitter"
+  | "sub_threshold_probing";
+
+export type ThreatSeverity = "low" | "medium" | "critical";
+
+export type ThreatAnomaly = {
+  id: string;
+  agentAddress: string;
+  anomalyType: ThreatAnomalyType;
+  severity: ThreatSeverity;
+  zScore: number;
+  historicalCategory: string;
+  attemptedCategory: string;
+  observedAt: string;
+  details: string;
+  remediationAction: "trip_killswitch" | "tighten_policy" | "whitelist_merchant";
+};
+
 export type PlatformTenant = {
   id: string;
   displayName: string;
@@ -801,3 +865,276 @@ export const useCompilePolicy = () =>
         body: JSON.stringify(payload),
       }),
   });
+
+const SWARM_STORAGE_KEY = "agentguard_swarm_delegations_v1";
+const CANARY_STORAGE_KEY = "agentguard_canary_deployments_v1";
+
+export function getStoredSwarmDelegations(): Record<string, SwarmDelegation> {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(SWARM_STORAGE_KEY) : null;
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveStoredSwarmDelegation(delegation: SwarmDelegation): void {
+  try {
+    if (typeof window === "undefined") return;
+    const current = getStoredSwarmDelegations();
+    current[delegation.workerAddress.toLowerCase()] = delegation;
+    window.localStorage.setItem(SWARM_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage failure
+  }
+}
+
+export function removeStoredSwarmDelegation(workerAddress: string): void {
+  try {
+    if (typeof window === "undefined") return;
+    const current = getStoredSwarmDelegations();
+    delete current[workerAddress.toLowerCase()];
+    window.localStorage.setItem(SWARM_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage failure
+  }
+}
+
+export function getStoredCanaryDeployments(): Record<string, CanaryDeployment> {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(CANARY_STORAGE_KEY) : null;
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveStoredCanaryDeployment(deployment: CanaryDeployment): void {
+  try {
+    if (typeof window === "undefined") return;
+    const current = getStoredCanaryDeployments();
+    current[deployment.agentAddress.toLowerCase()] = deployment;
+    window.localStorage.setItem(CANARY_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage failure
+  }
+}
+
+export function clearStoredCanaryDeployment(agentAddress: string): void {
+  try {
+    if (typeof window === "undefined") return;
+    const current = getStoredCanaryDeployments();
+    delete current[agentAddress.toLowerCase()];
+    window.localStorage.setItem(CANARY_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage failure
+  }
+}
+
+export type SettlementOutboxRecord = {
+  id: string;
+  task_id: string;
+  agent_address: string;
+  merchant_address: string;
+  token_address: string;
+  amount: string;
+  nonce: string;
+  status: "pending" | "dispatched" | "mined" | "failed" | "dead_letter";
+  tx_hash: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  next_retry_at: string;
+  last_error: string | null;
+  trace_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SettlementQueueStats = {
+  pending: number;
+  dispatched: number;
+  mined: number;
+  failed: number;
+  dead_letter: number;
+  total: number;
+};
+
+export type SettlementOutboxResponse = {
+  stats: SettlementQueueStats;
+  items: SettlementOutboxRecord[];
+};
+
+export function useSettlementOutbox(statusFilter?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["settlement-outbox", statusFilter],
+    queryFn: () => {
+      const query = statusFilter && statusFilter !== "all" ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      return request<SettlementOutboxResponse>(`/v1/settlement/outbox${query}`);
+    },
+    enabled,
+    refetchInterval: 3000,
+  });
+}
+
+export function useRetrySettlementOutbox() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      request<{ status: string; id: string; message: string }>(`/v1/settlement/outbox/${id}/retry`, {
+        method: "POST",
+      }),
+  });
+}
+
+export type MerkleProofData = {
+  outbox_id: string;
+  leaf: string;
+  index: number;
+  siblings: string[];
+  root: string;
+  total_leaves: number;
+};
+
+export type AuditProofResponse = {
+  status: string;
+  proof: MerkleProofData;
+  anchor_registry: string;
+};
+
+export function useAuditProof(outboxId?: string, enabled = false) {
+  return useQuery({
+    queryKey: ["audit-proof", outboxId],
+    queryFn: () => request<AuditProofResponse>(`/v1/audit/proof/${outboxId}`),
+    enabled: Boolean(outboxId && enabled),
+  });
+}
+
+export type RelayerShardInfo = {
+  id: number;
+  address: string;
+  current_nonce: number;
+  in_flight: number;
+  escalation_count: number;
+  last_escalation_at: string | null;
+  status: "active" | "congested" | "rebalancing";
+};
+
+export type RelayerPoolStats = {
+  total_shards: number;
+  active_shards: number;
+  total_in_flight: number;
+  total_escalations: number;
+  shards: RelayerShardInfo[];
+};
+
+export function useRelayerPoolStats(enabled = true) {
+  return useQuery({
+    queryKey: ["settlement-relayers"],
+    queryFn: () => request<RelayerPoolStats>("/v1/settlement/relayers"),
+    enabled,
+    refetchInterval: 3000,
+  });
+}
+
+export type MevRelayStats = {
+  total_bundles_submitted: number;
+  bundles_included: number;
+  sandwich_attacks_deflected: number;
+  total_kickbacks_wei: number;
+  avg_builder_latency_ms: number;
+  active_builder_connections: number;
+};
+
+export function useMevRelayStats(enabled = true) {
+  return useQuery({
+    queryKey: ["settlement-mev-stats"],
+    queryFn: () => request<MevRelayStats>("/v1/settlement/mev-stats"),
+    enabled,
+    refetchInterval: 3000,
+  });
+}
+
+export type DecodedCalldataField = {
+  name: string;
+  value: string;
+  field_type: string;
+};
+
+export type CalldataInspectionResponse = {
+  selector: string;
+  function_name: string;
+  fields: DecodedCalldataField[];
+  risk_level: "nominal" | "elevated" | "critical";
+  clear_signing_summary: string;
+};
+
+export async function inspectCalldata(params: {
+  calldata: string;
+  agent: string;
+  target: string;
+  msg_value?: string;
+}): Promise<CalldataInspectionResponse> {
+  return request<CalldataInspectionResponse>("/v1/calldata/inspect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export type AgentLivenessStatus = {
+  agent: string;
+  last_heartbeat: number;
+  status: "HEALTHY" | "WARNING_INACTIVE" | "SUCCESSION_PENDING" | "SUCCESSION_ACTIVE";
+  seconds_since_last_heartbeat: number;
+  grace_period_seconds: number;
+  standby_key: string;
+  fallback_treasury: string;
+  succession_active: boolean;
+};
+
+export function useAgentLiveness(agent: string, enabled = true) {
+  return useQuery({
+    queryKey: ["agent-liveness", agent],
+    queryFn: () => request<AgentLivenessStatus>(`/v1/agent/${agent}/heartbeat`),
+    enabled: Boolean(agent && enabled),
+    refetchInterval: 5000,
+  });
+}
+
+export async function recordAgentHeartbeat(agent: string): Promise<AgentLivenessStatus> {
+  return request<AgentLivenessStatus>("/v1/agent/heartbeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agent,
+      timestamp: Math.floor(Date.now() / 1000),
+    }),
+  });
+}
+
+export type EdgeRegionSummary = {
+  region_name: string;
+  latency_p99_ms: number;
+  active_leases: number;
+  allocated_budget_usd: number;
+  consensus_health: string;
+};
+
+export type EdgeTopologyResponse = {
+  global_active_edges: number;
+  regions: EdgeRegionSummary[];
+};
+
+export function useEdgeTopology(enabled = true) {
+  return useQuery({
+    queryKey: ["edge-topology"],
+    queryFn: () => request<EdgeTopologyResponse>("/v1/edge/topology"),
+    enabled,
+    refetchInterval: 4000,
+  });
+}
+
+
+
+
+
+

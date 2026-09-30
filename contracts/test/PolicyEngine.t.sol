@@ -289,4 +289,76 @@ contract PolicyEngineTest is Test {
         vm.expectRevert(PolicyEngine.Unauthorized.selector);
         engine.resetCircuitBreaker(agent);
     }
+
+    function test_ADR0008_AdaptiveCircuitBreakerCanaryAndHealing() public {
+        address admin = makeAddr("enterpriseAdmin");
+        vm.prank(agent);
+        engine.setAgentAdmin(agent, admin);
+
+        // 1. Trip breaker to OPEN
+        vm.prank(admin);
+        engine.tripCircuitBreaker(agent);
+        (IPolicyEngine.CircuitState state,,,,) = engine.getCircuitState(agent);
+        assertEq(uint8(state), uint8(IPolicyEngine.CircuitState.OPEN));
+
+        // 2. Admin enters Canary mode: throttled to 0.05 ether, requires 2 clean transactions
+        vm.prank(admin);
+        engine.enterCanaryMode(agent, 0.05 ether, 2);
+        (state,,,,) = engine.getCircuitState(agent);
+        assertEq(uint8(state), uint8(IPolicyEngine.CircuitState.HALF_OPEN));
+
+        // Spend > canary limit (0.06 ether) is rejected with ERR_KILL_SWITCH
+        IPolicyEngine.PolicyDecision memory dTooLarge = engine.evaluate(_req(0.06 ether, 10));
+        assertFalse(dTooLarge.allowed);
+        assertEq(uint8(dTooLarge.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_KILL_SWITCH));
+
+        // Clean spend 1: 0.04 ether (within canary ceiling)
+        vm.prank(agent);
+        IPolicyEngine.PolicyDecision memory d1 = engine.evaluateAndSpend(_req(0.04 ether, 10));
+        assertTrue(d1.allowed);
+        assertEq(uint8(d1.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_NONE));
+
+        // Remains in HALF_OPEN with 1 clean transaction
+        uint32 cleanCount;
+        (state,,, cleanCount,) = engine.getCircuitState(agent);
+        assertEq(uint8(state), uint8(IPolicyEngine.CircuitState.HALF_OPEN));
+        assertEq(cleanCount, 1);
+
+        // Clean spend 2: 0.03 ether -> Reaches required clean threshold (2) -> Auto-heals to CLOSED!
+        vm.prank(agent);
+        IPolicyEngine.PolicyDecision memory d2 = engine.evaluateAndSpend(_req(0.03 ether, 11));
+        assertTrue(d2.allowed);
+
+        // Verified: State is automatically promoted to CLOSED and kill switch is completely disarmed
+        (state,,,,) = engine.getCircuitState(agent);
+        assertEq(uint8(state), uint8(IPolicyEngine.CircuitState.CLOSED));
+        assertFalse(engine.isCircuitBroken(agent));
+
+        // Normal full spend (e.g. 0.2 ether) now succeeds as usual
+        vm.prank(agent);
+        IPolicyEngine.PolicyDecision memory dNormal = engine.evaluateAndSpend(_req(0.2 ether, 12));
+        assertTrue(dNormal.allowed);
+    }
+
+    function test_ADR0008_AdaptiveCircuitBreakerCanaryViolationRelapsesToOpen() public {
+        address admin = makeAddr("enterpriseAdmin");
+        vm.prank(agent);
+        engine.setAgentAdmin(agent, admin);
+
+        // Admin enters Canary mode directly: 0.05 ether limit
+        vm.prank(admin);
+        engine.enterCanaryMode(agent, 0.05 ether, 2);
+
+        // Attempting to spend 0.1 ether in evaluateAndSpend breaches canary limit
+        vm.prank(agent);
+        IPolicyEngine.PolicyDecision memory dBreach = engine.evaluateAndSpend(_req(0.1 ether, 20));
+        assertFalse(dBreach.allowed);
+        assertEq(uint8(dBreach.reasonCode), uint8(IPolicyEngine.ReasonCode.ERR_KILL_SWITCH));
+
+        // Relapses back to OPEN with active kill switch!
+        (IPolicyEngine.CircuitState state,,,,) = engine.getCircuitState(agent);
+        assertEq(uint8(state), uint8(IPolicyEngine.CircuitState.OPEN));
+        assertTrue(engine.isCircuitBroken(agent));
+    }
 }
+

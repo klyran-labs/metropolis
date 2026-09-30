@@ -93,20 +93,7 @@ docker-up:
 		exit 1; \
 	fi
 	@node scripts/ensure-local-env.mjs "$(LOCAL_ENV_FILE)"
-	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up -d monad-devnet
-	@deployer_key="$$(awk -F= '$$1 == "DEPLOYER_PRIVATE_KEY" { print $$2 }' "$(LOCAL_ENV_FILE)")"; \
-		if [ -z "$$deployer_key" ]; then \
-			echo "Local deployer credentials could not be generated in $(LOCAL_ENV_FILE)"; \
-			exit 1; \
-		fi
-	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build --force-recreate -d agentguard-postgres agentguard-opensigner
-	@forge build --root contracts
-	@deployer_key="$$(awk -F= '$$1 == "DEPLOYER_PRIVATE_KEY" { print $$2 }' "$(LOCAL_ENV_FILE)")"; \
-		RPC_URL=http://127.0.0.1:8545 \
-		ENV_FILE="$(LOCAL_ENV_FILE)" \
-		DEPLOYER_PRIVATE_KEY="$$deployer_key" \
-			node scripts/deploy-local.mjs
-	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build --force-recreate --no-deps -d agentguard-gateway agentguard-web agentguard-admin-web
+	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build -d
 
 fund-wallets:
 	@echo "=== Funding Local Devnet Wallets and Seeding Policies ==="

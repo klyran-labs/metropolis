@@ -29,7 +29,7 @@ import {
   useUpsertPbacPolicy,
   toUserFacingError,
 } from "../../api";
-import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Select, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
 import { useIdentity, type Identity } from "../../identity";
 
 const ASSIGNABLE_CAPABILITIES = [
@@ -606,10 +606,15 @@ function PolicyTab({ identity }: { identity: Identity }) {
         }
       >
         <div className="dialog-form-stack">
-          <select aria-label="Effect" value={effect} onChange={(event) => setEffect(event.target.value as "allow" | "deny")}>
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-          </select>
+          <Select
+            label="Policy Effect"
+            value={effect}
+            onChange={(val) => setEffect(val as "allow" | "deny")}
+            options={[
+              { value: "allow", label: "Allow", detail: "Permit matching requests that pass limits" },
+              { value: "deny", label: "Deny", detail: "Explicitly block matching requests immediately" },
+            ]}
+          />
           <TextField label="Principals (comma-separated, * for any)" value={principals} onChange={(event) => setPrincipals(event.target.value)} />
           <TextField label="Actions (comma-separated, e.g. treasury.*)" value={actions} onChange={(event) => setActions(event.target.value)} />
           <TextField label="Resources (comma-separated, * for any)" value={resources} onChange={(event) => setResources(event.target.value)} />
@@ -830,24 +835,20 @@ function PricingTab({ identity }: { identity: Identity }) {
               {/* Left Column: Contract Pricing Model */}
               <div className="finops-config-box">
                 <div className="finops-field-group">
-                  <label className="finops-label" htmlFor="model-type-select">
-                    <span>Contract Pricing Model</span>
-                    <span className="finops-label-hint">Enterprise billing mode</span>
-                  </label>
-                  <select
-                    id="model-type-select"
-                    className="finops-select"
+                  <Select
+                    label="Contract Pricing Model"
                     value={modelType}
                     disabled={!isEditable}
-                    onChange={(e) => setModelType(e.target.value as PricingModelType)}
-                  >
-                    <option value="flat_discount">Flat Custom Discount (Rate Card Override)</option>
-                    <option value="tiered_volume">Tiered Volume Ladders (Graduated Monthly Brackets)</option>
-                    <option value="committed_ptu">Committed Capacity / PTUs (Sunk Reservation + Overage)</option>
-                    <option value="batch_discount">Batch Inference Discount (50% Off-Peak SLA)</option>
-                    <option value="per_unit_request">Per-Unit Request Toll (Base Invocations + Compute Pass-Through)</option>
-                    <option value="hybrid_commit_volume">Hybrid PTU Reservation + Tiered Volume Ladders</option>
-                  </select>
+                    onChange={(val) => setModelType(val as PricingModelType)}
+                    options={[
+                      { value: "flat_discount", label: "Flat Custom Discount", detail: "Rate Card Override" },
+                      { value: "tiered_volume", label: "Tiered Volume Ladders", detail: "Graduated Monthly Brackets" },
+                      { value: "committed_ptu", label: "Committed Capacity / PTUs", detail: "Sunk Reservation + Overage" },
+                      { value: "batch_discount", label: "Batch Inference Discount", detail: "50% Off-Peak SLA" },
+                      { value: "per_unit_request", label: "Per-Unit Request Toll", detail: "Base Invocations + Compute Pass-Through" },
+                      { value: "hybrid_commit_volume", label: "Hybrid PTU Reservation", detail: "Reservation + Tiered Volume Ladders" },
+                    ]}
+                  />
                 </div>
 
                 {(modelType === "flat_discount" || modelType === "batch_discount") && (
@@ -1234,20 +1235,16 @@ function PricingTab({ identity }: { identity: Identity }) {
           {/* Workload Target & Execution Mode */}
           <div className="finops-config-layout">
             <div className="finops-field-group">
-              <label className="finops-label" htmlFor="sim-model-select">
-                <span>Target Model</span>
-                <span className="finops-label-hint">Foundation provider</span>
-              </label>
-              <select
-                id="sim-model-select"
-                className="finops-select"
+              <Select
+                label="Target Model"
                 value={simModel}
-                onChange={(e) => setSimModel(e.target.value)}
-              >
-                {catalog.map((m) => (
-                  <option key={m.modelId} value={m.modelId}>{m.displayName} ({m.modelId})</option>
-                ))}
-              </select>
+                onChange={(val) => setSimModel(val)}
+                options={catalog.map((m) => ({
+                  value: m.modelId,
+                  label: m.displayName,
+                  detail: m.modelId,
+                }))}
+              />
             </div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 14px", borderRadius: "10px", background: simIsBatch ? "var(--primary-soft)" : "var(--surface-sunken)", border: simIsBatch ? "1px solid var(--primary)" : "1px solid var(--outline-soft)", cursor: "pointer", transition: "all 0.15s ease" }}>

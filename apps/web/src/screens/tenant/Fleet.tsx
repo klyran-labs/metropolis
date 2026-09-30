@@ -1,8 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, PauseCircle, ShieldCheck, Sparkles, Wallet } from "lucide-react";
-import { useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, Download, Filter, Layers, Network, PauseCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, Sparkles, Wallet, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import {
   request,
   toUserFacingError,
@@ -14,11 +15,14 @@ import {
   useWalletTransfers,
   type Agent,
 } from "../../api";
-import { Badge, Button, Dialog, EmptyState, Mono, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
+import { Badge, Button, Dialog, EmptyState, Mono, Select, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
-import { useAgentTba, usePaymasterEligibility } from "../../hooks/usePolicyContracts";
+import { useAgentTba, usePaymasterEligibility, useTripKillSwitch } from "../../hooks/usePolicyContracts";
 import { AgentInspector } from "./AgentInspector";
+import { AgentOnboardingModal } from "../../components/AgentOnboardingModal";
+import { SwarmTopologyVisualizer } from "../../components/SwarmTopologyVisualizer";
+import { useToast } from "../../components/UndoToast";
 
 function CopyAddressButton({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
@@ -93,13 +97,13 @@ const fleetColumns = fleetColumnHelper.columns([
 
 function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const identity = useIdentity();
+  const { toast } = useToast();
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
   const transfers = useWalletTransfers(agent.address, Boolean(identity.authenticated));
   const [loadWalletId, setLoadWalletId] = useState("");
   const [loadAmount, setLoadAmount] = useState("");
   const [unloadWalletId, setUnloadWalletId] = useState("");
   const [unloadAmount, setUnloadAmount] = useState("");
-  const [message, setMessage] = useState("");
   const [confirmTransferId, setConfirmTransferId] = useState<string | null>(null);
   const [txHashInput, setTxHashInput] = useState("");
 
@@ -112,18 +116,34 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
 
   const load = useLoadAgentWallet(agent.address, (result) => {
     if (result.status === "awaiting_signature" && result.intent) {
-      setMessage("Sign the transfer in your treasury wallet to finish loading funds.");
+      toast({
+        title: "Signature Required",
+        message: "Sign the transfer in your treasury wallet to finish loading funds.",
+        tone: "warning",
+      });
     } else if (result.status === "pending_approval") {
-      setMessage(`Awaiting approval: ${result.signatures}/${result.requiredSignatures} signatures collected.`);
+      toast({
+        title: "Awaiting Quorum Approval",
+        message: `${result.signatures}/${result.requiredSignatures} operator signatures collected.`,
+        tone: "info",
+      });
     } else {
-      setMessage("Load confirmed onchain.");
+      toast({
+        title: "Funds Loaded",
+        message: "Agent wallet load confirmed onchain.",
+        tone: "success",
+      });
     }
     setLoadAmount("");
     refresh();
   });
 
   const unload = useUnloadAgentWallet(agent.address, (result) => {
-    setMessage(result.status === "confirmed" ? "Unload confirmed onchain." : "Unload submitted.");
+    toast({
+      title: result.status === "confirmed" ? "Funds Unloaded" : "Unload Submitted",
+      message: result.status === "confirmed" ? "Unload confirmed onchain to treasury." : "Unload transaction submitted.",
+      tone: "success",
+    });
     setUnloadAmount("");
     refresh();
   });
@@ -132,6 +152,14 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
   const paymaster = usePaymasterEligibility(agent.address);
 
   const treasuryWallets = wallets.data ?? [];
+  const treasurySelectOptions = treasuryWallets
+    .filter((w) => w.hasAccess)
+    .map((w) => ({
+      value: w.id,
+      label: w.label,
+      detail: `${w.kind === "sovereign" ? "Managed" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
+      badge: <Badge tone="info">{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
+    }));
 
   return (
     <Surface className="wallet-panel">
@@ -164,20 +192,12 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
           </div>
           {treasuryWallets.length ? (
             <>
-              <select
-                aria-label="Source treasury wallet"
+              <Select
                 value={loadWalletId}
-                onChange={(event) => setLoadWalletId(event.target.value)}
-              >
-                <option value="">Select a source treasury wallet</option>
-                {treasuryWallets
-                  .filter((wallet) => wallet.hasAccess)
-                  .map((wallet) => (
-                    <option key={wallet.id} value={wallet.id}>
-                      {wallet.label} ({wallet.kind === "sovereign" ? "managed" : "connected"})
-                    </option>
-                  ))}
-              </select>
+                onChange={setLoadWalletId}
+                options={treasurySelectOptions}
+                placeholder="Select a source treasury wallet"
+              />
               <TextField
                 label="Amount (USDC)"
                 value={loadAmount}
@@ -208,20 +228,12 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
             />
           ) : treasuryWallets.length ? (
             <>
-              <select
-                aria-label="Destination treasury wallet"
+              <Select
                 value={unloadWalletId}
-                onChange={(event) => setUnloadWalletId(event.target.value)}
-              >
-                <option value="">Select a destination treasury wallet</option>
-                {treasuryWallets
-                  .filter((wallet) => wallet.hasAccess)
-                  .map((wallet) => (
-                    <option key={wallet.id} value={wallet.id}>
-                      {wallet.label} ({wallet.kind === "sovereign" ? "managed" : "connected"})
-                    </option>
-                  ))}
-              </select>
+                onChange={setUnloadWalletId}
+                options={treasurySelectOptions}
+                placeholder="Select a destination treasury wallet"
+              />
               <TextField
                 label="Amount (USDC)"
                 value={unloadAmount}
@@ -242,7 +254,6 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
           )}
         </div>
       </div>
-      {message && <p className="form-message">{message}</p>}
       <div className="section-heading">
         <div>
           <h2>Wallet activity</h2>
@@ -343,27 +354,297 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
 
 export function Fleet() {
   const identity = useIdentity();
+  const { toast } = useToast();
   const query = useAgents(Boolean(identity.authenticated));
   const treasuryWallets = useOrganizationWallets(Boolean(identity.authenticated));
   const client = useQueryClient();
   const [address, setAddress] = useState("");
   const [walletSource, setWalletSource] = useState<"external" | "sovereign" | "tba">("sovereign");
   const [label, setLabel] = useState("");
-  const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const parent = useRef<HTMLDivElement>(null);
   const rows = query.data ?? [];
   const active = rows.filter((agent) => agent.status === "active").length;
   const sovereign = rows.filter((agent) => agent.walletSource === "sovereign").length;
-  const table = useTable({ data: rows, columns: fleetColumns, features: fleetFeatures });
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  const [searchFilter, setSearchFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "tripped">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "sovereign" | "external">("all");
+  const [riskFilter, setRiskFilter] = useState<"all" | "tier1_critical" | "tier2_standard" | "tier3_low">("all");
+  const [batchWorking, setBatchWorking] = useState(false);
+  const [viewMode, setViewMode] = useState<"table" | "swarm">("table");
+  const tripKillSwitch = useTripKillSwitch();
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((agent) => {
+      if (statusFilter !== "all") {
+        const isAgentActive = agent.status === "active";
+        if (statusFilter === "active" && !isAgentActive) return false;
+        if (statusFilter === "tripped" && isAgentActive) return false;
+      }
+      if (sourceFilter !== "all" && agent.walletSource !== sourceFilter) return false;
+      if (riskFilter !== "all" && agent.riskTier !== riskFilter) return false;
+      if (searchFilter.trim()) {
+        const q = searchFilter.toLowerCase();
+        const matchLabel = agent.label?.toLowerCase().includes(q);
+        const matchAddr = agent.address.toLowerCase().includes(q);
+        if (!matchLabel && !matchAddr) return false;
+      }
+      return true;
+    });
+  }, [rows, statusFilter, sourceFilter, riskFilter, searchFilter]);
+
+  const handleBatchFreeze = async () => {
+    if (selectedAgents.size === 0) return;
+    setBatchWorking(true);
+    let successCount = 0;
+    try {
+      for (const agentAddress of selectedAgents) {
+        await tripKillSwitch.mutateAsync({ agentAddress, active: true });
+        successCount++;
+      }
+      toast({
+        title: "Batch Emergency Freeze",
+        message: `Successfully tripped O(1) kill switch on ${successCount} agents onchain.`,
+        tone: "critical",
+      });
+      void client.invalidateQueries({ queryKey: ["agents"] });
+    } catch (err) {
+      toast({
+        title: "Batch Action Error",
+        message: toUserFacingError(err, "Batch freeze encountered an onchain failure."),
+        tone: "warning",
+      });
+    } finally {
+      setBatchWorking(false);
+    }
+  };
+
+  const handleBatchResume = async () => {
+    if (selectedAgents.size === 0) return;
+    setBatchWorking(true);
+    let successCount = 0;
+    try {
+      for (const agentAddress of selectedAgents) {
+        await tripKillSwitch.mutateAsync({ agentAddress, active: false });
+        successCount++;
+      }
+      toast({
+        title: "Batch Operational Recovery",
+        message: `Reset kill switch and resumed execution across ${successCount} agents.`,
+        tone: "success",
+      });
+      void client.invalidateQueries({ queryKey: ["agents"] });
+    } catch (err) {
+      toast({
+        title: "Batch Action Error",
+        message: toUserFacingError(err, "Batch reset encountered an onchain failure."),
+        tone: "warning",
+      });
+    } finally {
+      setBatchWorking(false);
+    }
+  };
+
+  const handleExportJson = () => {
+    const dataToExport = rows.filter((a) => selectedAgents.has(a.address));
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agentguard-fleet-manifest-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({
+      title: "Manifest Exported",
+      message: `Exported ${dataToExport.length} agents to JSON manifest.`,
+      tone: "info",
+    });
+  };
+
+  const handleExportCsv = () => {
+    const dataToExport = rows.filter((a) => selectedAgents.has(a.address));
+    const header = "Label,Address,WalletSource,Environment,RiskTier,Status\n";
+    const body = dataToExport
+      .map((a) => `"${a.label || ""}","${a.address}","${a.walletSource}","${a.environment}","${a.riskTier}","${a.status}"`)
+      .join("\n");
+    const blob = new Blob([header + body], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agentguard-fleet-manifest-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({
+      title: "Manifest Exported",
+      message: `Exported ${dataToExport.length} agents to CSV manifest.`,
+      tone: "info",
+    });
+  };
+
+  const columns = useMemo(() => {
+    return fleetColumnHelper.columns([
+      fleetColumnHelper.display({
+        id: "select",
+        header: () => (
+          <input
+            type="checkbox"
+            aria-label="Select all filtered agents"
+            checked={filteredRows.length > 0 && selectedAgents.size === filteredRows.length}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelectedAgents(new Set(filteredRows.map((a) => a.address)));
+              } else {
+                setSelectedAgents(new Set());
+              }
+            }}
+            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--primary)", margin: 0 }}
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            aria-label={`Select agent ${row.original.label || row.original.address}`}
+            checked={selectedAgents.has(row.original.address)}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const next = new Set(selectedAgents);
+              if (e.target.checked) next.add(row.original.address);
+              else next.delete(row.original.address);
+              setSelectedAgents(next);
+            }}
+            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--primary)", margin: 0 }}
+          />
+        ),
+      }),
+      fleetColumnHelper.accessor("address", {
+        header: "Agent",
+        cell: (info) => {
+          const agent = info.row.original;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              {agent.label ? (
+                <strong style={{ fontSize: "0.85rem", color: "var(--on-surface)" }}>{agent.label}</strong>
+              ) : null}
+              <CopyAddressButton address={info.getValue()} />
+            </div>
+          );
+        },
+      }),
+      fleetColumnHelper.accessor("walletSource", {
+        header: "Wallet",
+        cell: (info) => (
+          <span title={info.getValue() === "sovereign" ? "Managed Enclave: Private key sealed in vault, signs EIP-712 spend vouchers directly." : "Connected Wallet: External human or treasury multi-sig signer."}>
+            <Badge tone={info.getValue() === "sovereign" ? "info" : "neutral"}>
+              {info.getValue() === "sovereign" ? "Managed Enclave" : "Connected Wallet"}
+            </Badge>
+          </span>
+        ),
+      }),
+      fleetColumnHelper.accessor("environment", { header: "Environment" }),
+      fleetColumnHelper.accessor("riskTier", {
+        header: "Risk tier",
+        cell: (info) => (
+          <Badge tone={info.getValue() === "tier1_critical" ? "critical" : info.getValue() === "tier2_standard" ? "info" : "neutral"}>
+            {formatRiskTier(info.getValue())}
+          </Badge>
+        ),
+      }),
+      fleetColumnHelper.accessor("status", {
+        header: "State",
+        cell: (info) => (
+          <div
+            className="agent-state-pill"
+            title={info.getValue() === "active" ? "Guarded Active: Passing real-time onchain policy checks." : "Circuit Paused: O(1) emergency kill switch active."}
+          >
+            <span
+              className={`status-dot ${info.getValue() === "active" ? "status-dot-success" : "status-dot-warning"}`}
+            />
+            <span>{info.getValue()}</span>
+          </div>
+        ),
+      }),
+      fleetColumnHelper.display({
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const agent = row.original;
+          const isAgentActive = agent.status === "active";
+          return (
+            <div className="fleet-row-actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className={`fleet-quick-action-btn ${isAgentActive ? "freeze-btn" : "resume-btn"}`}
+                title={isAgentActive ? "Trip O(1) emergency kill switch" : "Resume spending authority"}
+                onClick={async () => {
+                  try {
+                    await tripKillSwitch.mutateAsync({
+                      agentAddress: agent.address,
+                      active: isAgentActive,
+                    });
+                    toast({
+                      title: isAgentActive ? "Circuit Breaker Tripped" : "Spending Restored",
+                      message: isAgentActive
+                        ? `Agent ${truncateMiddle(agent.address, 8, 4)} is frozen onchain in O(1) time.`
+                        : `Agent ${truncateMiddle(agent.address, 8, 4)} spending authority resumed.`,
+                      tone: isAgentActive ? "critical" : "success",
+                      onUndo: async () => {
+                        await tripKillSwitch.mutateAsync({
+                          agentAddress: agent.address,
+                          active: !isAgentActive,
+                        });
+                        void client.invalidateQueries({ queryKey: ["agents"] });
+                        toast({
+                          title: "Action Reverted",
+                          message: `State reverted for ${truncateMiddle(agent.address, 8, 4)}.`,
+                          tone: "info",
+                        });
+                      },
+                    });
+                    void client.invalidateQueries({ queryKey: ["agents"] });
+                  } catch (err) {
+                    toast({
+                      title: "Action Failed",
+                      message: toUserFacingError(err, "Failed to update circuit breaker state."),
+                      tone: "warning",
+                    });
+                  }
+                }}
+              >
+                {isAgentActive ? <PauseCircle size={14} /> : <Activity size={14} />}
+              </button>
+              <Link
+                to="/app/policy"
+                search={{ agent: agent.address }}
+                className="fleet-quick-action-btn"
+                title="Configure spend policy"
+              >
+                <ShieldCheck size={14} />
+              </Link>
+              <button
+                type="button"
+                className="fleet-quick-action-btn"
+                title="Inspect agent details"
+                onClick={() => setSelected(agent.address)}
+              >
+                <Bot size={14} />
+              </button>
+            </div>
+          );
+        },
+      }),
+    ]);
+  }, [filteredRows, selectedAgents]);
+
+  const table = useTable({ data: filteredRows, columns, features: fleetFeatures });
   const virtual = useVirtualizer({
     count: table.getRowModel().rows.length,
     getScrollElement: () => parent.current,
-    estimateSize: () => 38,
+    estimateSize: () => 44,
     overscan: 8,
   });
   const register = async () => {
-    setMessage("");
     try {
       await request("/agents", {
         method: "POST",
@@ -375,15 +656,33 @@ export function Fleet() {
             : { walletSource: "external", address, label: label.trim() || undefined, environment: "production", riskTier: "tier2_standard" },
         ),
       });
-      setMessage("Agent registered.");
+      toast({
+        title: "Agent Registered",
+        message: `Agent ${label.trim()} registered to organization fleet.`,
+        tone: "success",
+      });
       setAddress("");
       setLabel("");
       void client.invalidateQueries({ queryKey: ["agents"] });
     } catch (error) {
-      setMessage(toUserFacingError(error, "The agent could not be registered."));
+      toast({
+        title: "Registration Failed",
+        message: toUserFacingError(error, "The agent could not be registered."),
+        tone: "critical",
+      });
     }
   };
   const selectedAgent = rows.find((agent) => agent.address === selected) ?? null;
+
+  const linkTreasuryOptions = (treasuryWallets.data ?? []).map((w) => ({
+    value: w.address,
+    label: w.label,
+    detail: `${w.kind === "sovereign" ? "Managed" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
+    badge: <Badge tone="info">{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
+  }));
+
+  const hasActiveFilters = Boolean(searchFilter.trim() || statusFilter !== "all" || sourceFilter !== "all" || riskFilter !== "all");
+
   return (
     <div className="stack">
       <header className="page-heading">
@@ -391,6 +690,12 @@ export function Fleet() {
           <span className="eyebrow">Home / Fleet</span>
           <h1>Fleet</h1>
           <p>Every agent below belongs to your organization.</p>
+        </div>
+        <div className="page-heading-actions">
+          <Button onClick={() => setOnboardingOpen(true)}>
+            <Sparkles size={14} />
+            <span>Provision Agent</span>
+          </Button>
         </div>
       </header>
       <div className="stat-row">
@@ -445,36 +750,18 @@ export function Fleet() {
 
           {walletSource === "external" && (
             (treasuryWallets.data?.length ?? 0) > 0 ? (
-              <select
-                aria-label="Treasury wallet to link"
+              <Select
                 value={address}
-                onChange={(event) => {
-                  const selectedVal = event.target.value;
+                onChange={(selectedVal) => {
                   setAddress(selectedVal);
                   if (!label.trim()) {
                     const matched = treasuryWallets.data?.find((w) => w.address.toLowerCase() === selectedVal.toLowerCase());
                     if (matched) setLabel(matched.label);
                   }
                 }}
-                style={{
-                  height: "44px",
-                  padding: "10px 14px",
-                  borderRadius: "var(--radius-input)",
-                  background: "var(--surface-container-high)",
-                  border: "1px solid var(--outline-variant)",
-                  color: "var(--on-surface)",
-                  fontSize: "0.85rem",
-                  flex: 1,
-                  minWidth: "220px",
-                }}
-              >
-                <option value="">Select a wallet your organization has registered</option>
-                {treasuryWallets.data?.map((wallet) => (
-                  <option key={wallet.id} value={wallet.address}>
-                    {wallet.label} ({wallet.kind === "sovereign" ? "managed" : "connected"}) — {truncateMiddle(wallet.address, 8, 4)}
-                  </option>
-                ))}
-              </select>
+                options={linkTreasuryOptions}
+                placeholder="Select a registered treasury wallet"
+              />
             ) : (
               <EmptyState
                 title="No treasury wallets yet"
@@ -490,21 +777,251 @@ export function Fleet() {
             Register
           </Button>
         </div>
-        {message && <p className="form-message">{message}</p>}
       </Surface>
       <Surface>
         <div className="section-heading">
           <div>
             <h2>Registered agents</h2>
-            <p>{rows.length} agents registered. Select one to load or unload its wallet.</p>
+            <p>{rows.length} agents registered ({filteredRows.length} displayed). Select multiple agents for batch operations or inspect hierarchical swarm topology.</p>
+          </div>
+          <div className="fleet-view-toggle" role="tablist" aria-label="Fleet View Mode">
+            <button
+              type="button"
+              className={viewMode === "table" ? "workspace-tab active" : "workspace-tab"}
+              onClick={() => setViewMode("table")}
+            >
+              <Layers size={14} style={{ marginRight: 6 }} /> Table View
+            </button>
+            <button
+              type="button"
+              className={viewMode === "swarm" ? "workspace-tab active" : "workspace-tab"}
+              onClick={() => setViewMode("swarm")}
+            >
+              <Network size={14} style={{ marginRight: 6 }} /> Swarm Topology (DAG)
+            </button>
           </div>
         </div>
+
+        {viewMode === "swarm" ? (
+          <SwarmTopologyVisualizer agents={rows} onInspectAgent={(addr) => setSelected(addr)} />
+        ) : (
+          <>
+            {/* Real-time Fleet Search & Granular Filters */}
+            <div className="fleet-filter-bar">
+          <div className="fleet-search-box">
+            <Search size={15} className="fleet-search-icon" />
+            <input
+              type="text"
+              placeholder="Search by label or 0x address..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              aria-label="Filter fleet by agent name or address"
+            />
+          </div>
+
+          <div style={{ minWidth: "160px" }}>
+            <Select
+              value={statusFilter}
+              onChange={(val) => setStatusFilter(val as any)}
+              options={[
+                { value: "all", label: "All States" },
+                { value: "active", label: "Active Only" },
+                { value: "tripped", label: "Tripped / Paused" },
+              ]}
+            />
+          </div>
+
+          <div style={{ minWidth: "180px" }}>
+            <Select
+              value={sourceFilter}
+              onChange={(val) => setSourceFilter(val as any)}
+              options={[
+                { value: "all", label: "All Custody Models" },
+                { value: "sovereign", label: "Managed Enclave" },
+                { value: "external", label: "Connected Wallet" },
+              ]}
+            />
+          </div>
+
+          <div style={{ minWidth: "160px" }}>
+            <Select
+              value={riskFilter}
+              onChange={(val) => setRiskFilter(val as any)}
+              options={[
+                { value: "all", label: "All Risk Tiers" },
+                { value: "tier1_critical", label: "Tier 1 (Critical)" },
+                { value: "tier2_standard", label: "Tier 2 (Standard)" },
+                { value: "tier3_low", label: "Tier 3 (Low)" },
+              ]}
+            />
+          </div>
+
+          {hasActiveFilters && (
+            <Button
+              variant="tonal"
+              onClick={() => {
+                setSearchFilter("");
+                setStatusFilter("all");
+                setSourceFilter("all");
+                setRiskFilter("all");
+              }}
+            >
+              <RefreshCw size={13} style={{ marginRight: 6 }} /> Reset Filters
+            </Button>
+          )}
+        </div>
+
+        {/* Active Filters Pill Bar */}
+        {hasActiveFilters && (
+          <div className="active-filters-bar" style={{ marginTop: "8px" }}>
+            <span style={{ color: "var(--muted)", fontWeight: 550, marginRight: "4px" }}>Active filters:</span>
+            {searchFilter.trim() && (
+              <span className="active-filter-chip">
+                Search: "{searchFilter}"
+                <button type="button" onClick={() => setSearchFilter("")} aria-label="Clear search">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {statusFilter !== "all" && (
+              <span className="active-filter-chip">
+                State: {statusFilter === "active" ? "Active" : "Paused"}
+                <button type="button" onClick={() => setStatusFilter("all")} aria-label="Clear state filter">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {sourceFilter !== "all" && (
+              <span className="active-filter-chip">
+                Custody: {sourceFilter === "sovereign" ? "Managed Enclave" : "Connected"}
+                <button type="button" onClick={() => setSourceFilter("all")} aria-label="Clear custody filter">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {riskFilter !== "all" && (
+              <span className="active-filter-chip">
+                Risk: {formatRiskTier(riskFilter)}
+                <button type="button" onClick={() => setRiskFilter("all")} aria-label="Clear risk filter">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <Button
+              variant="text"
+              style={{ fontSize: "0.74rem", padding: "2px 6px" }}
+              onClick={() => {
+                setSearchFilter("");
+                setStatusFilter("all");
+                setSourceFilter("all");
+                setRiskFilter("all");
+              }}
+            >
+              Clear all
+            </Button>
+          </div>
+        )}
+
+        {/* Sticky Batch Actions Command Bar */}
+        {selectedAgents.size > 0 && (
+          <div className="fleet-batch-bar" role="toolbar" aria-label="Batch Agent Actions">
+            <div className="fleet-batch-left">
+              <Badge tone="info">
+                {selectedAgents.size} of {filteredRows.length} selected
+              </Badge>
+              <span style={{ fontSize: "0.82rem", color: "var(--on-surface)", fontWeight: 550 }}>
+                Bulk Fleet Operations
+              </span>
+            </div>
+            <div className="fleet-batch-actions">
+              <Button
+                variant="filled"
+                className="control-critical"
+                onClick={handleBatchFreeze}
+                disabled={batchWorking}
+                title="Simultaneously trip O(1) emergency kill switch on all selected agents"
+              >
+                <ShieldAlert size={14} style={{ marginRight: 6 }} />
+                <span>{batchWorking ? "Broadcasting…" : "Freeze Selected"}</span>
+              </Button>
+              <Button
+                variant="tonal"
+                onClick={handleBatchResume}
+                disabled={batchWorking}
+                title="Reset O(1) kill switch and restore execution"
+              >
+                <Activity size={14} style={{ marginRight: 6 }} />
+                <span>Resume Selected</span>
+              </Button>
+              <Button
+                variant="tonal"
+                onClick={handleExportJson}
+                title="Export selected agents as JSON"
+              >
+                <Download size={14} style={{ marginRight: 6 }} />
+                <span>Export JSON</span>
+              </Button>
+              <Button
+                variant="tonal"
+                onClick={handleExportCsv}
+                title="Export selected agents as CSV"
+              >
+                <Download size={14} style={{ marginRight: 6 }} />
+                <span>Export CSV</span>
+              </Button>
+              <button
+                type="button"
+                className="batch-dismiss-btn"
+                onClick={() => setSelectedAgents(new Set())}
+                aria-label="Clear selection"
+                title="Clear selection"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--muted)",
+                  cursor: "pointer",
+                  display: "grid",
+                  placeItems: "center",
+                  padding: "6px",
+                  borderRadius: "6px",
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {query.isError ? (
           <EmptyState title="Fleet unavailable" detail="We couldn't load your fleet right now." />
         ) : rows.length === 0 ? (
           <EmptyState
             title="No agents registered"
             detail="Register your first agent to start enforcing spend policy."
+            action={
+              <Button onClick={() => setOnboardingOpen(true)}>
+                <Sparkles size={14} />
+                <span>Provision First Agent</span>
+              </Button>
+            }
+          />
+        ) : filteredRows.length === 0 ? (
+          <EmptyState
+            title="No matching agents found"
+            detail="No autonomous agents match your active search and filter parameters."
+            action={
+              <Button
+                variant="tonal"
+                onClick={() => {
+                  setSearchFilter("");
+                  setStatusFilter("all");
+                  setSourceFilter("all");
+                  setRiskFilter("all");
+                }}
+              >
+                <RefreshCw size={13} style={{ marginRight: 6 }} /> Reset Filters
+              </Button>
+            }
           />
         ) : (
           <div className="table-viewport" ref={parent}>
@@ -550,6 +1067,8 @@ export function Fleet() {
             </table>
           </div>
         )}
+        </>
+        )}
       </Surface>
       {selectedAgent && (
         <AgentInspector
@@ -558,6 +1077,11 @@ export function Fleet() {
           onTripCircuit={() => void client.invalidateQueries({ queryKey: ["agents"] })}
         />
       )}
+      <AgentOnboardingModal
+        open={onboardingOpen}
+        onClose={() => setOnboardingOpen(false)}
+        onSuccess={() => void client.invalidateQueries({ queryKey: ["agents"] })}
+      />
     </div>
   );
 }

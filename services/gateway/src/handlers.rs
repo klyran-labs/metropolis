@@ -50,6 +50,13 @@ pub struct AppState {
     pub streaming_reserves: crate::finops::StreamingReserveHold,
     pub tenant_concurrency: TenantConcurrency,
     pub provider_bulkhead: Arc<Semaphore>,
+    pub settlement_queue: crate::settlement::SettlementQueue,
+    pub anomaly_detector: crate::anomaly::AnomalyDetector,
+    pub relayer_pool: crate::relayer_pool::RelayerPool,
+    pub zk_engine: crate::zk::ZkPolicyEngine,
+    pub bundle_relay: crate::bundle_relay::BundleRelayManager,
+    pub heartbeat_manager: crate::heartbeat::HeartbeatManager,
+    pub edge_sequencer: crate::edge_sequencer::EdgeSequencerManager,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -3220,6 +3227,8 @@ pub async fn inference_handler(
     headers: HeaderMap,
     body: Option<Json<Value>>,
 ) -> Response {
+    let (traceparent, trace_id) = crate::telemetry::extract_or_generate_traceparent(&headers);
+
     let auth_header = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok());
@@ -3241,8 +3250,10 @@ pub async fn inference_handler(
         return (
             StatusCode::PAYMENT_REQUIRED,
             [
-                ("WWW-Authenticate", "x402"),
-                ("X-402-Payment-Required", "true"),
+                ("WWW-Authenticate", "x402".to_string()),
+                ("X-402-Payment-Required", "true".to_string()),
+                ("traceparent", traceparent),
+                ("x-trace-id", trace_id),
             ],
             Json(challenge),
         )
@@ -3295,16 +3306,38 @@ pub async fn inference_handler(
         );
     }
 
+    if state
+        .chain
+        .nonce_sequencer
+        .try_acquire_nonce(request.agent, request.nonce)
+        .is_err()
+    {
+        return x402_rejection(
+            StatusCode::FORBIDDEN,
+            OnchainReasonCode::NonceReused,
+            Some(request.agent),
+            state.config.chain_id,
+        );
+    }
+
     let Some(_tenant_permit) = state
         .tenant_concurrency
         .try_acquire(&format!("{:#x}", request.agent))
     else {
+        state
+            .chain
+            .nonce_sequencer
+            .release_nonce(request.agent, request.nonce);
         return tenant_capacity_error();
     };
 
     match state.chain.evaluate_policy(request.clone()).await {
         Ok((true, allowed_amount, reason_code, evaluated_at)) => {
             if reason_code != OnchainReasonCode::None.as_u8() {
+                state
+                    .chain
+                    .nonce_sequencer
+                    .release_nonce(request.agent, request.nonce);
                 let reason = OnchainReasonCode::from_u8(reason_code)
                     .unwrap_or(OnchainReasonCode::SignatureInvalid);
                 return x402_rejection(
@@ -3314,11 +3347,49 @@ pub async fn inference_handler(
                     state.config.chain_id,
                 );
             }
+
+            let anomaly = state.anomaly_detector.assess_and_record(request.agent, request.amount);
+            if anomaly.is_critical {
+                state
+                    .chain
+                    .nonce_sequencer
+                    .release_nonce(request.agent, request.nonce);
+                return x402_rejection(
+                    StatusCode::FORBIDDEN,
+                    OnchainReasonCode::VelocityExceeded,
+                    Some(request.agent),
+                    state.config.chain_id,
+                );
+            }
+
+            let task_id = Uuid::now_v7();
+            let _ = state
+                .settlement_queue
+                .enqueue(crate::settlement::SettlementTask {
+                    task_id,
+                    request: request.clone(),
+                    signature: signature.clone(),
+                    token: state.config.usdc_token_address,
+                    enqueued_at: Utc::now(),
+                    trace_id: Some(trace_id.clone()),
+                })
+                .await;
+
             (
                 StatusCode::OK,
+                [
+                    ("traceparent", traceparent),
+                    ("x-trace-id", trace_id.clone()),
+                    ("x-settlement-task-id", task_id.to_string()),
+                    ("x-agentguard-anomaly-score", format!("{:.2}", anomaly.z_score)),
+                ],
                 Json(serde_json::json!({
                     "status": "policy_allowed",
-                    "settlement": "PolicyEngine read-only evaluation completed; no settlement transaction was submitted.",
+                    "settlement": "Voucher admitted and enqueued into asynchronous settlement clearing pipeline.",
+                    "taskId": task_id.to_string(),
+                    "traceId": trace_id,
+                    "anomalyScore": anomaly.z_score,
+                    "isAnomaly": anomaly.is_anomaly,
                     "policyDecision": {
                         "allowed": true,
                         "allowedAmount": allowed_amount.to_string(),
@@ -3336,6 +3407,10 @@ pub async fn inference_handler(
             ).into_response()
         }
         Ok((false, _, reason_code, _)) => {
+            state
+                .chain
+                .nonce_sequencer
+                .release_nonce(request.agent, request.nonce);
             let reason = OnchainReasonCode::from_u8(reason_code)
                 .unwrap_or(OnchainReasonCode::SignatureInvalid);
             x402_rejection(
@@ -3345,13 +3420,19 @@ pub async fn inference_handler(
                 state.config.chain_id,
             )
         }
-        Err(_) => ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            AccessReasonCode::DependencyUnavailable,
-            "The policy chain could not be reached.",
-            "Retry after Monad RPC connectivity is restored.",
-        )
-        .into_response(),
+        Err(_) => {
+            state
+                .chain
+                .nonce_sequencer
+                .release_nonce(request.agent, request.nonce);
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                AccessReasonCode::DependencyUnavailable,
+                "The policy chain could not be reached.",
+                "Retry after Monad RPC connectivity is restored.",
+            )
+            .into_response()
+        }
     }
 }
 
@@ -4513,3 +4594,203 @@ pub async fn finops_sync_handler(
         current_tier_index: tier_idx,
     }))
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SettlementOutboxQuery {
+    pub limit: Option<i64>,
+    pub status: Option<String>,
+}
+
+pub async fn list_settlement_outbox_handler(
+    State(state): State<SharedState>,
+    axum::extract::Query(query): axum::extract::Query<SettlementOutboxQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let status_filter = query.status.as_deref();
+
+    let items = state
+        .repository
+        .list_settlement_outbox(limit, status_filter)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to list settlement outbox");
+            service_unavailable("Unable to query settlement outbox records.")
+        })?;
+
+    let stats = state
+        .repository
+        .get_settlement_queue_stats()
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to get settlement queue stats");
+            service_unavailable("Unable to query settlement queue stats.")
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "stats": stats,
+        "items": items,
+    })))
+}
+
+pub async fn retry_settlement_outbox_handler(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let replayed = state
+        .repository
+        .retry_dead_letter_settlement(id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, %id, "Failed to retry dead letter voucher");
+            service_unavailable("Unable to retry dead letter voucher.")
+        })?;
+
+    if !replayed {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::InvalidRequest,
+            "The dead-letter voucher was not found or is not in dead_letter status.",
+            "Verify the outbox voucher ID and status.",
+        ));
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "requeued",
+        "id": id,
+        "message": "Voucher requeued into pending settlement pipeline for immediate clearing."
+    })))
+}
+
+/// Returns live status, active nonces, and tip escalation stats for the sharded relayer fleet.
+pub async fn list_relayers_handler(
+    State(state): State<SharedState>,
+) -> impl IntoResponse {
+    let stats = state.relayer_pool.stats();
+    Json(stats)
+}
+
+/// Generates a cryptographic Merkle inclusion proof for a settlement outbox record against recent batch state.
+pub async fn get_audit_proof_handler(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let items = state
+        .repository
+        .list_settlement_outbox(100, None)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to list settlement outbox for audit proof");
+            service_unavailable("Unable to query settlement outbox records.")
+        })?;
+
+    let target_idx = items.iter().position(|it| it.id == id);
+    let Some(idx) = target_idx else {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            AccessReasonCode::InvalidRequest,
+            "The requested settlement voucher was not found in the recent audit batch.",
+            "Verify the voucher ID.",
+        ));
+    };
+
+    let leaves: Vec<alloy::primitives::B256> = items
+        .iter()
+        .map(|it| {
+            crate::audit_anchor::compute_outbox_leaf(
+                it.id,
+                &it.agent_address,
+                &it.merchant_address,
+                &it.amount,
+                &it.nonce,
+                it.tx_hash.as_deref(),
+            )
+        })
+        .collect();
+
+    let mut proof = crate::audit_anchor::generate_merkle_proof(&leaves, idx)
+        .ok_or_else(|| {
+            service_unavailable("Failed to construct Merkle inclusion proof for voucher.")
+        })?;
+    proof.outbox_id = id;
+
+    Ok(Json(serde_json::json!({
+        "status": "verified",
+        "proof": proof,
+        "anchor_registry": format!("{:#x}", state.config.agent_wallet_guard_address),
+    })))
+}
+
+/// Evaluates zero-knowledge spend proofs with confidential nullifiers and policy commitments.
+pub async fn verify_zk_spend_handler(
+    State(state): State<SharedState>,
+    Json(payload): Json<crate::zk::ZkSpendRequest>,
+) -> Result<Json<crate::zk::ZkVerificationResult>, ApiError> {
+    let agent: Address = payload.agent.parse().map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            AccessReasonCode::InvalidRequest,
+            "The provided agent address is invalid.",
+            "Provide a valid 20-byte EVM agent address.",
+        )
+    })?;
+
+    let result = state.zk_engine.verify_and_consume(agent, &payload.proof);
+    Ok(Json(result))
+}
+
+/// Dispatches an MEV-shielded private bundle directly to Monad block builders.
+pub async fn dispatch_mev_bundle_handler(
+    State(state): State<SharedState>,
+    Json(payload): Json<crate::bundle_relay::MevBundleRequest>,
+) -> Result<Json<crate::bundle_relay::MevBundleResult>, ApiError> {
+    let result = state.bundle_relay.dispatch_bundle(payload).await;
+    Ok(Json(result))
+}
+
+/// Returns real-time metrics for private builder relay and sandwich defense.
+pub async fn get_mev_stats_handler(
+    State(state): State<SharedState>,
+) -> Result<Json<crate::bundle_relay::MevRelayStats>, ApiError> {
+    let stats = state.bundle_relay.get_stats();
+    Ok(Json(stats))
+}
+
+/// Inspects raw transaction calldata and returns human-readable clear-signing metadata and risk analysis.
+pub async fn inspect_calldata_handler(
+    Json(payload): Json<crate::calldata_decoder::CalldataInspectionRequest>,
+) -> Result<Json<crate::calldata_decoder::CalldataInspectionResponse>, ApiError> {
+    let result = crate::calldata_decoder::CalldataDecoder::inspect(&payload);
+    Ok(Json(result))
+}
+
+/// Records a liveness heartbeat for an autonomous agent.
+pub async fn record_heartbeat_handler(
+    State(state): State<SharedState>,
+    Json(payload): Json<crate::heartbeat::AgentHeartbeatRequest>,
+) -> Result<Json<crate::heartbeat::AgentLivenessStatus>, ApiError> {
+    let result = state.heartbeat_manager.record_heartbeat(payload);
+    Ok(Json(result))
+}
+
+/// Retrieves the current liveness telemetry and expiration status for an agent.
+pub async fn get_heartbeat_status_handler(
+    State(state): State<SharedState>,
+    Path(agent): Path<String>,
+) -> Result<Json<crate::heartbeat::AgentLivenessStatus>, ApiError> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let result = state.heartbeat_manager.get_status(&agent, now);
+    Ok(Json(result))
+}
+
+/// Returns the current multi-region edge cluster topology and budget partition leases.
+pub async fn get_edge_topology_handler(
+    State(state): State<SharedState>,
+) -> Result<Json<crate::edge_sequencer::EdgeTopologyResponse>, ApiError> {
+    let result = state.edge_sequencer.get_topology();
+    Ok(Json(result))
+}
+
+
+
+
+

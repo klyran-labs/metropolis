@@ -14,6 +14,7 @@ import {
   XCircle,
   ExternalLink,
   Copy,
+  ShieldCheck,
 } from "lucide-react";
 import {
   useAgents,
@@ -231,7 +232,14 @@ export function QuorumApprovals() {
         ) : (
           <EmptyState
             title="Approval queue is clear"
-            detail="All autonomous agent expenditures and wallet transfers are within automated policy invariants."
+            detail="All autonomous agent expenditures and wallet transfers are within automated policy invariants. Transactions exceeding single-signature thresholds will appear here for multi-party authorization."
+            action={
+              <Link to="/simulator">
+                <Button variant="tonal">
+                  <ShieldCheck size={14} style={{ marginRight: 6 }} /> Simulate High-Value Intent
+                </Button>
+              </Link>
+            }
           />
         )}
       </Surface>
@@ -254,7 +262,14 @@ export function QuorumApprovals() {
         ) : (
           <EmptyState
             title="No multi-operator thresholds configured"
-            detail="You can configure approval thresholds (e.g. 2 of 3 signatures required) in the Treasury view."
+            detail="Configure approval thresholds (e.g. 2-of-3 signatures required) on institutional treasury wallets to enforce dual-control on large disbursements."
+            action={
+              <Link to="/treasury">
+                <Button variant="filled">
+                  <ArrowRight size={14} style={{ marginRight: 6 }} /> Go to Treasury Setup
+                </Button>
+              </Link>
+            }
           />
         )}
       </Surface>

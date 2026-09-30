@@ -4,35 +4,35 @@
   "version": "1.0.0",
   "chainId": 10143,
   "rpcEndpoints": [
-    "http://127.0.0.1:8545"
+    "http://monad-devnet:8545"
   ],
   "contracts": {
     "policyEngine": {
-      "address": "0xc3d5b6a3f8039c6a80caec7472b4a4c41641aa73"
+      "address": "0x14d0c340556843a8aaf0578bc4fd6cd9377de7e5"
     },
     "reputationRegistry": {
-      "address": "0x5de272f7ef6598fc9e4aade85f9e87704752229b"
+      "address": "0x7d631bbd6d0913d189122f02755623a5eb1d60ba"
     },
     "agentWalletGuard": {
-      "address": "0xee28f6430c3d6af464add405054207822066bd42"
+      "address": "0xbbc76a4e3933c00bffb5d5bcdfdb9664cdff8b04"
     },
     "settlementToken": {
-      "address": "0xd0ac44bc6354909cfc8fa8949975fb6b1a02df75"
+      "address": "0x859974e6aa10d5e7da77ddf87e39137c61ac222b"
     },
     "circuitVault": {
-      "address": "0x47a7b464307c094e598e237de49c98b361ef25ba"
+      "address": "0x8a03775b5bb48ea84fa097497d34a80895e74533"
     },
     "circuitPaymaster": {
-      "address": "0x53c50523f4269e4a4194d79866c8ecd4f2f94baa"
+      "address": "0xb07c0b1819a06a9016b2da11e7e57dd09c564b2f"
     },
     "agentIdentityRegistry": {
-      "address": "0xee7e7c99feec7576a2d44f81d04d649a2c1738bb"
+      "address": "0x0c6f5a5dcb23dfebc09686f8f2092266e1fe376f"
     },
     "agentAccountImplementation": {
-      "address": "0xc0a6a14960eb89a6638d98718da8dd2c1fdaecbe"
+      "address": "0x67ab23b170375a106901a2f262b6b280e225b56e"
     },
     "agentPassportNFT": {
-      "address": "0x4929be7143e22da749b26ede252fd011f2021bc8"
+      "address": "0xbcab409ddc39b9778aaa2767c73e8b423bcc60b2"
     }
   }
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { configuration } from "../../configuration";
 import { request, toUserFacingError, usePlatformPlans } from "../../api";
-import { Badge, Button, EmptyState, Surface, TextField, TokenAmount } from "../../design-system";
+import { Badge, Button, EmptyState, Select, Surface, TextField, TokenAmount } from "../../design-system";
 import { useIdentity } from "../../identity";
 
 export function AdminPlans() {
@@ -73,10 +73,15 @@ export function AdminPlans() {
               label={fieldLabels[key]}
             />
           ))}
-          <select value={form.interval} onChange={(event) => setForm({ ...form, interval: event.target.value })}>
-            <option value="monthly">Monthly</option>
-            <option value="annual">Annual</option>
-          </select>
+          <Select
+            label="Billing Interval"
+            value={form.interval}
+            onChange={(val) => setForm({ ...form, interval: val })}
+            options={[
+              { value: "monthly", label: "Monthly" },
+              { value: "annual", label: "Annual" },
+            ]}
+          />
           <Button onClick={create}>Publish plan</Button>
         </div>
         {message && <p className="form-message">{message}</p>}

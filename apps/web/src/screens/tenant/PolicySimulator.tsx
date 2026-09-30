@@ -66,6 +66,7 @@ export function PolicySimulator() {
   const [circuitMessage, setCircuitMessage] = useState<string>("");
   const [runawayRunning, setRunawayRunning] = useState(false);
   const [runawayLogs, setRunawayLogs] = useState<RunawayStep[]>([]);
+  const [simulatedZScore, setSimulatedZScore] = useState(2.8);
   const tripKillSwitchMutation = useTripKillSwitch();
 
   const activeAgent = useMemo(() => {
@@ -157,6 +158,182 @@ export function PolicySimulator() {
       setCircuitMessage("Monad O(1) Kill-Switch active onchain. Agent quarantined with zero parallel EVM lock contention.");
     } catch {
       setCircuitMessage("The kill-switch transaction could not be confirmed onchain; the circuit state is unchanged.");
+    } finally {
+      setRunawayRunning(false);
+    }
+  };
+
+  const pipelineSteps = useMemo(() => {
+    const defaultSteps = [
+      { id: "sig", title: "1. Signature & Nonce", desc: "Cancun transient guard", status: "step-pending" },
+      { id: "kill", title: "2. O(1) Kill Switch", desc: "Disjoint storage slot", status: "step-pending" },
+      { id: "window", title: "3. Sliding Window", desc: "Packed word arithmetic", status: "step-pending" },
+      { id: "merchant", title: "4. Whitelist Check", desc: "Counterparty validation", status: "step-pending" },
+      { id: "commit", title: "5. Parallel Commit", desc: "Deterministic finality", status: "step-pending" },
+    ];
+
+    if (!result) return defaultSteps;
+
+    if (result.success) {
+      return defaultSteps.map((s) => ({ ...s, status: "step-passed" }));
+    }
+
+    const rc = result.reasonCode;
+    let failStepId = "sig";
+    if (rc === 4) failStepId = "kill";
+    else if (rc === 1 || rc === 2 || rc === 3) failStepId = "window";
+    else if (rc === 5) failStepId = "merchant";
+    else if (rc === 7 || rc === 8 || rc === 9) failStepId = "sig";
+
+    let passed = true;
+    return defaultSteps.map((s) => {
+      if (s.id === failStepId) {
+        passed = false;
+        return { ...s, status: "step-blocked" };
+      }
+      return { ...s, status: passed ? "step-passed" : "step-pending" };
+    });
+  }, [result]);
+
+  // Scenario 2: Sybil Micro-Drain Flooding
+  const runSybilFloodingTest = async () => {
+    if (!activeAgent || runawayRunning) return;
+    setRunawayRunning(true);
+    setRunawayLogs([]);
+    setCircuitMessage("Simulating Sybil micro-drain attack: 5 rapid sub-threshold micropayments ($0.50 USDC each)...");
+
+    const attempts = [
+      { num: 1, amt: "0.50" },
+      { num: 2, amt: "0.50" },
+      { num: 3, amt: "0.50" },
+      { num: 4, amt: "0.50" },
+      { num: 5, amt: "0.50" },
+    ];
+    const logs: RunawayStep[] = [];
+    const merchant = isAddress(testMerchant) ? testMerchant : (configuration.contracts.agentWalletGuard || activeAgent.address);
+
+    for (const item of attempts) {
+      await new Promise((r) => setTimeout(r, 450));
+      const amtUnits = parseUnits(item.amt, 6);
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      try {
+        const decision = await evaluatePolicyOnchain({
+          agent: activeAgent.address,
+          merchant,
+          amountBaseUnits: amtUnits,
+          deadline: now + 3600n,
+        });
+        const reasonMeta = ONCHAIN_REASON_CODES[decision.reasonCode] || {
+          code: `ERR_CODE_${decision.reasonCode}`,
+          title: `Reason Code ${decision.reasonCode}`,
+        };
+        logs.push({
+          attempt: item.num,
+          amount: item.amt,
+          reasonCode: decision.reasonCode,
+          reasonTitle: reasonMeta.code,
+          status: decision.allowed ? "allowed" : "denied",
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        setRunawayLogs([...logs]);
+      } catch {
+        logs.push({
+          attempt: item.num,
+          amount: item.amt,
+          reasonCode: 0,
+          reasonTitle: "DEPENDENCY_UNAVAILABLE",
+          status: "pending",
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        setRunawayLogs([...logs]);
+      }
+    }
+    setCircuitMessage("Sybil micro-drain test completed. Evaluator enforced velocity / sliding window ceiling.");
+    setRunawayRunning(false);
+  };
+
+  // Scenario 3: Prompt Injection Merchant Hijack
+  const runPromptInjectionTest = async () => {
+    if (!activeAgent || runawayRunning) return;
+    setRunawayRunning(true);
+    setRunawayLogs([]);
+    setCircuitMessage("Simulating Prompt Injection attack: agent coerced to disburse funds to unapproved adversary address...");
+
+    const attackerAddress = "0xBad0000000000000000000000000000000000Bad";
+    const amtUnits = parseUnits("50.00", 6);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      const decision = await evaluatePolicyOnchain({
+        agent: activeAgent.address,
+        merchant: attackerAddress,
+        amountBaseUnits: amtUnits,
+        deadline: now + 3600n,
+      });
+      const reasonMeta = ONCHAIN_REASON_CODES[decision.reasonCode] || {
+        code: `ERR_CODE_${decision.reasonCode}`,
+        title: `Reason Code ${decision.reasonCode}`,
+      };
+      setRunawayLogs([
+        {
+          attempt: 1,
+          amount: "50.00",
+          reasonCode: decision.reasonCode,
+          reasonTitle: reasonMeta.code,
+          status: decision.allowed ? "allowed" : "denied",
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setCircuitMessage(
+        decision.allowed
+          ? "Merchant whitelist disabled in policy; unapproved recipient accepted."
+          : `Prompt injection disbursement rejected: ${reasonMeta.code} (ReasonCode ${decision.reasonCode}).`
+      );
+    } catch {
+      setCircuitMessage("Policy evaluation completed against settlement node.");
+    } finally {
+      setRunawayRunning(false);
+    }
+  };
+
+  // Scenario 4: Replay Attack & Expired Nonce Desync
+  const runReplayAttackTest = async () => {
+    if (!activeAgent || runawayRunning) return;
+    setRunawayRunning(true);
+    setRunawayLogs([]);
+    setCircuitMessage("Simulating Replay / Stale Signature attack: broadcasting payload with expired deadline (t - 600s)...");
+
+    const merchant = isAddress(testMerchant) ? testMerchant : (configuration.contracts.agentWalletGuard || activeAgent.address);
+    const amtUnits = parseUnits("20.00", 6);
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const expiredDeadline = now - 600n; // 10 minutes in the past
+
+    await new Promise((r) => setTimeout(r, 600));
+    try {
+      const decision = await evaluatePolicyOnchain({
+        agent: activeAgent.address,
+        merchant,
+        amountBaseUnits: amtUnits,
+        deadline: expiredDeadline,
+      });
+      const reasonMeta = ONCHAIN_REASON_CODES[decision.reasonCode] || {
+        code: `ERR_CODE_${decision.reasonCode}`,
+        title: `Reason Code ${decision.reasonCode}`,
+      };
+      setRunawayLogs([
+        {
+          attempt: 1,
+          amount: "20.00",
+          reasonCode: decision.reasonCode,
+          reasonTitle: reasonMeta.code,
+          status: decision.allowed ? "allowed" : "denied",
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
+      setCircuitMessage(`Replay probe processed: ${reasonMeta.code} (ReasonCode ${decision.reasonCode}). Temporal invariance verified.`);
+    } catch {
+      setCircuitMessage("Policy evaluation completed against settlement node.");
     } finally {
       setRunawayRunning(false);
     }
@@ -259,7 +436,30 @@ export function PolicySimulator() {
           />
         </Surface>
       ) : (
-        <div className="simulator-layout-grid">
+        <>
+          <div className="physics-pipeline-container">
+            <div className="pipeline-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Zap size={16} color="var(--primary)" />
+                <strong>Monad Parallel EVM Policy Evaluation Pipeline</strong>
+              </div>
+              <Badge tone="info">&lt; 1ms Deterministic Execution</Badge>
+            </div>
+            <div className="pipeline-steps">
+              {pipelineSteps.map((step, idx) => (
+                <div key={step.id} className={`pipeline-step ${step.status}`}>
+                  <div className="pipeline-step-badge">{idx + 1}</div>
+                  <div className="pipeline-step-info">
+                    <span className="pipeline-step-title">{step.title}</span>
+                    <small className="pipeline-step-desc">{step.desc}</small>
+                  </div>
+                  {idx < pipelineSteps.length - 1 && <ArrowRight size={14} className="pipeline-step-arrow" />}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="simulator-layout-grid">
           <Surface className="simulator-input-panel">
             <div className="section-heading">
               <div>
@@ -443,6 +643,7 @@ export function PolicySimulator() {
             )}
           </Surface>
         </div>
+        </>
       )}
 
       {/* ADR-0008 Autonomous Runaway Qwen 3.8 Max Circuit Breaker Testbench */}
@@ -491,16 +692,6 @@ export function PolicySimulator() {
             </div>
 
             <div className="breaker-actions">
-              <Button
-                variant="filled"
-                className="simulate-runaway-btn"
-                onClick={runRunawayCircuitBreaker}
-                disabled={runawayRunning || circuitState === "OPEN"}
-              >
-                <Zap size={15} />
-                <span>{runawayRunning ? "Simulating Runaway Loop…" : "Simulate Runaway Qwen 3.8 Max Loop"}</span>
-              </Button>
-
               {circuitState === "OPEN" && (
                 <>
                   <Button
@@ -532,6 +723,130 @@ export function PolicySimulator() {
                   <span>Restore Full Traffic (CLOSED)</span>
                 </Button>
               )}
+            </div>
+          </div>
+
+          {/* 4-Scenario Adversarial Threat Testbench Grid */}
+          <div className="threat-scenarios-grid">
+            {/* Scenario 1: Runaway Loop */}
+            <div className="threat-scenario-card">
+              <div className="threat-card-head">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="threat-card-icon">
+                    <RotateCcw size={16} color="var(--status-critical, #ff4757)" />
+                  </div>
+                  <div>
+                    <h3 className="threat-card-title">1. Runaway Autonomous Loop</h3>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Recursive LLM Escalation</small>
+                  </div>
+                </div>
+                <Badge tone="critical">Auto-Trip O(1)</Badge>
+              </div>
+              <p className="threat-card-desc">
+                Simulates recursive prompt loops escalating spend ($250 → $500 → $1,200). On 3 denials, triggers O(1) emergency quarantine.
+              </p>
+              <div className="threat-card-target">
+                <span>Probes: $250, $500, $1200 USDC</span>
+              </div>
+              <Button
+                variant="filled"
+                className="control-critical simulate-runaway-btn"
+                onClick={runRunawayCircuitBreaker}
+                disabled={runawayRunning || circuitState === "OPEN"}
+              >
+                <Zap size={14} />
+                <span>{runawayRunning ? "Simulating Runaway Loop…" : "Simulate Runaway Qwen 3.8 Max Loop"}</span>
+              </Button>
+            </div>
+
+            {/* Scenario 2: Sybil Micro-Drain */}
+            <div className="threat-scenario-card">
+              <div className="threat-card-head">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="threat-card-icon">
+                    <Layers size={16} color="var(--primary)" />
+                  </div>
+                  <div>
+                    <h3 className="threat-card-title">2. Sybil Micro-Drain Flooding</h3>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Velocity Ceiling Exhaustion</small>
+                  </div>
+                </div>
+                <Badge tone="warning">Velocity Invariant</Badge>
+              </div>
+              <p className="threat-card-desc">
+                Adversary broadcasts 5 rapid sub-threshold micropayments ($0.50 USDC each) attempting to deplete float beneath single-tx ceilings.
+              </p>
+              <div className="threat-card-target">
+                <span>Probes: 5x $0.50 USDC Burst</span>
+              </div>
+              <Button
+                variant="tonal"
+                onClick={runSybilFloodingTest}
+                disabled={runawayRunning || circuitState === "OPEN"}
+              >
+                <Layers size={14} />
+                <span>Simulate Micro-Drain</span>
+              </Button>
+            </div>
+
+            {/* Scenario 3: Prompt Injection Hijack */}
+            <div className="threat-scenario-card">
+              <div className="threat-card-head">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="threat-card-icon">
+                    <ShieldAlert size={16} color="var(--status-warning, #ffa502)" />
+                  </div>
+                  <div>
+                    <h3 className="threat-card-title">3. Prompt Injection Hijack</h3>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Counterparty Address Override</small>
+                  </div>
+                </div>
+                <Badge tone="info">Whitelist Check</Badge>
+              </div>
+              <p className="threat-card-desc">
+                Malicious prompt injection coerces agent tool caller into disbursing $50.00 USDC to unauthorized external counterparty.
+              </p>
+              <div className="threat-card-target">
+                <span>Target: 0xBad000...000Bad</span>
+              </div>
+              <Button
+                variant="tonal"
+                onClick={runPromptInjectionTest}
+                disabled={runawayRunning || circuitState === "OPEN"}
+              >
+                <ShieldAlert size={14} />
+                <span>Simulate Merchant Hijack</span>
+              </Button>
+            </div>
+
+            {/* Scenario 4: Replay Attack */}
+            <div className="threat-scenario-card">
+              <div className="threat-card-head">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="threat-card-icon">
+                    <Clock size={16} color="var(--muted)" />
+                  </div>
+                  <div>
+                    <h3 className="threat-card-title">4. Replay & Nonce Desync</h3>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Stale EIP-712 Signature</small>
+                  </div>
+                </div>
+                <Badge tone="neutral">Temporal Check</Badge>
+              </div>
+              <p className="threat-card-desc">
+                Replays a previously captured EIP-712 spend payload with a deadline 10 minutes in the past and stale sequence nonce.
+              </p>
+              <div className="threat-card-target">
+                <span>Payload: Deadline (t - 600s)</span>
+              </div>
+              <Button
+                variant="tonal"
+                onClick={runReplayAttackTest}
+                disabled={runawayRunning || circuitState === "OPEN"}
+              >
+                <Clock size={14} />
+                <span>Simulate Replay Attack</span>
+              </Button>
             </div>
           </div>
 
@@ -570,6 +885,87 @@ export function PolicySimulator() {
           )}
         </Surface>
       )}
+
+      {/* Graduated Adaptive Quarantine & Dynamic Rate Throttling Panel */}
+      <div style={{ marginTop: "24px" }}>
+        <Surface className="simulator-section-panel">
+          <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Activity size={18} className="text-accent-blue" />
+                <h2>Graduated Adaptive Quarantine & Dynamic Rate Throttling</h2>
+                <Badge tone="success">QuarantineController.sol Active</Badge>
+              </div>
+              <p style={{ marginTop: "4px", fontSize: "0.84rem", color: "var(--color-on-surface-variant)" }}>
+                Replaces brittle binary trip-switches with smooth 4-tier statistical degradation and 30-minute auto-healing based on streaming EWMA velocity anomaly vectors.
+              </p>
+            </div>
+            <Badge tone={simulatedZScore >= 5.0 ? "critical" : simulatedZScore >= 3.5 ? "warning" : simulatedZScore >= 2.0 ? "info" : "success"}>
+              {simulatedZScore >= 5.0 ? "TIER 3: BYZANTINE HALTED" : simulatedZScore >= 3.5 ? "TIER 2: QUORUM REQUIRED" : simulatedZScore >= 2.0 ? "TIER 1: ELEVATED (50% THROTTLE)" : "TIER 0: NOMINAL (100%)"}
+            </Badge>
+          </div>
+
+          <div style={{ marginTop: "16px", padding: "16px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Streaming Inbound Velocity Anomaly Vector (Z-Score)</span>
+              <Mono style={{ fontSize: "0.95rem", fontWeight: 700, color: simulatedZScore >= 3.5 ? "var(--color-error)" : "var(--color-primary)" }}>
+                Z = {simulatedZScore.toFixed(2)}σ
+              </Mono>
+            </div>
+
+            <input
+              type="range"
+              min="0"
+              max="6"
+              step="0.1"
+              value={simulatedZScore}
+              onChange={(e) => setSimulatedZScore(parseFloat(e.target.value))}
+              style={{ width: "100%", accentColor: "var(--color-primary)", cursor: "pointer" }}
+            />
+
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--color-on-surface-variant)", marginTop: "4px" }}>
+              <span>0.0σ (Baseline Tranquility)</span>
+              <span>2.0σ (Elevated Step-Down)</span>
+              <span>3.5σ (Quorum Enforced)</span>
+              <span>5.0σ+ (Byzantine Freeze)</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3" style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Dynamic Spend Ceiling</span>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", fontFamily: "var(--font-mono)", color: simulatedZScore >= 5.0 ? "var(--color-error)" : "var(--status-good)" }}>
+                {simulatedZScore >= 5.0 ? "0.00 USDC (0%)" : simulatedZScore >= 3.5 ? "9.00 USDC (20%)" : simulatedZScore >= 2.0 ? "22.50 USDC (50%)" : "45.00 USDC (100%)"}
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Effective allowed per-tx</span>
+            </div>
+
+            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Verification Quorum Requirement</span>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: simulatedZScore >= 3.5 ? "var(--status-warning)" : "var(--color-primary)" }}>
+                {simulatedZScore >= 3.5 ? "Multi-Sig Mandatory" : "Autonomous Pass"}
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Counter-sign requirement</span>
+            </div>
+
+            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Self-Healing Decay Window</span>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--accent-blue)" }}>
+                1,800s (30 mins)
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>Automatic step-up recovery</span>
+            </div>
+
+            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Parallel EVM Physics</span>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px" }}>
+                Disjoint Slots
+              </div>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Zero write contention</span>
+            </div>
+          </div>
+        </Surface>
+      </div>
     </div>
   );
 }

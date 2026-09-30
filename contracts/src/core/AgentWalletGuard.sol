@@ -87,6 +87,23 @@ contract AgentWalletGuard is IAgentWalletGuard, TransientReentrancyGuard {
         return _processGatedPayment(req, signature, token, extraCallData);
     }
 
+    /// @notice Atomically settles a batch of validated payment vouchers across Monad Parallel EVM.
+    /// @dev Utilizes Cancun transient reentrancy protection and Monad disjoint-slot state access.
+    function executeBatchGatedPayment(
+        BatchPaymentItem[] calldata items
+    ) external payable override nonReentrant returns (bool[] memory successes) {
+        uint256 len = items.length;
+        successes = new bool[](len);
+        for (uint256 i = 0; i < len; ++i) {
+            successes[i] = _processGatedPayment(
+                items[i].req,
+                items[i].signature,
+                items[i].token,
+                items[i].extraCallData
+            );
+        }
+    }
+
     function _processGatedPayment(
         IPolicyEngine.SpendRequest calldata req,
         bytes calldata signature,

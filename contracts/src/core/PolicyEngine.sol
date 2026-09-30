@@ -51,6 +51,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
     mapping(address => mapping(uint256 => bool)) private _usedNonces;
     mapping(address => address) public override agentAdmin;
     mapping(address => bool) public override circuitBroken;
+    mapping(address => CircuitState) private _circuitStates;
+    mapping(address => CanaryConfig) private _canaryConfigs;
     mapping(address => bool) public authorizedCallers;
     mapping(bytes32 => PackedBudgetPool) private _budgetPools;
     mapping(address => bytes32) public agentBudgetPool;
@@ -211,6 +213,10 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
             circuitBroken[agent] = true;
             _policies[agent].killSwitch = true;
+            _circuitStates[agent] = CircuitState.OPEN;
+            _canaryConfigs[agent].cooldownUntil = uint32(block.timestamp) + 300;
+            _canaryConfigs[agent].backoffSeconds = 300;
+            _canaryConfigs[agent].cleanTxCount = 0;
             emit KillSwitchUpdated(agent, true);
             emit CircuitBreakerTripped(agent, msg.sender);
         } else {
@@ -221,6 +227,8 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             }
             circuitBroken[agent] = false;
             _policies[agent].killSwitch = false;
+            _circuitStates[agent] = CircuitState.CLOSED;
+            delete _canaryConfigs[agent];
             emit KillSwitchUpdated(agent, false);
             emit CircuitBreakerReset(agent, msg.sender);
         }
@@ -232,6 +240,10 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         if (msg.sender != agent && msg.sender != agentAdmin[agent] && msg.sender != owner) revert Unauthorized();
         circuitBroken[agent] = true;
         _policies[agent].killSwitch = true;
+        _circuitStates[agent] = CircuitState.OPEN;
+        _canaryConfigs[agent].cooldownUntil = uint32(block.timestamp) + 300;
+        _canaryConfigs[agent].backoffSeconds = 300;
+        _canaryConfigs[agent].cleanTxCount = 0;
         emit CircuitBreakerTripped(agent, msg.sender);
         emit KillSwitchUpdated(agent, true);
     }
@@ -247,13 +259,62 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         }
         circuitBroken[agent] = false;
         _policies[agent].killSwitch = false;
+        _circuitStates[agent] = CircuitState.CLOSED;
+        delete _canaryConfigs[agent];
         emit CircuitBreakerReset(agent, msg.sender);
         emit KillSwitchUpdated(agent, false);
     }
 
+    /// @notice ADR-0008: Transitions an agent into Canary Mode (HALF_OPEN) with throttled limits.
+    function enterCanaryMode(address agent, uint128 canaryMaxPerTx, uint32 requiredCleanTx)
+        external
+        override
+        onlyAgentOrAdmin(agent)
+    {
+        if (agent == address(0)) revert ZeroAddress();
+        if (canaryMaxPerTx == 0 || requiredCleanTx == 0) revert InvalidPolicyParameters();
+        _circuitStates[agent] = CircuitState.HALF_OPEN;
+        _policies[agent].killSwitch = false;
+        circuitBroken[agent] = false;
+        _canaryConfigs[agent] = CanaryConfig({
+            canaryMaxPerTx: canaryMaxPerTx,
+            requiredCleanTx: requiredCleanTx,
+            cleanTxCount: 0,
+            cooldownUntil: 0,
+            backoffSeconds: 300
+        });
+        emit CircuitBreakerCanaryStarted(agent, canaryMaxPerTx, requiredCleanTx);
+    }
+
+    /// @notice ADR-0008: Queries the current adaptive circuit breaker state.
+    function getCircuitState(address agent)
+        external
+        view
+        override
+        returns (
+            CircuitState state,
+            uint128 canaryMaxPerTx,
+            uint32 requiredCleanTx,
+            uint32 cleanTxCount,
+            uint32 cooldownUntil
+        )
+    {
+        CanaryConfig memory c = _canaryConfigs[agent];
+        state = _circuitStates[agent];
+        if (state == CircuitState.OPEN && c.cooldownUntil > 0 && block.timestamp >= c.cooldownUntil) {
+            state = CircuitState.HALF_OPEN;
+        }
+        return (state, c.canaryMaxPerTx, c.requiredCleanTx, c.cleanTxCount, c.cooldownUntil);
+    }
+
     /// @notice ADR-0012: O(1) query whether an agent's financial circuit breaker is active.
     function isCircuitBroken(address agent) external view override returns (bool) {
-        return circuitBroken[agent] || _policies[agent].killSwitch;
+        CanaryConfig memory c = _canaryConfigs[agent];
+        CircuitState state = _circuitStates[agent];
+        if (state == CircuitState.OPEN && c.cooldownUntil > 0 && block.timestamp >= c.cooldownUntil) {
+            return false; // auto-transitioned to half-open canary mode
+        }
+        return circuitBroken[agent] || _policies[agent].killSwitch || state == CircuitState.OPEN;
     }
 
     function setMerchantWhitelist(address agent, address merchant, bool allowed) external onlyAgentOrAdmin(agent) {
@@ -278,18 +339,33 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
         PackedPolicy memory policy = _policies[req.agent];
         PackedState memory state = _states[req.agent];
 
-        // O(1) short-circuit: unconfigured or kill-switch active.
-        // `policy.killSwitch` is the canonical kill-switch flag — it is always kept in sync with
-        // the `circuitBroken` mapping by `tripCircuitBreaker`, `resetCircuitBreaker`, and
-        // `setKillSwitch`. Reading `circuitBroken[req.agent]` here would be a redundant SLOAD
-        // (100 gas on Monad warm storage) — omit it in the view-only evaluation path.
-        if (!policy.isConfigured || policy.killSwitch) {
+        CanaryConfig memory canary = _canaryConfigs[req.agent];
+        CircuitState cState = _circuitStates[req.agent];
+        if (cState == CircuitState.OPEN && canary.cooldownUntil > 0 && block.timestamp >= canary.cooldownUntil) {
+            cState = CircuitState.HALF_OPEN;
+        }
+
+        // O(1) short-circuit: unconfigured or kill-switch active (unless in HALF_OPEN canary mode).
+        if (!policy.isConfigured || (policy.killSwitch && cState != CircuitState.HALF_OPEN)) {
             return PolicyDecision({
                 allowed: false,
                 allowedAmount: 0,
                 reasonCode: ReasonCode.ERR_KILL_SWITCH,
                 evaluatedAtTimestamp: block.timestamp
             });
+        }
+
+        // If in Canary mode, enforce throttled canaryMaxPerTx
+        if (cState == CircuitState.HALF_OPEN) {
+            uint128 canaryLimit = canary.canaryMaxPerTx > 0 ? canary.canaryMaxPerTx : (policy.maxPerTx / 10 > 0 ? policy.maxPerTx / 10 : 1);
+            if (req.amount > canaryLimit) {
+                return PolicyDecision({
+                    allowed: false,
+                    allowedAmount: 0,
+                    reasonCode: ReasonCode.ERR_KILL_SWITCH,
+                    evaluatedAtTimestamp: block.timestamp
+                });
+            }
         }
 
         // 1. Check deadline
@@ -407,12 +483,47 @@ contract PolicyEngine is IPolicyEngine, TransientReentrancyGuard {
             revert Unauthorized();
         }
 
+        CanaryConfig memory canary = _canaryConfigs[req.agent];
+        CircuitState cState = _circuitStates[req.agent];
+        if (cState == CircuitState.OPEN && canary.cooldownUntil > 0 && block.timestamp >= canary.cooldownUntil) {
+            cState = CircuitState.HALF_OPEN;
+            _circuitStates[req.agent] = CircuitState.HALF_OPEN;
+            _policies[req.agent].killSwitch = false;
+            circuitBroken[req.agent] = false;
+        }
+
         decision = _evaluate(req);
 
         emit SpendEvaluated(req.agent, req.merchant, req.amount, decision.allowed, decision.reasonCode);
 
         if (!decision.allowed) {
+            if (cState == CircuitState.HALF_OPEN) {
+                // Limit or check violated during canary mode! Relapse to OPEN with doubled backoff.
+                _circuitStates[req.agent] = CircuitState.OPEN;
+                _policies[req.agent].killSwitch = true;
+                circuitBroken[req.agent] = true;
+                uint32 backoff = canary.backoffSeconds > 0 ? canary.backoffSeconds * 2 : 600;
+                _canaryConfigs[req.agent].backoffSeconds = backoff;
+                _canaryConfigs[req.agent].cooldownUntil = uint32(block.timestamp) + backoff;
+                _canaryConfigs[req.agent].cleanTxCount = 0;
+                emit CircuitBreakerTripped(req.agent, address(this));
+            }
             return decision;
+        }
+
+        if (cState == CircuitState.HALF_OPEN) {
+            uint32 cleanCount = canary.cleanTxCount + 1;
+            uint32 reqClean = canary.requiredCleanTx > 0 ? canary.requiredCleanTx : 3;
+            if (cleanCount >= reqClean) {
+                // Successfully healed! Auto-promote to CLOSED
+                _circuitStates[req.agent] = CircuitState.CLOSED;
+                _policies[req.agent].killSwitch = false;
+                circuitBroken[req.agent] = false;
+                delete _canaryConfigs[req.agent];
+                emit CircuitBreakerHealed(req.agent);
+            } else {
+                _canaryConfigs[req.agent].cleanTxCount = cleanCount;
+            }
         }
 
         // Invariant: Nonce must be strictly consumed

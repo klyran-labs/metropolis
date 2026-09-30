@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {PolicyEngine} from "../src/core/PolicyEngine.sol";
 import {ReputationRegistry} from "../src/core/ReputationRegistry.sol";
 import {AgentWalletGuard} from "../src/core/AgentWalletGuard.sol";
+import {IAgentWalletGuard} from "../src/interfaces/IAgentWalletGuard.sol";
 import {IPolicyEngine} from "../src/interfaces/IPolicyEngine.sol";
 
 /// @notice Minimal ERC-20 mock. Intentionally returns `bool` (standard-compliant,
@@ -198,5 +199,55 @@ contract AgentWalletGuardTest is Test {
         bytes memory sig = _sign(agentPk, req);
         guard.executeGatedPayment(req, sig, address(usdtLike), "");
         assertEq(usdtLike.balanceOf(merchant), 0.4 ether);
+    }
+
+    /// @notice Atomic batch settlement executes multiple vouchers in a single transaction.
+    function test_BatchGatedPaymentSettlement() public {
+        uint256 startBalance = token.balanceOf(merchant);
+        IAgentWalletGuard.BatchPaymentItem[] memory items = new IAgentWalletGuard.BatchPaymentItem[](3);
+
+        for (uint256 i = 0; i < 3; ++i) {
+            IPolicyEngine.SpendRequest memory req = _req(0.2 ether, i + 10);
+            bytes memory sig = _sign(agentPk, req);
+            items[i] = IAgentWalletGuard.BatchPaymentItem({
+                req: req,
+                signature: sig,
+                token: address(token),
+                extraCallData: ""
+            });
+        }
+
+        bool[] memory results = guard.executeBatchGatedPayment(items);
+        assertEq(results.length, 3);
+        assertTrue(results[0]);
+        assertTrue(results[1]);
+        assertTrue(results[2]);
+        assertEq(token.balanceOf(merchant) - startBalance, 0.6 ether);
+    }
+
+    /// @notice Atomic batch settlement reverts if any voucher in the batch fails policy evaluation.
+    function test_BatchGatedPaymentRevertsOnAnyFailure() public {
+        IAgentWalletGuard.BatchPaymentItem[] memory items = new IAgentWalletGuard.BatchPaymentItem[](2);
+
+        // First item valid
+        IPolicyEngine.SpendRequest memory reqValid = _req(0.2 ether, 20);
+        items[0] = IAgentWalletGuard.BatchPaymentItem({
+            req: reqValid,
+            signature: _sign(agentPk, reqValid),
+            token: address(token),
+            extraCallData: ""
+        });
+
+        // Second item exceeds maxPerTx (1 ether)
+        IPolicyEngine.SpendRequest memory reqInvalid = _req(2 ether, 21);
+        items[1] = IAgentWalletGuard.BatchPaymentItem({
+            req: reqInvalid,
+            signature: _sign(agentPk, reqInvalid),
+            token: address(token),
+            extraCallData: ""
+        });
+
+        vm.expectRevert();
+        guard.executeBatchGatedPayment(items);
     }
 }
