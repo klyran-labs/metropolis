@@ -24,7 +24,7 @@ use agentguard_gateway::{
         list_platform_subscriptions_handler, list_settlement_outbox_handler, list_signing_wallets_handler,
         list_relayers_handler,
         list_telemetry_events_handler, list_tenant_operators_handler, list_tenants_handler,
-        list_wallet_access_handler, list_wallet_transfers_handler,
+        list_pending_approvals_handler, list_wallet_access_handler, list_wallet_transfers_handler,
         onboarding_authentication_middleware, paymaster_rpc_handler, prepare_agent_policy_handler,
         prepare_load_handler, prepare_unload_handler, put_abac_policy_handler, ready_handler,
         register_agent_handler, register_organization_wallet_handler, retry_settlement_outbox_handler, revoke_api_key_handler,
@@ -372,6 +372,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/agents/:agent/wallet-transfers",
             get(list_wallet_transfers_handler),
+        )
+        .route(
+            "/api/v1/wallet-transfers/pending",
+            get(list_pending_approvals_handler),
         )
         .route(
             "/api/v1/wallet-transfers/:transfer_id/submit",

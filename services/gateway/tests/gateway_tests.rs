@@ -6,7 +6,7 @@ use agentguard_gateway::{
         compute_domain_separator, compute_eip712_digest, compute_spend_request_hash,
         parse_x402_authorization_header, recover_signer,
     },
-    handlers::is_assignable_api_key_capability,
+    handlers::{PendingApprovalState, is_assignable_api_key_capability, pending_approval_state},
     pbac::{self, PbacConditions, PbacInput, PbacPolicy, PolicyEffect},
     rbac::{self, Capability, Role},
     repository::PgRepository,
@@ -657,6 +657,34 @@ async fn edge_sequencer_topology_and_disjoint_leases() {
     assert_eq!(topo.regions[1].active_leases, 1);
 }
 
+#[test]
+fn pending_approval_state_requires_access_and_blocks_double_signing() {
+    let signers = vec!["did:privy:alice".to_string()];
 
+    // Wallet holder who has not signed yet can approve.
+    let fresh = pending_approval_state(&signers, 2, "did:privy:bob", true);
+    assert_eq!(
+        fresh,
+        PendingApprovalState {
+            signatures_collected: 1,
+            signatures_required: 2,
+            already_signed: false,
+            can_approve: true,
+        }
+    );
 
+    // Someone without access to the wallet cannot approve.
+    assert!(!pending_approval_state(&signers, 2, "did:privy:bob", false).can_approve);
+
+    // Signing twice is not allowed, even with access.
+    let repeat = pending_approval_state(&signers, 2, "did:privy:alice", true);
+    assert!(repeat.already_signed);
+    assert!(!repeat.can_approve);
+
+    // No signatures yet.
+    assert_eq!(
+        pending_approval_state(&[], 3, "did:privy:alice", true).signatures_collected,
+        0
+    );
+}
 

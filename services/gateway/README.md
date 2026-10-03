@@ -27,6 +27,7 @@ The current settlement boundary is `PolicyEngine` and `AgentWalletGuard`. Circui
 | `/api/v1/agents` | GET/POST | Tenant-authenticated | Tenant fleet registration and reads |
 | `/api/v1/plans` | GET | Tenant-authenticated | Real subscription plan catalog |
 | `/api/v1/subscription` | GET | Tenant-authenticated | Current tenant subscription |
+| `/api/v1/wallet-transfers/pending` | GET | settlement-authorized | Org-wide transfers awaiting signatures, with per-operator `canApprove` / `alreadySigned` (powers the Approvals badge and Home attention card) |
 | `/api/v1/subscription/checkout` | POST | Treasury-authorized | Create an onchain payment intent |
 | `/api/v1/billing/payments/:payment_id/submit` | POST | Treasury-authorized | Confirm a real guard transaction receipt |
 | `/api/v1/platform/plans` | GET/POST | Platform-authorized | Plan catalog administration |

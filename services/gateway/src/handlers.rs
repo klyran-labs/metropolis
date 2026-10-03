@@ -2397,6 +2397,97 @@ pub async fn list_wallet_transfers_handler(
     Ok(Json(serde_json::json!({ "transfers": transfers })))
 }
 
+/// Approval progress for one pending transfer from a given operator's point of view.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PendingApprovalState {
+    pub signatures_collected: usize,
+    pub signatures_required: i16,
+    pub already_signed: bool,
+    pub can_approve: bool,
+}
+
+/// Pure so the rules are unit-testable: an operator can approve only with wallet access and
+/// only once, mirroring `sign_approval_ticket_handler`.
+pub fn pending_approval_state(
+    signatures: &[String],
+    required: i16,
+    subject: &str,
+    has_wallet_access: bool,
+) -> PendingApprovalState {
+    let already_signed = signatures.iter().any(|signer| signer == subject);
+    PendingApprovalState {
+        signatures_collected: signatures.len(),
+        signatures_required: required,
+        already_signed,
+        can_approve: has_wallet_access && !already_signed,
+    }
+}
+
+pub async fn list_pending_approvals_handler(
+    State(state): State<SharedState>,
+    Extension(context): Extension<RequestContext>,
+) -> Result<Json<Value>, ApiError> {
+    let rows = sqlx::query(
+        r#"SELECT wt.id, wt.direction, wt.amount_base_units::text AS amount_base_units, wt.agent_address,
+                  wt.initiated_by_subject, wt.created_at, ow.id AS wallet_id, ow.label AS wallet_label,
+                  ow.address AS wallet_address, tk.required_signatures, tk.signatures, tk.expires_at,
+                  (owa.subject IS NOT NULL) AS has_access
+           FROM wallet_transfers wt
+           JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
+           JOIN approval_tickets tk ON tk.id = wt.approval_ticket_id AND tk.org_id = wt.org_id
+           LEFT JOIN organization_wallet_access owa ON owa.wallet_id = ow.id AND owa.subject = $2
+           WHERE wt.org_id = $1 AND wt.status = 'pending_approval' AND tk.status = 'open'
+           ORDER BY wt.created_at DESC LIMIT 100"#,
+    )
+    .bind(&context.tenant.org_id)
+    .bind(&context.subject)
+    .fetch_all(&state.repository.pool)
+    .await
+    .map_err(|_| service_unavailable("Pending approvals are unavailable."))?;
+    let is_super_admin = context.role == Role::SuperAdmin;
+    let approvals = rows
+        .into_iter()
+        .map(|row| {
+            let signatures: Vec<String> = row
+                .try_get::<Value, _>("signatures")?
+                .as_array()
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let progress = pending_approval_state(
+                &signatures,
+                row.try_get::<i16, _>("required_signatures")?,
+                &context.subject,
+                is_super_admin || row.try_get::<bool, _>("has_access")?,
+            );
+            Ok(serde_json::json!({
+                "transferId": row.try_get::<Uuid, _>("id")?,
+                "direction": row.try_get::<String, _>("direction")?,
+                "amountBaseUnits": row.try_get::<String, _>("amount_base_units")?,
+                "agentAddress": row.try_get::<String, _>("agent_address")?,
+                "initiatedBySubject": row.try_get::<String, _>("initiated_by_subject")?,
+                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
+                "expiresAt": row.try_get::<chrono::DateTime<Utc>, _>("expires_at")?,
+                "walletId": row.try_get::<Uuid, _>("wallet_id")?,
+                "walletLabel": row.try_get::<String, _>("wallet_label")?,
+                "walletAddress": row.try_get::<String, _>("wallet_address")?,
+                "signatures": progress.signatures_collected,
+                "requiredSignatures": progress.signatures_required,
+                "alreadySigned": progress.already_signed,
+                "canApprove": progress.can_approve,
+            }))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(|_| service_unavailable("Pending approvals returned invalid data."))?;
+    Ok(Json(
+        serde_json::json!({ "count": approvals.len(), "approvals": approvals }),
+    ))
+}
+
 pub async fn create_plan_handler(
     State(state): State<SharedState>,
     Json(payload): Json<CreatePlanRequest>,

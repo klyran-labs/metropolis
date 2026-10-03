@@ -120,3 +120,7 @@ Both modals and the treasury screen deliberately reuse existing primitives end-t
 2. **Threshold for approval_tickets gating** on loads/unloads — a fixed base-unit amount per org, configurable per org, or off by default until explicitly enabled?
 3. **Gas for sovereign agent wallets** — require MON top-up alongside every Load in Phase 1, or prioritize wiring the existing (undeployed) paymaster RPC so agents never need native gas at all?
 4. Should **external treasury wallets be allowed to be a Safe/multisig from day one**, or EOA-only for Phase 1 with multisig support noted as trivial (ownership-proof signature works identically via ERC-1271) but not explicitly tested until requested?
+
+## Addendum: Org-wide pending approvals
+
+`GET /api/v1/wallet-transfers/pending` lists every transfer in the caller's organization whose approval ticket is open, newest first (capped at 100). Each row carries signature progress and two operator-specific flags computed server-side with the same rules as `POST /wallet-transfers/:id/approve`: `canApprove` requires wallet access (or `super_admin`) and no prior signature from the caller; `alreadySigned` is true when the caller's subject is already on the ticket. The query is served by the partial index `idx_wallet_transfers_org_pending_approval` (migration `0011`). The endpoint uses the same `DispatchSettlement` capability as the other transfer routes, so roles without it receive 403 and the UI shows no badge.
