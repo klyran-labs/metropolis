@@ -28,8 +28,8 @@ export function AdminAccess() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Platform Access</h1>
-          <p>Grant and manage platform-level administrative roles.</p>
+          <h1>Team</h1>
+          <p>Choose who can manage the platform and what they can do.</p>
         </div>
       </header>
       <Surface>

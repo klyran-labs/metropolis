@@ -32,6 +32,7 @@ import {
   type Agent,
 } from "../../api";
 import { Badge, Button, Mono, Surface, TokenAmount, truncateMiddle } from "../../design-system";
+import { eventLabel } from "../../copy";
 import { Breakdown, Gauge, StatTile, TrendArea } from "../../charts";
 import { useIdentity } from "../../identity";
 import { AgentInspector } from "./AgentInspector";
@@ -82,7 +83,7 @@ export function Overview() {
     return [...counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
-      .map(([label, value]) => ({ label, value }));
+      .map(([name, value]) => ({ label: eventLabel(name), value }));
   }, [telemetry.data]);
 
   const dailyVolume = useMemo(() => {
@@ -138,22 +139,22 @@ export function Overview() {
     : "not configured";
   const readinessSteps = [
     {
-      label: "Connect a treasury wallet",
-      detail: "Fund and recover agent balances from an organization-controlled wallet.",
+      label: "Add a treasury wallet",
+      detail: "This is the wallet you use to fund your agents.",
       done: (wallets.data?.length ?? 0) > 0,
       to: "/app/treasury" as const,
     },
     {
-      label: "Register your first agent",
-      detail: "Create a secure wallet or link an existing one.",
+      label: "Create your first agent",
+      detail: "Give it a wallet and a spending limit.",
       done: total > 0,
       to: "/app/fleet" as const,
     },
     {
-      label: "Verify chain activity",
-      detail: "Run a policy simulation or wait for your first finalized event.",
+      label: "See your first activity",
+      detail: "Try a test payment, or wait for an agent's first one.",
       done: (telemetry.data?.length ?? 0) > 0,
-      to: "/app/activity" as const,
+      to: "/app/simulator" as const,
     },
   ];
   const showReadiness = readinessSteps.some((step) => !step.done);
@@ -163,7 +164,7 @@ export function Overview() {
       {/* Top Header */}
       <header className="dashboard-header">
         <div>
-          <h1>Overview</h1>
+          <h1>Home</h1>
           <p>Your agents, spending, and recent activity.</p>
         </div>
         <div className="dashboard-actions">
@@ -208,33 +209,42 @@ export function Overview() {
       </div>
 
       {showReadiness && (
-        <div className="readiness-banner">
-          <div className="readiness-banner-left">
-            <div className="readiness-banner-title">
-              <Sparkles size={14} className="readiness-sparkle-icon" />
-              <span>Setup Checklist</span>
+        <section className="setup-card" aria-label="Get started">
+          <div className="setup-card-head">
+            <div>
+              <h2>Get started</h2>
+              <p>
+                {readinessSteps.filter((s) => s.done).length} of {readinessSteps.length} steps done
+              </p>
             </div>
-            <span className="readiness-progress-badge">
-              {readinessSteps.filter((s) => s.done).length}/{readinessSteps.length}
-            </span>
+            <div
+              className="setup-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={readinessSteps.length}
+              aria-valuenow={readinessSteps.filter((s) => s.done).length}
+            >
+              <span style={{ width: `${(readinessSteps.filter((s) => s.done).length / readinessSteps.length) * 100}%` }} />
+            </div>
           </div>
-          <div className="readiness-banner-chips">
+          <ol className="setup-steps">
             {readinessSteps.map((step, idx) => (
-              <Link
-                to={step.to}
-                key={step.label}
-                className={`readiness-pill ${step.done ? "is-done" : ""}`}
-                title={step.detail}
-              >
-                <span className="readiness-pill-icon">
-                  {step.done ? <Check size={10} strokeWidth={2.5} /> : idx + 1}
-                </span>
-                <span className="readiness-pill-label">{step.label}</span>
-                {!step.done && <ArrowRight size={10} className="readiness-pill-arrow" />}
-              </Link>
+              <li key={step.label} className={`setup-step ${step.done ? "is-done" : ""}`}>
+                <span className="setup-step-marker">{step.done ? <Check size={13} strokeWidth={3} /> : idx + 1}</span>
+                <div className="setup-step-body">
+                  <strong>{step.label}</strong>
+                  <small>{step.detail}</small>
+                </div>
+                {!step.done && (
+                  <Link to={step.to} className="control control-tonal setup-step-cta">
+                    <span>Start</span>
+                    <ArrowRight size={13} />
+                  </Link>
+                )}
+              </li>
             ))}
-          </div>
-        </div>
+          </ol>
+        </section>
       )}
 
       {/* Main Analytics Grid */}

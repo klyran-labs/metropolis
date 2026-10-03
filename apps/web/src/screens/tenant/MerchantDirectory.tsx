@@ -304,7 +304,7 @@ export function MerchantDirectory() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Merchant Directory</h1>
+          <h1>Merchants</h1>
           <p>Merchants your agents are allowed to pay.</p>
         </div>
         <div className="page-heading-actions">

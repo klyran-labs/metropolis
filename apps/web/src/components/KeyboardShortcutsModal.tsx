@@ -17,18 +17,18 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       {
         keys: ["⌘", "K"],
-        label: "Command Palette & Search",
-        detail: "Switch screens, search agents, trigger rapid workflows",
+        label: "Search and jump to a page",
+        detail: "Find any page or action quickly",
       },
       {
         keys: ["?"],
-        label: "Keyboard Shortcuts Legend",
-        detail: "Display this comprehensive hotkey reference",
+        label: "Show keyboard shortcuts",
+        detail: "Open this list",
       },
       {
         keys: ["Esc"],
-        label: "Close Modal / Drawer",
-        detail: "Dismiss any active dialog, drawer, or palette",
+        label: "Close a dialog or panel",
+        detail: "Dismiss whatever is open",
       },
     ],
   },
@@ -37,42 +37,42 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       {
         keys: ["G", "O"],
-        label: "Flight Deck Overview",
+        label: "Home",
         detail: "Balances, spending, and activity",
       },
       {
         keys: ["G", "F"],
-        label: "Fleet Directory",
+        label: "Agents",
         detail: "Monitor autonomous agent statuses and spend velocities",
       },
       {
         keys: ["G", "P"],
-        label: "Policy",
+        label: "Spending rules",
         detail: "Set spending limits and safety controls",
       },
       {
         keys: ["G", "S"],
-        label: "Testbench Simulator",
+        label: "Test rules",
         detail: "Run adversarial risk scenarios and policy evaluations",
       },
       {
         keys: ["G", "A"],
-        label: "Activity Trace",
+        label: "Activity",
         detail: "See live payments and why they were approved or blocked",
       },
       {
         keys: ["G", "T"],
-        label: "Treasury & Reserves",
+        label: "Treasury",
         detail: "Manage treasury wallets and network fees",
       },
       {
         keys: ["G", "Q"],
-        label: "Quorum Approvals",
+        label: "Approvals",
         detail: "Inspect multi-operator dual-control threshold requests",
       },
       {
         keys: ["G", "M"],
-        label: "Merchant Directory",
+        label: "Merchants",
         detail: "Review AI inference vendors and payment endpoints",
       },
     ],
@@ -82,7 +82,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       {
         keys: ["P"],
-        label: "Provision Autonomous Agent",
+        label: "Create an agent",
         detail: "Create a new agent step by step",
       },
       {
@@ -92,7 +92,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       },
       {
         keys: ["↵"],
-        label: "Confirm Action",
+        label: "Confirm",
         detail: "Execute default button or primary form submission",
       },
     ],

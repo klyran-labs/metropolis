@@ -420,7 +420,7 @@ export function PolicySimulator() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Policy Simulator</h1>
+          <h1>Test rules</h1>
           <p>
             Try a payment against your agent's real spending rules before anything is sent.
           </p>

@@ -12,10 +12,12 @@ import {
   Bot,
   ExternalLink,
   Keyboard,
+  Menu,
 } from "lucide-react";
 import { useIdentity } from "../identity";
 import { Badge, Mono, ThemeToggle, roleLabel, truncateMiddle } from "../design-system";
 import { networkLabel } from "../configuration";
+import { TOGGLE_NAV_EVENT } from "../navigation";
 
 export function TopBar({
   onOpenCommandPalette,
@@ -35,30 +37,29 @@ export function TopBar({
   const userRef = useRef<HTMLDivElement>(null);
 
   const isPlatformAdmin = pathname.startsWith("/admin");
-  const tenantLabel = identity.tenantName || "Enterprise Workspace";
+  const tenantLabel = identity.tenantName || "Your workspace";
   const userLabel = identity.user?.email?.address ?? (identity.subject ? truncateMiddle(identity.subject, 10, 4) : "Operator");
 
-  const getSectionName = () => {
-    if (pathname.startsWith("/admin/tenants")) return "Tenants";
-    if (pathname.startsWith("/admin/plans")) return "Plans";
-    if (pathname.startsWith("/admin/subscriptions")) return "Subscriptions";
-    if (pathname.startsWith("/admin/billing")) return "Billing Ledger";
-    if (pathname.startsWith("/admin/reconciliation")) return "Reconciliation";
-    if (pathname.startsWith("/admin/revenue")) return "Revenue";
-    if (pathname.startsWith("/admin/access")) return "Access Governance";
-    if (pathname.startsWith("/admin")) return "Platform Administration";
-
-    if (pathname.startsWith("/app/fleet")) return "Fleet Orchestration";
-    if (pathname.startsWith("/app/policy")) return "Policy";
-    if (pathname.startsWith("/app/simulator")) return "Policy Simulator";
-    if (pathname.startsWith("/app/activity")) return "Activity & Audit";
-    if (pathname.startsWith("/app/merchants")) return "Merchant Directory";
-    if (pathname.startsWith("/app/quorum")) return "Approvals";
-    if (pathname.startsWith("/app/treasury")) return "Treasury & Reserves";
-    if (pathname.startsWith("/app/billing")) return "Billing & Subscriptions";
-    if (pathname.startsWith("/app/settings")) return "Settings & Access";
-    return "Spend Operations";
-  };
+  const sectionNames: Array<[string, string]> = [
+    ["/admin/tenants", "Organizations"],
+    ["/admin/plans", "Plans"],
+    ["/admin/subscriptions", "Subscriptions"],
+    ["/admin/billing", "Payments"],
+    ["/admin/reconciliation", "Payment checks"],
+    ["/admin/revenue", "Revenue"],
+    ["/admin/access", "Team"],
+    ["/admin", "Home"],
+    ["/app/fleet", "Agents"],
+    ["/app/policy", "Spending rules"],
+    ["/app/simulator", "Test rules"],
+    ["/app/activity", "Activity"],
+    ["/app/merchants", "Merchants"],
+    ["/app/quorum", "Approvals"],
+    ["/app/treasury", "Treasury"],
+    ["/app/billing", "Billing"],
+    ["/app/settings", "Settings"],
+  ];
+  const getSectionName = () => sectionNames.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? "Home";
   const sectionName = getSectionName();
 
   useEffect(() => {
@@ -78,6 +79,14 @@ export function TopBar({
     <header className="top-bar">
       {/* Left: Breadcrumbs and Workspace Context */}
       <div className="top-bar-left">
+        <button
+          type="button"
+          className="top-bar-menu-btn"
+          onClick={() => window.dispatchEvent(new Event(TOGGLE_NAV_EVENT))}
+          aria-label="Open menu"
+        >
+          <Menu size={18} />
+        </button>
         {identity.platformAccess ? (
           <div className="workspace-dropdown-container" ref={workspaceRef}>
             <button
@@ -85,9 +94,9 @@ export function TopBar({
               className="workspace-dropdown-trigger"
               onClick={() => setWorkspaceMenuOpen(!workspaceMenuOpen)}
               aria-expanded={workspaceMenuOpen}
-              title="Switch Workspace Context"
+              title="Switch between your workspace and platform admin"
             >
-              <span className="top-bar-tenant-name">{isPlatformAdmin ? "Platform Operations" : tenantLabel}</span>
+              <span className="top-bar-tenant-name">{isPlatformAdmin ? "Platform" : tenantLabel}</span>
               <span className="top-bar-slash">/</span>
               <span className="top-bar-section-name">{sectionName}</span>
               <ChevronDown size={14} className={`dropdown-chevron ${workspaceMenuOpen ? "rotated" : ""}`} />
@@ -95,7 +104,7 @@ export function TopBar({
 
             {workspaceMenuOpen && (
               <div className="workspace-dropdown-menu">
-                <div className="dropdown-section-title">Switch Context</div>
+                <div className="dropdown-section-title">Switch to</div>
                 <button
                   type="button"
                   className={`dropdown-menu-item ${!isPlatformAdmin ? "active" : ""}`}
@@ -106,8 +115,8 @@ export function TopBar({
                 >
                   <Bot size={15} />
                   <div className="dropdown-item-content">
-                    <strong>Tenant Workspace</strong>
-                    <small>{tenantLabel} · Autonomous fleet & policies</small>
+                    <strong>Your workspace</strong>
+                    <small>{tenantLabel} · agents, rules and money</small>
                   </div>
                 </button>
 
@@ -121,15 +130,15 @@ export function TopBar({
                 >
                   <Shield size={15} />
                   <div className="dropdown-item-content">
-                    <strong>Platform Administration</strong>
-                    <small>Multi-tenant registry & global ledger</small>
+                    <strong>Platform admin</strong>
+                    <small>Organizations, payments and plans</small>
                   </div>
                 </button>
               </div>
             )}
           </div>
         ) : (
-          <div className="top-bar-breadcrumbs" aria-label="Current Workspace Location">
+          <div className="top-bar-breadcrumbs" aria-label="Where you are">
             <span className="top-bar-tenant-name">{tenantLabel}</span>
             <span className="top-bar-slash">/</span>
             <span className="top-bar-section-name">{sectionName}</span>
@@ -139,21 +148,22 @@ export function TopBar({
 
       {/* Right: Actions, Global Search, Copilot, Monad Beacon, Profile */}
       <div className="top-bar-right">
-        {/* Quick Action Button */}
-        <Link to="/app/fleet" className="top-bar-primary-btn">
-          <Plus size={15} />
-          <span>New Agent</span>
-        </Link>
+        {!isPlatformAdmin && (
+          <Link to="/app/fleet" className="top-bar-primary-btn">
+            <Plus size={15} />
+            <span>New agent</span>
+          </Link>
+        )}
 
         {/* Search / Command Palette Shortcut */}
         <button
           type="button"
           className="top-bar-search-btn"
           onClick={onOpenCommandPalette}
-          title="Search or run command (Cmd+K)"
+          title="Search or jump to a page (Cmd+K)"
         >
           <Search size={15} />
-          <span className="search-placeholder">Quick search...</span>
+          <span className="search-placeholder">Search or jump to…</span>
           <kbd className="cmd-k-badge">⌘K</kbd>
         </button>
 
@@ -162,24 +172,11 @@ export function TopBar({
           type="button"
           className="top-bar-icon-btn copilot-trigger"
           onClick={onOpenCopilot}
-          title="AI Risk Copilot"
+          title="Ask the assistant to set up spending rules"
         >
           <Sparkles size={16} />
-          <span className="copilot-pill">AI Copilot</span>
+          <span className="copilot-pill">Assistant</span>
         </button>
-
-        {/* Keyboard Shortcuts Help */}
-        {onOpenShortcuts && (
-          <button
-            type="button"
-            className="top-bar-icon-btn"
-            onClick={onOpenShortcuts}
-            title="Keyboard Shortcuts (?)"
-            aria-label="Keyboard Shortcuts"
-          >
-            <Keyboard size={16} />
-          </button>
-        )}
 
         {/* Ambient Monad Finality Beacon */}
         <div className="top-bar-finality-beacon" title="Network status: live">
@@ -188,7 +185,6 @@ export function TopBar({
             <span className="beacon-radar-dot" />
           </span>
           <span className="beacon-text">{networkLabel}</span>
-          <span className="beacon-speed">400ms</span>
         </div>
 
         {/* User Profile Menu */}
@@ -197,7 +193,7 @@ export function TopBar({
             type="button"
             className="user-avatar-trigger"
             onClick={() => setUserMenuOpen(!userMenuOpen)}
-            aria-label="User profile menu"
+            aria-label="Account menu"
           >
             <div className="avatar-circle">
               {userLabel.slice(0, 2).toUpperCase()}
@@ -228,7 +224,7 @@ export function TopBar({
                     style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "none", border: "none", color: "var(--on-surface)", cursor: "pointer", borderRadius: "6px" }}
                   >
                     <Keyboard size={14} />
-                    <span style={{ fontSize: "0.85rem" }}>Shortcuts</span>
+                    <span style={{ fontSize: "0.85rem" }}>Keyboard shortcuts</span>
                     <kbd className="cmd-k-badge" style={{ marginLeft: "auto" }}>?</kbd>
                   </button>
                 </>

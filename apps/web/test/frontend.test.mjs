@@ -602,5 +602,33 @@ test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollb
   assert.match(globalsCss, /\.threat-anomaly-card/);
 });
 
+test("Navigation is a labeled, grouped sidebar with plain-language names and a mobile drawer", async () => {
+  const [navigation, topBar, globalsCss] = await Promise.all([
+    readFile(new URL("../src/navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/TopBar.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
+  ]);
 
+  // Grouped, labeled navigation instead of an icon-only rail
+  assert.match(navigation, /tenantNavGroups/);
+  assert.match(navigation, /adminNavGroups/);
+  assert.match(navigation, /sidebar-group-label/);
+  assert.match(navigation, /aria-current/);
+  for (const label of ["Agents", "Spending rules", "Test rules", "Approvals", "Treasury", "Activity", "Organizations", "Payments"]) {
+    assert.match(navigation, new RegExp(`label: "${label}"`));
+  }
+
+  // No protocol or jargon terms in navigation labels
+  assert.doesNotMatch(navigation, /label: "(Fleet|Quorum|Simulator|Reconciliation|Billing ledger)"/);
+
+  // Collapsible with persistence, and an off-canvas drawer on small screens
+  assert.match(navigation, /agentguard-sidebar-collapsed/);
+  assert.match(navigation, /TOGGLE_NAV_EVENT/);
+  assert.match(topBar, /top-bar-menu-btn/);
+  assert.match(globalsCss, /\.sidebar\.is-open/);
+  assert.match(globalsCss, /@media \(max-width: 860px\)/);
+
+  // Top bar no longer shows raw chain timing
+  assert.doesNotMatch(topBar, /beacon-speed/);
+});
 

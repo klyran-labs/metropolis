@@ -857,3 +857,13 @@ All 4 phases of the Usability, Ergonomics & Operator Clarity rollout have been i
 - Admin Ledger: chain ID column.
 
 **Tests:** assertions that pinned old jargon now pin the new wording; structural, hook and API checks are unchanged. Root `npm test` 70/70, web 20/20, `npm run build:all` clean.
+
+---
+
+## 19. Navigation & Shell Redesign (Production Flow)
+
+- **Sidebar** replaces the icon-only rail: labeled and grouped (Agents, Spending, Money, Insights; admin: Customers, Revenue), Settings pinned at the bottom, collapses to icons (persisted), becomes an off-canvas drawer under 860px.
+- **Names** now match across sidebar, page titles, breadcrumbs, command palette and shortcuts: Home, Agents, Merchants, Spending rules, Test rules, Approvals, Treasury, Billing, Activity, Settings; admin: Home, Organizations, Subscriptions, Plans, Payments, Payment checks, Revenue, Team. Route paths are unchanged.
+- **Top bar:** breadcrumbs with plain section names, contextual "New agent" (tenant only), "Search or jump to…", "Assistant", account menu; raw chain timing removed; mobile menu button and compact layout.
+- **Home:** "Get started" card with progress and a Start action per step replaces the pill checklist.
+- **Activity:** event names shown as plain labels (`eventLabel` in `copy.ts`).

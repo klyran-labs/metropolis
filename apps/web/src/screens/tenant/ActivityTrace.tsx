@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useTelemetryEvents, useAgents, type TelemetryEvent, type ThreatAnomaly } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField, truncateMiddle } from "../../design-system";
+import { eventLabel } from "../../copy";
 import { useIdentity } from "../../identity";
 import { configuration, networkLabel } from "../../configuration";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
@@ -811,7 +812,7 @@ export function ActivityTrace() {
                       className={`clickable-row ${isSelected ? "row-selected" : ""}`}
                       onClick={() => setSelectedEvent(ev)}
                       tabIndex={0}
-                      aria-label={`Inspect ${ev.eventName} event`}
+                      aria-label={`Inspect ${eventLabel(ev.eventName)}`}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
@@ -827,7 +828,7 @@ export function ActivityTrace() {
                       <td>
                         <div className="event-name-cell">
                           <span className="event-dot" />
-                          <strong>{ev.eventName}</strong>
+                          <strong>{eventLabel(ev.eventName)}</strong>
                         </div>
                       </td>
                       <td>
@@ -892,7 +893,7 @@ export function ActivityTrace() {
                 </div>
                 <div>
                   <div className="inspector-address-row">
-                    <h3>Payment details: {selectedEvent.eventName}</h3>
+                    <h3>{eventLabel(selectedEvent.eventName)}</h3>
                   </div>
                   <div className="inspector-tags">
                     <Badge tone="success">Block #{selectedEvent.blockNumber}</Badge>

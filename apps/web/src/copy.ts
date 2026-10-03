@@ -58,3 +58,20 @@ export function trustScoreLabel(score: number | null | undefined): string {
   if (score >= 40) return "Medium";
   return "Low";
 }
+
+const EVENT_LABELS: Record<string, string> = {
+  payment_cleared: "Payment approved",
+  policy_evaluated: "Rule check",
+  circuit_tripped: "Agent paused",
+  circuit_reset: "Agent resumed",
+  policy_updated: "Rules changed",
+};
+
+/** Plain label for an activity event name such as `payment_cleared`. */
+export function eventLabel(eventName: string | null | undefined): string {
+  if (!eventName) return "Activity";
+  const known = EVENT_LABELS[eventName.toLowerCase()];
+  if (known) return known;
+  const spaced = eventName.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}

@@ -42,8 +42,8 @@ export function AdminTenants() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Tenants</h1>
-          <p>Provision organizations and monitor lifecycle state.</p>
+          <h1>Organizations</h1>
+          <p>Add customers and see who is active.</p>
         </div>
       </header>
       <Surface>

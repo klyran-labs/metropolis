@@ -1,167 +1,267 @@
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  BarChart3,
+  Activity,
+  Bot,
   Building2,
+  CheckCheck,
+  ChevronsLeft,
+  ChevronsRight,
   CreditCard,
+  Home,
   Landmark,
-  LayoutDashboard,
-  ListTree,
-  LogOut,
+  PlayCircle,
   Receipt,
+  ReceiptText,
   Scale,
   Settings2,
   ShieldCheck,
-  UsersRound,
-  Wallet,
-  Sparkles,
-  HelpCircle,
-  PlayCircle,
-  Radio,
+  ShieldQuestion,
   Store,
-  CheckCheck,
+  TrendingUp,
+  UsersRound,
+  X,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { configuration, networkLabel } from "./configuration";
-import { Badge, Mono, ThemeToggle, roleLabel, truncateMiddle } from "./design-system";
+import { configuration } from "./configuration";
 import { useIdentity } from "./identity";
 
 export type NavItemDef = {
   to: string;
   label: string;
   icon: ReactNode;
-  badge?: string;
+  hint?: string;
 };
 
-export const tenantNavItems: NavItemDef[] = [
-  { to: "/app/overview", label: "Overview", icon: <LayoutDashboard size={19} /> },
-  { to: "/app/fleet", label: "Fleet", icon: <ListTree size={19} /> },
-  { to: "/app/policy", label: "Policy", icon: <ShieldCheck size={19} /> },
-  { to: "/app/simulator", label: "Simulator", icon: <PlayCircle size={19} />, badge: "Dry-Run" },
-  { to: "/app/activity", label: "Activity", icon: <Radio size={19} />, badge: "Live" },
-  { to: "/app/merchants", label: "Merchants", icon: <Store size={19} /> },
-  { to: "/app/quorum", label: "Approvals", icon: <UsersRound size={19} /> },
-  { to: "/app/treasury", label: "Treasury", icon: <Landmark size={19} /> },
-  { to: "/app/billing", label: "Billing", icon: <CreditCard size={19} /> },
-  { to: "/app/settings", label: "Settings", icon: <Settings2 size={19} /> },
-];
-
-export const adminNavItems: NavItemDef[] = [
-  { to: "/admin/overview", label: "Overview", icon: <LayoutDashboard size={19} /> },
-  { to: "/admin/tenants", label: "Tenants", icon: <Building2 size={19} /> },
-  { to: "/admin/plans", label: "Plans", icon: <Scale size={19} /> },
-  { to: "/admin/subscriptions", label: "Subscriptions", icon: <Receipt size={19} /> },
-  { to: "/admin/billing", label: "Billing ledger", icon: <Wallet size={19} /> },
-  { to: "/admin/reconciliation", label: "Reconciliation", icon: <BarChart3 size={19} /> },
-  { to: "/admin/revenue", label: "Revenue", icon: <CreditCard size={19} /> },
-  { to: "/admin/access", label: "Access", icon: <UsersRound size={19} /> },
-];
-
-export function SlimIconRail({
-  items,
-  area,
-}: {
+export type NavGroupDef = {
+  label?: string;
   items: NavItemDef[];
-  area: "app" | "admin";
+};
+
+const ICON = 18;
+
+export const tenantNavGroups: NavGroupDef[] = [
+  {
+    items: [{ to: "/app/overview", label: "Home", icon: <Home size={ICON} />, hint: "Your agents and spending at a glance" }],
+  },
+  {
+    label: "Agents",
+    items: [
+      { to: "/app/fleet", label: "Agents", icon: <Bot size={ICON} />, hint: "Create, pause and manage agents" },
+      { to: "/app/merchants", label: "Merchants", icon: <Store size={ICON} />, hint: "Who your agents may pay" },
+    ],
+  },
+  {
+    label: "Spending",
+    items: [
+      { to: "/app/policy", label: "Spending rules", icon: <ShieldCheck size={ICON} />, hint: "Limits and safety controls" },
+      { to: "/app/simulator", label: "Test rules", icon: <PlayCircle size={ICON} />, hint: "Try a payment before it's real" },
+      { to: "/app/quorum", label: "Approvals", icon: <CheckCheck size={ICON} />, hint: "Transfers that need a signature" },
+    ],
+  },
+  {
+    label: "Money",
+    items: [
+      { to: "/app/treasury", label: "Treasury", icon: <Landmark size={ICON} />, hint: "Wallets and funding" },
+      { to: "/app/billing", label: "Billing", icon: <CreditCard size={ICON} />, hint: "Your plan and receipts" },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [{ to: "/app/activity", label: "Activity", icon: <Activity size={ICON} />, hint: "Every payment and why" }],
+  },
+];
+
+export const tenantFooterItems: NavItemDef[] = [
+  { to: "/app/settings", label: "Settings", icon: <Settings2 size={ICON} />, hint: "Team, access and pricing" },
+];
+
+export const adminNavGroups: NavGroupDef[] = [
+  {
+    items: [{ to: "/admin/overview", label: "Home", icon: <Home size={ICON} />, hint: "Platform at a glance" }],
+  },
+  {
+    label: "Customers",
+    items: [
+      { to: "/admin/tenants", label: "Organizations", icon: <Building2 size={ICON} />, hint: "Add and manage customers" },
+      { to: "/admin/subscriptions", label: "Subscriptions", icon: <Receipt size={ICON} />, hint: "Who is on which plan" },
+    ],
+  },
+  {
+    label: "Revenue",
+    items: [
+      { to: "/admin/plans", label: "Plans", icon: <Scale size={ICON} />, hint: "Pricing tiers" },
+      { to: "/admin/billing", label: "Payments", icon: <ReceiptText size={ICON} />, hint: "Every payment and refund" },
+      { to: "/admin/reconciliation", label: "Payment checks", icon: <ShieldQuestion size={ICON} />, hint: "Anything that needs review" },
+      { to: "/admin/revenue", label: "Revenue", icon: <TrendingUp size={ICON} />, hint: "Revenue over time" },
+    ],
+  },
+];
+
+export const adminFooterItems: NavItemDef[] = [
+  { to: "/admin/access", label: "Team", icon: <UsersRound size={ICON} />, hint: "Who can manage the platform" },
+];
+
+export const tenantNavItems: NavItemDef[] = [...tenantNavGroups.flatMap((g) => g.items), ...tenantFooterItems];
+export const adminNavItems: NavItemDef[] = [...adminNavGroups.flatMap((g) => g.items), ...adminFooterItems];
+
+export const TOGGLE_NAV_EVENT = "agentguard:toggle-nav";
+
+const COLLAPSE_KEY = "agentguard-sidebar-collapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCollapsed(value: boolean) {
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, value ? "1" : "0");
+  } catch {
+    // storage unavailable; collapsed state just won't persist
+  }
+}
+
+function NavLink({
+  item,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItemDef;
+  collapsed: boolean;
+  onNavigate: () => void;
 }) {
-  const identity = useIdentity();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-
+  const isActive = pathname.startsWith(item.to);
   return (
-    <aside className="slim-icon-rail" aria-label="Main Navigation">
-      {/* Brand Mark */}
-      <div className="rail-top">
-        <Link to={area === "app" ? "/app/overview" : "/admin/overview"} className="rail-brand-mark" title={configuration.brand}>
-          <span className="brand-letter">A</span>
-        </Link>
-      </div>
-
-      {/* Primary Icon Stack */}
-      <nav className="rail-nav" aria-label="Navigation Items">
-        {items.map((item) => {
-          const isActive = pathname.startsWith(item.to);
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={`rail-nav-btn ${isActive ? "active" : ""}`}
-              title={item.label}
-              aria-label={item.label}
-            >
-              <span className="rail-icon-wrapper">
-                {item.icon}
-              </span>
-              <span className="rail-tooltip">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Rail Bottom Actions */}
-      <div className="rail-bottom">
-        <div className="rail-action-btn" title="Theme">
-          <ThemeToggle />
-        </div>
-        <button
-          type="button"
-          className="rail-nav-btn rail-logout-btn"
-          onClick={() => void identity.logout()}
-          title="Sign out"
-          aria-label="Sign out"
-        >
-          <LogOut size={17} />
-          <span className="rail-tooltip">Sign out</span>
-        </button>
-      </div>
-    </aside>
+    <Link
+      to={item.to}
+      className={`sidebar-link ${isActive ? "active" : ""}`}
+      aria-current={isActive ? "page" : undefined}
+      title={collapsed ? item.label : item.hint}
+      onClick={onNavigate}
+    >
+      <span className="sidebar-link-icon">{item.icon}</span>
+      <span className="sidebar-link-label">{item.label}</span>
+    </Link>
   );
 }
 
-export function SubheaderTabs({
-  items,
+function Sidebar({
+  groups,
+  footerItems,
+  area,
+  contextLabel,
 }: {
-  items: NavItemDef[];
+  groups: NavGroupDef[];
+  footerItems: NavItemDef[];
+  area: "app" | "admin";
+  contextLabel: string;
 }) {
+  const identity = useIdentity();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const toggle = () => setDrawerOpen((open) => !open);
+    window.addEventListener(TOGGLE_NAV_EVENT, toggle);
+    return () => window.removeEventListener(TOGGLE_NAV_EVENT, toggle);
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      writeCollapsed(!current);
+      return !current;
+    });
+  };
+
+  const workspaceName = area === "app" ? identity.tenantName || "Your workspace" : "Platform";
+
   return (
-    <nav className="subheader-tabs-bar" aria-label="Sub-navigation">
-      <div className="subheader-tabs-list">
-        {items.map((item) => {
-          const isActive = pathname.startsWith(item.to);
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={`subheader-tab-link ${isActive ? "active" : ""}`}
-            >
-              {item.label}
-              {item.badge && <span className="tab-badge">{item.badge}</span>}
-            </Link>
-          );
-        })}
-      </div>
-      <div className="subheader-epoch-info">
-        <span className="epoch-pill">
-          <span className="epoch-dot" />
-          Live
-        </span>
-      </div>
-    </nav>
+    <>
+      {drawerOpen && <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
+      <aside
+        className={`sidebar ${collapsed ? "is-collapsed" : ""} ${drawerOpen ? "is-open" : ""}`}
+        aria-label="Main navigation"
+      >
+        <div className="sidebar-header">
+          <Link
+            to={area === "app" ? "/app/overview" : "/admin/overview"}
+            className="sidebar-brand"
+            title={configuration.brand}
+          >
+            <span className="rail-brand-mark">
+              <span className="brand-letter">A</span>
+            </span>
+            <span className="sidebar-brand-text">
+              <strong>{configuration.brand}</strong>
+              <small>{workspaceName}</small>
+            </span>
+          </Link>
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => setDrawerOpen(false)}
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <nav className="sidebar-nav" aria-label={contextLabel}>
+          {groups.map((group, index) => (
+            <div className="sidebar-group" key={group.label ?? `group-${index}`}>
+              {group.label && <div className="sidebar-group-label">{group.label}</div>}
+              {group.items.map((item) => (
+                <NavLink key={item.to} item={item} collapsed={collapsed} onNavigate={() => setDrawerOpen(false)} />
+              ))}
+            </div>
+          ))}
+        </nav>
+
+        <div className="sidebar-footer">
+          {footerItems.map((item) => (
+            <NavLink key={item.to} item={item} collapsed={collapsed} onNavigate={() => setDrawerOpen(false)} />
+          ))}
+          <button
+            type="button"
+            className="sidebar-link sidebar-collapse-btn"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+            title={collapsed ? "Expand menu" : "Collapse menu"}
+          >
+            <span className="sidebar-link-icon">
+              {collapsed ? <ChevronsRight size={ICON} /> : <ChevronsLeft size={ICON} />}
+            </span>
+            <span className="sidebar-link-label">Collapse</span>
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }
 
 export function TenantNav() {
-  return (
-    <>
-      <SlimIconRail items={tenantNavItems} area="app" />
-    </>
-  );
+  return <Sidebar groups={tenantNavGroups} footerItems={tenantFooterItems} area="app" contextLabel="Workspace" />;
 }
 
 export function AdminNav() {
-  return (
-    <>
-      <SlimIconRail items={adminNavItems} area="admin" />
-    </>
-  );
+  return <Sidebar groups={adminNavGroups} footerItems={adminFooterItems} area="admin" contextLabel="Platform" />;
 }

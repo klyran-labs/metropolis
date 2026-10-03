@@ -714,8 +714,8 @@ export function Policy() {
     <div className="stack">
       <header className="page-heading policy-clean-header">
         <div>
-          <span className="eyebrow">Spending rules</span>
-          <h1>Policy</h1>
+          <span className="eyebrow">Agents</span>
+          <h1>Spending rules</h1>
           <p>
             Set spending limits and safety controls for your agents.
           </p>

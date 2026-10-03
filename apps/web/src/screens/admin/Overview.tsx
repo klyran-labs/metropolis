@@ -44,7 +44,7 @@ export function AdminOverview() {
     <div className="dashboard-stack">
       <header className="dashboard-header">
         <div>
-          <h1>Overview</h1>
+          <h1>Home</h1>
           <p>Tenants, revenue, and subscription health across the platform.</p>
         </div>
       </header>

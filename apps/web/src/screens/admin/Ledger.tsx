@@ -48,7 +48,7 @@ export function AdminLedger() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Payment history</h1>
+          <h1>Payments</h1>
           <p>Confirmed payments and refunds, with receipts.</p>
         </div>
       </header>

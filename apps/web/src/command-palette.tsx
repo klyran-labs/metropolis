@@ -81,7 +81,7 @@ export function CommandPalette({
       {
         id: "nav-overview",
         category: "Navigation",
-        label: "Go to Flight Deck Overview",
+        label: "Go to Home",
         detail: "Live solvency gauge, spend velocity, and threat telemetry",
         icon: Radio,
         action: () => {
@@ -93,7 +93,7 @@ export function CommandPalette({
       {
         id: "nav-fleet",
         category: "Navigation",
-        label: "Go to Fleet Operations",
+        label: "Go to Agents",
         detail: "Your agents, wallets, and pause controls",
         icon: Bot,
         action: () => {
@@ -105,8 +105,8 @@ export function CommandPalette({
       {
         id: "nav-policy",
         category: "Navigation",
-        label: "Go to Policy Engine",
-        detail: "EVM risk bounds, velocity caps, and approved targets",
+        label: "Go to Spending rules",
+        detail: "Limits, payment rates, and approved merchants",
         icon: ShieldAlert,
         action: () => {
           void navigate({ to: "/app/policy" });
@@ -117,7 +117,7 @@ export function CommandPalette({
       {
         id: "nav-simulator",
         category: "Navigation",
-        label: "Go to Policy What-If Simulator",
+        label: "Go to Test rules",
         detail: "Try a payment against your spending rules",
         icon: PlayCircle,
         action: () => {
@@ -129,8 +129,8 @@ export function CommandPalette({
       {
         id: "nav-activity",
         category: "Navigation",
-        label: "Go to Live Spend Waterfall & Trace Explorer",
-        detail: "Sub-second streaming settlement traces and failure post-mortems",
+        label: "Go to Activity",
+        detail: "Every payment and why it was approved or blocked",
         icon: Radio,
         action: () => {
           void navigate({ to: "/app/activity" });
@@ -141,7 +141,7 @@ export function CommandPalette({
       {
         id: "nav-merchants",
         category: "Navigation",
-        label: "Go to Approved Merchant & Paywall Directory",
+        label: "Go to Merchants",
         detail: "Merchants your agents are allowed to pay",
         icon: Store,
         action: () => {
@@ -165,8 +165,8 @@ export function CommandPalette({
       {
         id: "nav-treasury",
         category: "Navigation",
-        label: "Go to Treasury & Float Custody",
-        detail: "Deposit capital, manage timelocked withdrawals, and relayer floats",
+        label: "Go to Treasury",
+        detail: "Wallets, funding and network fees",
         icon: Wallet,
         action: () => {
           void navigate({ to: "/app/treasury" });
@@ -177,8 +177,8 @@ export function CommandPalette({
       {
         id: "nav-billing",
         category: "Navigation",
-        label: "Go to Billing & Rate Cards",
-        detail: "Tiered volume discounts and committed-use reservations",
+        label: "Go to Billing",
+        detail: "Your plan, receipts and AI pricing",
         icon: CreditCard,
         action: () => {
           void navigate({ to: "/app/billing" });
@@ -189,8 +189,8 @@ export function CommandPalette({
       {
         id: "nav-settings",
         category: "Navigation",
-        label: "Go to Workspace Settings",
-        detail: "IAM access roles, SSO federation, and API keys",
+        label: "Go to Settings",
+        detail: "Team, access rules and credentials",
         icon: Settings,
         action: () => {
           void navigate({ to: "/app/settings" });
@@ -204,7 +204,7 @@ export function CommandPalette({
             {
               id: "nav-admin-overview",
               category: "Platform Admin" as const,
-              label: "Go to Platform Administration Overview",
+              label: "Go to Platform home",
               detail: "Organizations, payments, and plans",
               icon: Shield,
               action: () => {
@@ -216,8 +216,8 @@ export function CommandPalette({
             {
               id: "nav-admin-tenants",
               category: "Platform Admin" as const,
-              label: "Admin: Tenant Organization Registry",
-              detail: "Manage tenant organizations, risk tiers, and spending authority",
+              label: "Go to Organizations",
+              detail: "Add and manage customer organizations",
               icon: Building2,
               action: () => {
                 void navigate({ to: "/admin/tenants" });
@@ -231,8 +231,8 @@ export function CommandPalette({
       {
         id: "ai-copilot",
         category: "AI Copilot",
-        label: "Launch AI Risk Copilot",
-        detail: "Natural language policy compilation & denial diagnostics",
+        label: "Open the assistant",
+        detail: "Describe an agent in plain words and get spending rules",
         icon: Sparkles,
         action: () => {
           onClose();
@@ -244,7 +244,7 @@ export function CommandPalette({
       {
         id: "theme-toggle",
         category: "System",
-        label: "Toggle Visual Theme (Light / Dark)",
+        label: "Switch light / dark theme",
         detail: "Switch between high-contrast dark mode and daylight theme",
         icon: Sun,
         action: () => {
@@ -259,7 +259,7 @@ export function CommandPalette({
       {
         id: "sys-shortcuts",
         category: "System",
-        label: "View Keyboard Shortcuts Reference",
+        label: "Show keyboard shortcuts",
         detail: "Institutional hotkeys for high-velocity fleet operations",
         icon: Keyboard,
         action: () => {
@@ -272,7 +272,7 @@ export function CommandPalette({
       {
         id: "action-provision-agent",
         category: "Fleet Actions",
-        label: "Provision New Autonomous Agent",
+        label: "Create an agent",
         detail: "Create a new agent with its own wallet and spending limits",
         icon: Sparkles,
         action: () => {
@@ -359,7 +359,7 @@ export function CommandPalette({
             aria-autocomplete="list"
             aria-controls="command-palette-results"
             className="command-palette-input"
-            placeholder="Search commands, navigate screens, or inspect agents… (Esc to close)"
+            placeholder="Search pages and actions…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);

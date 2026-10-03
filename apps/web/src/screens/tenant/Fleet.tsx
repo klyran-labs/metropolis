@@ -703,7 +703,7 @@ export function Fleet() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Fleet</h1>
+          <h1>Agents</h1>
           <p>Autonomous agents registered to your organization.</p>
         </div>
         <div className="page-heading-actions">

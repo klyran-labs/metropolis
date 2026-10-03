@@ -50,7 +50,7 @@ export function AdminPlans() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <h1>Plans & Pricing</h1>
+          <h1>Plans</h1>
           <p>Publish and manage subscription pricing tiers.</p>
         </div>
       </header>
