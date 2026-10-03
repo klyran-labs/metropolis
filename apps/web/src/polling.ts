@@ -15,3 +15,4 @@ export const POLL = {
   /** Background "needs attention" signals (sidebar badge, Home). */
   attention: 20_000,
 } as const;
+

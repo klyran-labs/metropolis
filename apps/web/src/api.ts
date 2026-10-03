@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import type { QueryClient } from "@tanstack/react-query";
 import { configuration } from "./configuration";
 import { POLL } from "./polling";
+import { pollInterval } from "./realtime";
 
 export type Agent = {
   address: string;
@@ -457,6 +458,10 @@ export function toUserFacingError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Current access token for requests that cannot go through `request` (for example the event stream). */
+export const getAccessToken = (): Promise<string | null> =>
+  accessTokenProvider?.() ?? Promise.resolve(null);
+
 export const setAccessTokenProvider = (
   provider: () => Promise<string | null>,
 ) => {
@@ -787,7 +792,7 @@ export const usePendingApprovals = (enabled: boolean) =>
       request<PendingApprovalsPage>(`/wallet-transfers/pending?limit=${PENDING_APPROVALS_PAGE_SIZE}`, { signal }),
     enabled,
     retry: false,
-    refetchInterval: POLL.attention,
+    refetchInterval: pollInterval(POLL.attention),
   });
 
 /** Every page, for the Approvals screen ("Show more" fetches the next cursor). */
@@ -803,7 +808,7 @@ export const useInfinitePendingApprovals = (enabled: boolean) =>
     getNextPageParam: (last) => (last.hasMore ? last.nextCursor : undefined),
     enabled,
     retry: false,
-    refetchInterval: POLL.attention,
+    refetchInterval: pollInterval(POLL.attention),
   });
 
 export const useApproveWalletTransfer = (onSuccess: () => void) => {
@@ -1078,7 +1083,7 @@ export function useSettlementOutbox(statusFilter?: string, enabled = true) {
       return request<SettlementOutboxResponse>(`/v1/settlement/outbox${query}`);
     },
     enabled,
-    refetchInterval: POLL.live,
+    refetchInterval: pollInterval(POLL.live),
   });
 }
 
@@ -1137,7 +1142,7 @@ export function useRelayerPoolStats(enabled = true) {
     queryKey: ["settlement-relayers"],
     queryFn: () => request<RelayerPoolStats>("/v1/settlement/relayers"),
     enabled,
-    refetchInterval: POLL.live,
+    refetchInterval: pollInterval(POLL.live),
   });
 }
 
@@ -1155,7 +1160,7 @@ export function useMevRelayStats(enabled = true) {
     queryKey: ["settlement-mev-stats"],
     queryFn: () => request<MevRelayStats>("/v1/settlement/mev-stats"),
     enabled,
-    refetchInterval: POLL.live,
+    refetchInterval: pollInterval(POLL.live),
   });
 }
 
@@ -1202,7 +1207,7 @@ export function useAgentLiveness(agent: string, enabled = true) {
     queryKey: ["agent-liveness", agent],
     queryFn: () => request<AgentLivenessStatus>(`/v1/agent/${agent}/heartbeat`),
     enabled: Boolean(agent && enabled),
-    refetchInterval: POLL.normal,
+    refetchInterval: pollInterval(POLL.normal),
   });
 }
 
@@ -1235,7 +1240,7 @@ export function useEdgeTopology(enabled = true) {
     queryKey: ["edge-topology"],
     queryFn: () => request<EdgeTopologyResponse>("/v1/edge/topology"),
     enabled,
-    refetchInterval: POLL.fast,
+    refetchInterval: pollInterval(POLL.fast),
   });
 }
 

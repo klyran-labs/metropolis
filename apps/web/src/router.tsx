@@ -6,6 +6,7 @@ import { useIdentity } from "./identity";
 import { AdminNav, TenantNav } from "./navigation";
 import { TopBar } from "./components/TopBar";
 import { SkeletonRows } from "./design-system";
+import { useRealtimeSync } from "./hooks/useRealtimeSync";
 import { CommandPalette } from "./command-palette";
 import { AICopilot } from "./components/AICopilot";
 import { ToastProvider } from "./components/UndoToast";
@@ -242,6 +243,7 @@ function OnboardingScreen() {
 
 function AppLayout() {
   const identity = useIdentity();
+  useRealtimeSync(Boolean(identity.authenticated) && !identity.needsOnboarding);
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);

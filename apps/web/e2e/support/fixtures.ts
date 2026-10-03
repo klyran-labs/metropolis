@@ -160,7 +160,11 @@ export const contractSamples = (scenario: Scenario = defaultScenario()): Record<
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-export async function installGateway(page: Page, scenario: Scenario = defaultScenario()) {
+export async function installGateway(
+  page: Page,
+  scenario: Scenario = defaultScenario(),
+  options: { streamUrl?: string } = {},
+) {
   const approved = new Set<string>();
 
   // On-chain reads are not part of these tests; fail fast so screens show their empty states.
@@ -171,6 +175,10 @@ export async function installGateway(page: Page, scenario: Scenario = defaultSce
     const path = url.pathname.replace(/^\/api\/v1/, "");
     const method = route.request().method();
 
+    if (path === "/telemetry/stream") {
+      // Default: no push channel, so the UI falls back to polling. A test can point it at a real SSE server.
+      return options.streamUrl ? route.continue({ url: options.streamUrl }) : route.abort();
+    }
     if (/^\/users\/.+\/role$/.test(path)) return json(route, { role: scenario.role, org_id: ORG_ID, tenant_name: "Acme Robotics" });
     if (path === "/agents") return json(route, agents);
     if (path === "/organization/wallets") return json(route, { wallets });

@@ -57,6 +57,8 @@ pub struct AppState {
     pub bundle_relay: crate::bundle_relay::BundleRelayManager,
     pub heartbeat_manager: crate::heartbeat::HeartbeatManager,
     pub edge_sequencer: crate::edge_sequencer::EdgeSequencerManager,
+    /// Bounds unauthenticated browser telemetry (web vitals, CSP reports) per client.
+    pub intake_limiter: crate::intake::IntakeLimiter,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -73,6 +75,30 @@ pub async fn authentication_middleware(
     };
     request.extensions_mut().insert(context);
     next.run(request).await
+}
+
+/// After a successful mutation, tells connected clients of the organization what changed so they
+/// can refetch immediately instead of waiting for their next poll.
+pub async fn ui_change_middleware(
+    State(state): State<SharedState>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let org_id = request
+        .extensions()
+        .get::<RequestContext>()
+        .map(|context| context.tenant.org_id.clone());
+    let response = next.run(request).await;
+    if let (true, Some(org_id)) = (response.status().is_success(), org_id) {
+        for kind in crate::telemetry::ui_change_kinds(&method, &path) {
+            state
+                .events
+                .publish(crate::telemetry::GatewayEvent::ui_change(&org_id, kind));
+        }
+    }
+    response
 }
 
 pub async fn onboarding_authentication_middleware(

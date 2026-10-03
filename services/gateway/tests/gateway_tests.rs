@@ -704,3 +704,78 @@ fn approvals_cursor_round_trips_and_rejects_garbage() {
     assert!(decode_approvals_cursor("bm9waXBl").is_none()); // "nopipe"
     assert!(decode_approvals_cursor("").is_none());
 }
+
+#[test]
+fn ui_change_events_follow_mutations_and_stay_in_their_organization() {
+    use agentguard_gateway::telemetry::{EventHub, GatewayEvent, ui_change_kinds};
+    use http::Method;
+
+    // Approving or submitting a transfer, or loading/unloading an agent, changes approvals,
+    // transfers and wallet balances.
+    for path in [
+        "/api/v1/wallet-transfers/abc/approve",
+        "/api/v1/wallet-transfers/abc/submit",
+        "/api/v1/agents/0x1/load",
+        "/api/v1/agents/0x1/unload/",
+    ] {
+        assert_eq!(
+            ui_change_kinds(&Method::POST, path),
+            &["approvals_changed", "transfers_changed", "wallets_changed"],
+            "{path}"
+        );
+    }
+    assert_eq!(
+        ui_change_kinds(&Method::POST, "/api/v1/organization/wallets"),
+        &["wallets_changed"]
+    );
+    assert_eq!(
+        ui_change_kinds(&Method::DELETE, "/api/v1/organization/wallets/w1/access"),
+        &["wallets_changed"]
+    );
+    assert_eq!(
+        ui_change_kinds(&Method::POST, "/api/v1/agents"),
+        &["agents_changed"]
+    );
+
+    // Reads and unrelated writes publish nothing.
+    assert!(ui_change_kinds(&Method::GET, "/api/v1/wallet-transfers/pending").is_empty());
+    assert!(ui_change_kinds(&Method::GET, "/api/v1/agents").is_empty());
+    assert!(ui_change_kinds(&Method::POST, "/api/v1/policies/pbac").is_empty());
+    assert!(ui_change_kinds(&Method::POST, "/health").is_empty());
+
+    // The SSE data is plain JSON an EventSource-style client can parse directly.
+    let event = GatewayEvent::ui_change("org-a", "approvals_changed");
+    let parsed: serde_json::Value = serde_json::from_str(&event.sse_data()).expect("plain JSON");
+    assert_eq!(parsed["event_type"], "approvals_changed");
+    assert_eq!(parsed["org_id"], "org-a");
+
+    // Subscribers only see their own organization's events.
+    let hub = EventHub::new();
+    let mut receiver = hub.subscribe();
+    hub.publish(GatewayEvent::ui_change("org-a", "approvals_changed"));
+    hub.publish(GatewayEvent::ui_change("org-b", "wallets_changed"));
+    let first = receiver.try_recv().expect("first event");
+    let second = receiver.try_recv().expect("second event");
+    assert_eq!(first.org_id.as_deref(), Some("org-a"));
+    assert_eq!(second.org_id.as_deref(), Some("org-b"));
+}
+
+#[tokio::test]
+async fn tenant_stream_delivers_only_its_own_organizations_events() {
+    use agentguard_gateway::telemetry::{EventHub, GatewayEvent};
+    use futures_util::StreamExt;
+    use std::time::Duration;
+
+    let hub = EventHub::new();
+    let mut stream = hub.stream_for_tenant("org-a".to_string());
+    hub.publish(GatewayEvent::ui_change("org-b", "wallets_changed"));
+    hub.publish(GatewayEvent::ui_change("org-a", "approvals_changed"));
+
+    let delivered = tokio::time::timeout(Duration::from_millis(500), stream.next())
+        .await
+        .expect("org-a event arrives");
+    assert!(delivered.is_some());
+    // Nothing else is queued for org-a: the org-b event was filtered out.
+    let nothing = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
+    assert!(nothing.is_err(), "no further events for org-a");
+}

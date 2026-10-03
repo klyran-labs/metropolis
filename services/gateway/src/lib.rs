@@ -13,6 +13,7 @@ pub mod error;
 pub mod finops;
 pub mod handlers;
 pub mod heartbeat;
+pub mod intake;
 pub mod limits;
 pub mod nonce_sequencer;
 pub mod pbac;

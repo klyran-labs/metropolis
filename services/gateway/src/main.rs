@@ -31,9 +31,9 @@ use agentguard_gateway::{
         record_heartbeat_handler, register_agent_handler, register_organization_wallet_handler,
         retry_settlement_outbox_handler, revoke_api_key_handler, revoke_wallet_access_handler,
         rotate_api_key_handler, sign_approval_ticket_handler, submit_payment_handler,
-        submit_wallet_transfer_handler, telemetry_stream, update_tenant_pricing_model_handler,
-        update_user_role_handler, update_wallet_threshold_handler,
-        upsert_platform_operator_handler, verify_zk_spend_handler,
+        submit_wallet_transfer_handler, telemetry_stream, ui_change_middleware,
+        update_tenant_pricing_model_handler, update_user_role_handler,
+        update_wallet_threshold_handler, upsert_platform_operator_handler, verify_zk_spend_handler,
     },
     repository::PgRepository,
     telemetry::EventHub,
@@ -149,9 +149,19 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         bundle_relay: agentguard_gateway::bundle_relay::BundleRelayManager::default(),
         heartbeat_manager: agentguard_gateway::heartbeat::HeartbeatManager::new(),
         edge_sequencer: agentguard_gateway::edge_sequencer::EdgeSequencerManager::new(),
+        // 30 reports burst, refilling 60/minute per client, at most 10k tracked clients.
+        intake_limiter: agentguard_gateway::intake::IntakeLimiter::new(30, 60, 10_000),
     });
 
     let public = Router::new()
+        .route(
+            "/api/v1/telemetry/web-vitals",
+            axum::routing::post(agentguard_gateway::intake::web_vitals_handler),
+        )
+        .route(
+            "/api/v1/telemetry/csp-report",
+            axum::routing::post(agentguard_gateway::intake::csp_report_handler),
+        )
         .route("/health", get(health_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/ready", get(ready_handler))
@@ -392,6 +402,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/finops/sync",
             axum::routing::post(finops_sync_handler),
         )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ui_change_middleware,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             authorization_middleware,

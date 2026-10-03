@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { createServer, type ServerResponse } from "node:http";
 import { expect, test } from "@playwright/test";
 import { defaultScenario, installGateway, manyPending } from "./support/fixtures";
 
@@ -88,6 +89,55 @@ test.describe("approvals paging", () => {
     await page.getByRole("button", { name: "Show more (5 left)" }).click();
     await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(30);
     await expect(page.getByRole("button", { name: /Show more/ })).toHaveCount(0);
+  });
+});
+
+test.describe("push updates", () => {
+  test("a pushed event refreshes the badge without waiting for a poll", async ({ page }, testInfo) => {
+    // A real SSE endpoint that the test can push to.
+    const clients = new Set<ServerResponse>();
+    const server = createServer((request, response) => {
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Access-Control-Allow-Headers", "authorization, accept");
+      if (request.method === "OPTIONS") {
+        response.writeHead(204).end();
+        return;
+      }
+      response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      response.write(": connected\n\n");
+      clients.add(response);
+      request.on("close", () => clients.delete(response));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+    const push = (event: string) => clients.forEach((client) => client.write(`event: ${event}\ndata: {}\n\n`));
+
+    try {
+      const scenario = defaultScenario();
+      await installGateway(page, scenario, { streamUrl: `http://127.0.0.1:${port}/stream` });
+      await page.goto("/app/overview");
+      if (testInfo.project.name === "mobile") await page.getByRole("button", { name: "Open menu" }).click();
+      const badge = page.getByRole("link", { name: /Approvals/ }).locator(".sidebar-link-count");
+      await expect(badge).toHaveText("1");
+      await expect.poll(() => clients.size, { message: "client connected to the stream" }).toBeGreaterThan(0);
+
+      // Another operator creates a transfer that needs this operator's signature.
+      scenario.pending = [...scenario.pending, { ...scenario.pending[0], transferId: "88888888-8888-7888-8888-888888888888" }];
+      push("approvals_changed");
+
+      // The poll interval is 20s (60s while connected); this must arrive far sooner.
+      await expect(badge).toHaveText("2", { timeout: 4000 });
+    } finally {
+      clients.forEach((client) => client.end());
+      server.close();
+    }
+  });
+
+  test("without a push channel the UI still loads (polling fallback)", async ({ page }) => {
+    await installGateway(page); // stream aborted
+    await page.goto("/app/overview");
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Needs your attention" })).toContainText("1 transfer needs your approval");
   });
 });
 

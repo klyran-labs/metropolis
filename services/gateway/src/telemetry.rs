@@ -20,6 +20,62 @@ pub struct GatewayEvent {
     pub payload: Value,
 }
 
+/// UI change notifications published after a successful mutation. They carry no data beyond the
+/// kind: clients react by refetching the affected queries, so the stream never needs to be the
+/// source of truth and a missed event is repaired by the client's safety-net refetch.
+pub const UI_APPROVALS_CHANGED: &str = "approvals_changed";
+pub const UI_TRANSFERS_CHANGED: &str = "transfers_changed";
+pub const UI_WALLETS_CHANGED: &str = "wallets_changed";
+pub const UI_AGENTS_CHANGED: &str = "agents_changed";
+
+impl GatewayEvent {
+    pub fn ui_change(org_id: &str, kind: &str) -> Self {
+        Self {
+            event_type: kind.to_string(),
+            org_id: Some(org_id.to_string()),
+            agent: None,
+            chain_id: None,
+            block_number: None,
+            transaction_hash: None,
+            finalized: true,
+            payload: Value::Object(Default::default()),
+        }
+    }
+
+    /// The SSE `data:` line: the event as plain JSON.
+    pub fn sse_data(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+/// Which UI change events a successful request implies. `path` is the full request path.
+pub fn ui_change_kinds(method: &http::Method, path: &str) -> &'static [&'static str] {
+    let path = path.trim_end_matches('/');
+    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    let mutating = matches!(
+        *method,
+        http::Method::POST | http::Method::PUT | http::Method::PATCH | http::Method::DELETE
+    );
+    if !mutating || segments.len() < 3 || segments[0] != "api" || segments[1] != "v1" {
+        return &[];
+    }
+    match (segments[2], segments.get(3), segments.get(4)) {
+        ("wallet-transfers", Some(_), Some(&"approve" | &"submit")) => &[
+            UI_APPROVALS_CHANGED,
+            UI_TRANSFERS_CHANGED,
+            UI_WALLETS_CHANGED,
+        ],
+        ("agents", Some(_), Some(&"load" | &"unload")) => &[
+            UI_APPROVALS_CHANGED,
+            UI_TRANSFERS_CHANGED,
+            UI_WALLETS_CHANGED,
+        ],
+        ("organization", Some(&"wallets"), _) => &[UI_WALLETS_CHANGED],
+        ("agents", None, None) => &[UI_AGENTS_CHANGED],
+        _ => &[],
+    }
+}
+
 #[derive(Clone)]
 pub struct EventHub {
     sender: broadcast::Sender<GatewayEvent>,
@@ -47,12 +103,9 @@ impl EventHub {
             let org_id = org_id.clone();
             match result {
                 Ok(event) if event.org_id.as_deref() == Some(org_id.as_str()) => {
-                    let event_type = event.event_type.clone();
-                    let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
                     Some(Ok(Event::default()
-                        .event(event_type)
-                        .json_data(data)
-                        .unwrap_or_else(|_| Event::default().data("{}"))))
+                        .event(event.event_type.clone())
+                        .data(event.sse_data())))
                 }
                 Ok(_) => None,
                 Err(_) => Some(Ok(Event::default()

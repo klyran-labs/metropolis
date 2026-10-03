@@ -707,3 +707,27 @@ test("no fabricated data paths remain in screens", async () => {
   assert.doesNotMatch(combined, /zScore:\s*[0-9]/);
   assert.doesNotMatch(combined, /spendCapUsdc/);
 });
+
+test("push channel parses SSE, maps events to refetches, and relaxes polling only while connected", async () => {
+  const { parseSseChunk, keysForEvent, pollInterval, isRealtimeConnected } = await import("../src/realtime.ts");
+
+  // Complete events are returned; the unfinished tail stays in the buffer; comments are ignored.
+  const first = parseSseChunk(": hi\n\nevent: approvals_changed\ndata: {}\n\nevent: wallets_ch");
+  assert.deepEqual(first.events, [{ event: "approvals_changed", data: "{}" }]);
+  assert.equal(first.rest, "event: wallets_ch");
+  const second = parseSseChunk(first.rest + "anged\ndata: {}\n\n");
+  assert.deepEqual(second.events, [{ event: "wallets_changed", data: "{}" }]);
+  assert.deepEqual(parseSseChunk("event: x\r\ndata: a\r\ndata: b\r\n\r\n").events, [{ event: "x", data: "a\nb" }]);
+
+  // Change events refetch just what they affect; chain events and unknown types refetch the chain views.
+  assert.deepEqual(keysForEvent("approvals_changed"), [["pending-approvals"], ["wallet-transfers"]]);
+  assert.ok(keysForEvent("payment_cleared").some((key) => key[0] === "telemetry-events"));
+  assert.ok(keysForEvent("circuit_tripped").some((key) => key[0] === "agents"));
+  assert.equal(keysForEvent("telemetry_gap"), "all");
+
+  // Disconnected: the fallback interval. (Connected relaxes to a slow safety net; covered end to end by the UI suite.)
+  assert.equal(isRealtimeConnected(), false);
+  assert.equal(pollInterval(3000)(), 3000);
+  assert.equal(pollInterval(20000)(), 20000);
+});
+

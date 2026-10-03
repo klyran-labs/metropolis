@@ -32,6 +32,12 @@ The event worker polls the configured Monad RPC for events emitted by the deploy
 
 Events are deduplicated by `(chain_id, transaction_hash, log_index)`. The worker stores a checkpoint and rewinds a bounded range when the checkpoint block hash changes. Only finalized events are published to `/api/v1/telemetry/stream`, and the SSE stream filters by the authenticated organization.
 
+### Live UI updates and browser telemetry
+
+* The same stream carries `ui_*` change notifications published after successful mutating requests (approvals, transfers, wallets, agents). They contain only the kind; the web app invalidates the matching queries and refetches through authorized endpoints, so no tenant data travels on the stream. While the stream is connected the app polls only as a 60-second safety net; when it drops, normal polling resumes automatically.
+* Reverse proxies must not buffer or time out `/api/v1/telemetry/stream` (`proxy_buffering off`, long `proxy_read_timeout`).
+* `POST /api/v1/telemetry/web-vitals` and `/csp-report` are unauthenticated by necessity (browsers send CSP reports without credentials). They are bounded by an 8 KiB body limit, a per-client token bucket (30 burst, 60/minute, 10,000 tracked clients), a metric-name whitelist, control-character stripping and URL reduction to path/origin. Search logs by target `web_vitals`, `web_errors` or `csp`; a spike of `csp` records after a deploy usually means a new third-party origin that must be reviewed before it is allowed.
+
 If RPC ingestion or PostgreSQL is unavailable, the service remains alive but readiness fails and no fabricated telemetry is emitted.
 
 ## x402 policy path
