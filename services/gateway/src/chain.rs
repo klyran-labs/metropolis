@@ -111,9 +111,13 @@ impl ChainClient {
             Err(primary_err) => {
                 warn!(error = %primary_err, "Primary Monad RPC provider failed during policy evaluation; testing fallback providers");
                 for (i, fallback) in self.fallback_providers.iter().enumerate() {
-                    let fallback_contract = IPolicyEngine::new(self.config.policy_engine_address, fallback.clone());
+                    let fallback_contract =
+                        IPolicyEngine::new(self.config.policy_engine_address, fallback.clone());
                     if let Ok(result) = fallback_contract.evaluate(request.clone()).call().await {
-                        info!(fallback_index = i, "Successfully recovered using fallback Monad RPC provider");
+                        info!(
+                            fallback_index = i,
+                            "Successfully recovered using fallback Monad RPC provider"
+                        );
                         return Ok((
                             result.allowed,
                             result.allowedAmount,
@@ -446,7 +450,8 @@ impl ChainClient {
                     let status = response.status();
                     if let Ok(body) = response.json::<RpcResponse<T>>().await {
                         if !status.is_success() {
-                            last_error = format!("Monad RPC at {target_url} returned HTTP {status}");
+                            last_error =
+                                format!("Monad RPC at {target_url} returned HTTP {status}");
                             continue;
                         }
                         if let Some(result) = body.result {

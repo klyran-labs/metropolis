@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, RwLock,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 use tracing::{debug, info};
@@ -126,7 +126,10 @@ impl RelayerPool {
             }
         }
 
-        info!(total_shards = shards.len(), "Initialized sharded relayer pool for Monad Parallel EVM");
+        info!(
+            total_shards = shards.len(),
+            "Initialized sharded relayer pool for Monad Parallel EVM"
+        );
         Self {
             shards,
             next_round_robin: Arc::new(AtomicUsize::new(0)),
@@ -165,7 +168,12 @@ impl RelayerPool {
         for _ in 0..escalation_count.min(10) {
             tip = tip.saturating_mul(115) / 100;
         }
-        debug!(base_tip = base_tip_wei, escalation_count, escalated_tip = tip, "Computed adaptive EIP-1559 priority fee");
+        debug!(
+            base_tip = base_tip_wei,
+            escalation_count,
+            escalated_tip = tip,
+            "Computed adaptive EIP-1559 priority fee"
+        );
         tip
     }
 

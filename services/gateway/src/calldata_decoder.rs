@@ -51,7 +51,9 @@ impl CalldataDecoder {
                     "unknown".to_string()
                 };
                 let amount = if data.len() >= 128 {
-                    u128::from_str_radix(&data[64..128], 16).unwrap_or(0).to_string()
+                    u128::from_str_radix(&data[64..128], 16)
+                        .unwrap_or(0)
+                        .to_string()
                 } else {
                     "0".to_string()
                 };
@@ -82,7 +84,8 @@ impl CalldataDecoder {
                 } else {
                     "unknown".to_string()
                 };
-                let is_unlimited = data.len() >= 128 && data[64..128].chars().all(|c| c == 'f' || c == 'F');
+                let is_unlimited =
+                    data.len() >= 128 && data[64..128].chars().all(|c| c == 'f' || c == 'F');
                 let risk = if is_unlimited { "critical" } else { "elevated" };
 
                 CalldataInspectionResponse {
@@ -96,7 +99,11 @@ impl CalldataDecoder {
                         },
                         DecodedField {
                             name: "allowance".to_string(),
-                            value: if is_unlimited { "UNLIMITED (MAX_UINT)".to_string() } else { "limited".to_string() },
+                            value: if is_unlimited {
+                                "UNLIMITED (MAX_UINT)".to_string()
+                            } else {
+                                "limited".to_string()
+                            },
                             field_type: "uint256".to_string(),
                         },
                     ],
@@ -110,29 +117,43 @@ impl CalldataDecoder {
             }
             "0x23b872dd" => {
                 // transferFrom(address from, address to, uint256 amount)
-                let from = if data.len() >= 64 { format!("0x{}", &data[24..64]) } else { "unknown".to_string() };
-                let to = if data.len() >= 128 { format!("0x{}", &data[88..128]) } else { "unknown".to_string() };
+                let from = if data.len() >= 64 {
+                    format!("0x{}", &data[24..64])
+                } else {
+                    "unknown".to_string()
+                };
+                let to = if data.len() >= 128 {
+                    format!("0x{}", &data[88..128])
+                } else {
+                    "unknown".to_string()
+                };
 
                 CalldataInspectionResponse {
                     selector,
                     function_name: "transferFrom(address,address,uint256)".to_string(),
                     fields: vec![
-                        DecodedField { name: "from".to_string(), value: from.clone(), field_type: "address".to_string() },
-                        DecodedField { name: "to".to_string(), value: to.clone(), field_type: "address".to_string() },
+                        DecodedField {
+                            name: "from".to_string(),
+                            value: from.clone(),
+                            field_type: "address".to_string(),
+                        },
+                        DecodedField {
+                            name: "to".to_string(),
+                            value: to.clone(),
+                            field_type: "address".to_string(),
+                        },
                     ],
                     risk_level: "elevated".to_string(),
                     clear_signing_summary: format!("Delegated transfer from {} to {}", from, to),
                 }
             }
-            _ => {
-                CalldataInspectionResponse {
-                    selector,
-                    function_name: "unrecognized_custom_function".to_string(),
-                    fields: vec![],
-                    risk_level: "elevated".to_string(),
-                    clear_signing_summary: "Custom external contract invocation".to_string(),
-                }
-            }
+            _ => CalldataInspectionResponse {
+                selector,
+                function_name: "unrecognized_custom_function".to_string(),
+                fields: vec![],
+                risk_level: "elevated".to_string(),
+                clear_signing_summary: "Custom external contract invocation".to_string(),
+            },
         }
     }
 }
@@ -154,7 +175,10 @@ mod tests {
         assert_eq!(res.selector, "0xa9059cbb");
         assert_eq!(res.risk_level, "nominal");
         assert_eq!(res.fields.len(), 2);
-        assert!(res.clear_signing_summary.contains("Disburse 100000000 tokens"));
+        assert!(
+            res.clear_signing_summary
+                .contains("Disburse 100000000 tokens")
+        );
     }
 
     #[test]

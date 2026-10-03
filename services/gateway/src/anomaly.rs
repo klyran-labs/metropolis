@@ -56,7 +56,10 @@ impl AnomalyDetector {
 
         if history.len() < 3 {
             // Insufficient baseline data; record and allow
-            history.push_back(TxDataPoint { instant: now, amount: amount_f64 });
+            history.push_back(TxDataPoint {
+                instant: now,
+                amount: amount_f64,
+            });
             return AnomalyAssessment {
                 is_anomaly: false,
                 is_critical: false,
@@ -82,7 +85,11 @@ impl AnomalyDetector {
 
         let n = intervals.len() as f64;
         let mean_interval: f64 = intervals.iter().sum::<f64>() / n;
-        let variance: f64 = intervals.iter().map(|&x| (x - mean_interval).powi(2)).sum::<f64>() / n;
+        let variance: f64 = intervals
+            .iter()
+            .map(|&x| (x - mean_interval).powi(2))
+            .sum::<f64>()
+            / n;
         let std_dev = variance.sqrt().max(1.0); // prevent div by zero
 
         // An anomaly occurs if the current request arrives orders-of-magnitude faster than the mean (burst surge)
@@ -133,7 +140,10 @@ impl AnomalyDetector {
         if history.len() >= WINDOW_CAPACITY {
             history.pop_front();
         }
-        history.push_back(TxDataPoint { instant: now, amount: amount_f64 });
+        history.push_back(TxDataPoint {
+            instant: now,
+            amount: amount_f64,
+        });
 
         AnomalyAssessment {
             is_anomaly,
@@ -164,11 +174,26 @@ mod tests {
 
         {
             let mut entry = detector.agents.entry(agent).or_default();
-            entry.history.push_back(TxDataPoint { instant: now - Duration::from_millis(500), amount: 100.0 });
-            entry.history.push_back(TxDataPoint { instant: now - Duration::from_millis(400), amount: 100.0 });
-            entry.history.push_back(TxDataPoint { instant: now - Duration::from_millis(300), amount: 100.0 });
-            entry.history.push_back(TxDataPoint { instant: now - Duration::from_millis(200), amount: 100.0 });
-            entry.history.push_back(TxDataPoint { instant: now - Duration::from_millis(100), amount: 100.0 });
+            entry.history.push_back(TxDataPoint {
+                instant: now - Duration::from_millis(500),
+                amount: 100.0,
+            });
+            entry.history.push_back(TxDataPoint {
+                instant: now - Duration::from_millis(400),
+                amount: 100.0,
+            });
+            entry.history.push_back(TxDataPoint {
+                instant: now - Duration::from_millis(300),
+                amount: 100.0,
+            });
+            entry.history.push_back(TxDataPoint {
+                instant: now - Duration::from_millis(200),
+                amount: 100.0,
+            });
+            entry.history.push_back(TxDataPoint {
+                instant: now - Duration::from_millis(100),
+                amount: 100.0,
+            });
         }
 
         // Request arriving at standard rate

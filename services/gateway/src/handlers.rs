@@ -2443,8 +2443,11 @@ const PENDING_APPROVALS_MAX_LIMIT: i64 = 100;
 /// Cursor = base64url("<created_at RFC3339>|<transfer id>"), the sort key of the last row served.
 pub fn encode_approvals_cursor(created_at: chrono::DateTime<Utc>, id: Uuid) -> String {
     use base64::Engine as _;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(format!("{}|{}", created_at.to_rfc3339(), id))
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(
+        "{}|{}",
+        created_at.to_rfc3339(),
+        id
+    ))
 }
 
 pub fn decode_approvals_cursor(cursor: &str) -> Option<(chrono::DateTime<Utc>, Uuid)> {
@@ -3483,7 +3486,9 @@ pub async fn inference_handler(
                 );
             }
 
-            let anomaly = state.anomaly_detector.assess_and_record(request.agent, request.amount);
+            let anomaly = state
+                .anomaly_detector
+                .assess_and_record(request.agent, request.amount);
             if anomaly.is_critical {
                 state
                     .chain
@@ -4797,9 +4802,7 @@ pub async fn retry_settlement_outbox_handler(
 }
 
 /// Returns live status, active nonces, and tip escalation stats for the sharded relayer fleet.
-pub async fn list_relayers_handler(
-    State(state): State<SharedState>,
-) -> impl IntoResponse {
+pub async fn list_relayers_handler(State(state): State<SharedState>) -> impl IntoResponse {
     let stats = state.relayer_pool.stats();
     Json(stats)
 }
@@ -4842,10 +4845,9 @@ pub async fn get_audit_proof_handler(
         })
         .collect();
 
-    let mut proof = crate::audit_anchor::generate_merkle_proof(&leaves, idx)
-        .ok_or_else(|| {
-            service_unavailable("Failed to construct Merkle inclusion proof for voucher.")
-        })?;
+    let mut proof = crate::audit_anchor::generate_merkle_proof(&leaves, idx).ok_or_else(|| {
+        service_unavailable("Failed to construct Merkle inclusion proof for voucher.")
+    })?;
     proof.outbox_id = id;
 
     Ok(Json(serde_json::json!({
@@ -4924,8 +4926,3 @@ pub async fn get_edge_topology_handler(
     let result = state.edge_sequencer.get_topology();
     Ok(Json(result))
 }
-
-
-
-
-

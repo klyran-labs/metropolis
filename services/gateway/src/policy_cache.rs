@@ -43,7 +43,8 @@ impl PolicyEngineCache {
 
     /// Stores merchant whitelist authorization in memory without global write-lock contention.
     pub fn put_merchant_whitelist(&self, agent: Address, merchant: Address, allowed: bool) {
-        self.whitelists.insert((agent, merchant), (allowed, Instant::now()));
+        self.whitelists
+            .insert((agent, merchant), (allowed, Instant::now()));
     }
 
     /// Invalidates an agent's policy (e.g. upon detecting an onchain PolicyUpdated event).

@@ -206,9 +206,14 @@ fn parse_address_with_manifest_fallback(
     manifest_contract: Option<&DeploymentContract>,
 ) -> Result<Address, String> {
     let manifest_addr = parse_manifest_address(manifest_name, manifest_contract)?;
-    match env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+    match env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
         Some(value) => {
-            let address = Address::from_str(&value).map_err(|error| format!("Invalid {name}: {error}"))?;
+            let address =
+                Address::from_str(&value).map_err(|error| format!("Invalid {name}: {error}"))?;
             if address == Address::ZERO {
                 return Err(format!("{name} must not be the zero address"));
             }
@@ -396,7 +401,11 @@ impl Config {
                     Vec::new()
                 };
                 if let Ok(env_fallbacks) = env::var("MONAD_RPC_FALLBACK_URLS") {
-                    for url in env_fallbacks.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+                    for url in env_fallbacks
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                    {
                         if !fallbacks.contains(&url) {
                             fallbacks.push(url);
                         }

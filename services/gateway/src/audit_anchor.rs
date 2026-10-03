@@ -1,4 +1,4 @@
-use alloy::primitives::{keccak256, B256};
+use alloy::primitives::{B256, keccak256};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

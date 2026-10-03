@@ -83,7 +83,9 @@ pub fn spawn_settlement_worker(
     relayer_pool: RelayerPool,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        info!("Durable Monad Parallel EVM transactional settlement worker initialized with sharded relayer fleet");
+        info!(
+            "Durable Monad Parallel EVM transactional settlement worker initialized with sharded relayer fleet"
+        );
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
 
         loop {
@@ -139,7 +141,9 @@ async fn clear_settlement_batch(
             let agent: Address = match item.agent_address.parse() {
                 Ok(a) => a,
                 Err(e) => {
-                    let _ = repository.mark_settlement_failed(id, &format!("Invalid agent: {e}"), Utc::now()).await;
+                    let _ = repository
+                        .mark_settlement_failed(id, &format!("Invalid agent: {e}"), Utc::now())
+                        .await;
                     parse_failed = true;
                     break;
                 }
@@ -147,7 +151,9 @@ async fn clear_settlement_batch(
             let merchant: Address = match item.merchant_address.parse() {
                 Ok(m) => m,
                 Err(e) => {
-                    let _ = repository.mark_settlement_failed(id, &format!("Invalid merchant: {e}"), Utc::now()).await;
+                    let _ = repository
+                        .mark_settlement_failed(id, &format!("Invalid merchant: {e}"), Utc::now())
+                        .await;
                     parse_failed = true;
                     break;
                 }
@@ -155,7 +161,9 @@ async fn clear_settlement_batch(
             let token: Address = match item.token_address.parse() {
                 Ok(t) => t,
                 Err(e) => {
-                    let _ = repository.mark_settlement_failed(id, &format!("Invalid token: {e}"), Utc::now()).await;
+                    let _ = repository
+                        .mark_settlement_failed(id, &format!("Invalid token: {e}"), Utc::now())
+                        .await;
                     parse_failed = true;
                     break;
                 }
@@ -163,7 +171,9 @@ async fn clear_settlement_batch(
             let amount: alloy::primitives::U256 = match item.amount.parse() {
                 Ok(amt) => amt,
                 Err(e) => {
-                    let _ = repository.mark_settlement_failed(id, &format!("Invalid amount: {e}"), Utc::now()).await;
+                    let _ = repository
+                        .mark_settlement_failed(id, &format!("Invalid amount: {e}"), Utc::now())
+                        .await;
                     parse_failed = true;
                     break;
                 }
@@ -171,7 +181,9 @@ async fn clear_settlement_batch(
             let nonce: alloy::primitives::U256 = match item.nonce.parse() {
                 Ok(n) => n,
                 Err(e) => {
-                    let _ = repository.mark_settlement_failed(id, &format!("Invalid nonce: {e}"), Utc::now()).await;
+                    let _ = repository
+                        .mark_settlement_failed(id, &format!("Invalid nonce: {e}"), Utc::now())
+                        .await;
                     parse_failed = true;
                     break;
                 }
@@ -215,7 +227,8 @@ async fn clear_settlement_batch(
                 "data": format!("0x{}", hex::encode(&call_data)),
             }]);
 
-            let tx_hash_res: Result<String, String> = chain.rpc("eth_sendTransaction", call_params.clone()).await;
+            let tx_hash_res: Result<String, String> =
+                chain.rpc("eth_sendTransaction", call_params.clone()).await;
             match tx_hash_res {
                 Ok(tx_hash) => {
                     info!(batch_size = ids.len(), %tx_hash, relayer = format!("{:#x}", relayer_from), "Atomic batch settlement dispatched onchain to Monad via sharded relayer");
@@ -226,7 +239,9 @@ async fn clear_settlement_batch(
                     return;
                 }
                 Err(_) => {
-                    let sim_res: Result<String, String> = chain.rpc("eth_call", serde_json::json!([call_params[0], "latest"])).await;
+                    let sim_res: Result<String, String> = chain
+                        .rpc("eth_call", serde_json::json!([call_params[0], "latest"]))
+                        .await;
                     if sim_res.is_ok() {
                         let sim_hash = format!("0x{}", hex::encode(ids[0].as_bytes()));
                         info!(batch_size = ids.len(), tx_hash = %sim_hash, relayer = format!("{:#x}", relayer_from), "Atomic batch settlement verified via eth_call simulation");
@@ -249,13 +264,16 @@ async fn clear_settlement_batch(
         let item_shard = relayer_pool.acquire_least_loaded();
         let _item_nonce = item_shard.acquire_nonce();
         let base_tip = 1_000_000_000u128; // 1 Gwei
-        let _escalated_tip = relayer_pool.compute_escalated_tip(base_tip, item.attempt_count as u32);
+        let _escalated_tip =
+            relayer_pool.compute_escalated_tip(base_tip, item.attempt_count as u32);
 
         let agent: Address = match item.agent_address.parse() {
             Ok(a) => a,
             Err(e) => {
                 item_shard.release_in_flight();
-                let _ = repository.mark_settlement_failed(id, &format!("Invalid agent address: {e}"), Utc::now()).await;
+                let _ = repository
+                    .mark_settlement_failed(id, &format!("Invalid agent address: {e}"), Utc::now())
+                    .await;
                 continue;
             }
         };
@@ -264,7 +282,13 @@ async fn clear_settlement_batch(
             Ok(m) => m,
             Err(e) => {
                 item_shard.release_in_flight();
-                let _ = repository.mark_settlement_failed(id, &format!("Invalid merchant address: {e}"), Utc::now()).await;
+                let _ = repository
+                    .mark_settlement_failed(
+                        id,
+                        &format!("Invalid merchant address: {e}"),
+                        Utc::now(),
+                    )
+                    .await;
                 continue;
             }
         };
@@ -273,7 +297,9 @@ async fn clear_settlement_batch(
             Ok(t) => t,
             Err(e) => {
                 item_shard.release_in_flight();
-                let _ = repository.mark_settlement_failed(id, &format!("Invalid token address: {e}"), Utc::now()).await;
+                let _ = repository
+                    .mark_settlement_failed(id, &format!("Invalid token address: {e}"), Utc::now())
+                    .await;
                 continue;
             }
         };
@@ -282,7 +308,9 @@ async fn clear_settlement_batch(
             Ok(amt) => amt,
             Err(e) => {
                 item_shard.release_in_flight();
-                let _ = repository.mark_settlement_failed(id, &format!("Invalid amount: {e}"), Utc::now()).await;
+                let _ = repository
+                    .mark_settlement_failed(id, &format!("Invalid amount: {e}"), Utc::now())
+                    .await;
                 continue;
             }
         };
@@ -291,7 +319,9 @@ async fn clear_settlement_batch(
             Ok(n) => n,
             Err(e) => {
                 item_shard.release_in_flight();
-                let _ = repository.mark_settlement_failed(id, &format!("Invalid nonce: {e}"), Utc::now()).await;
+                let _ = repository
+                    .mark_settlement_failed(id, &format!("Invalid nonce: {e}"), Utc::now())
+                    .await;
                 continue;
             }
         };
@@ -329,7 +359,8 @@ async fn clear_settlement_batch(
         }]);
 
         // Execute on Monad: in devnet/testnet, we attempt eth_sendTransaction via unlocked account or simulation
-        let tx_hash_res: Result<String, String> = chain.rpc("eth_sendTransaction", call_params.clone()).await;
+        let tx_hash_res: Result<String, String> =
+            chain.rpc("eth_sendTransaction", call_params.clone()).await;
 
         match tx_hash_res {
             Ok(tx_hash) => {
@@ -339,7 +370,9 @@ async fn clear_settlement_batch(
             }
             Err(_) => {
                 // If sendTransaction is not available on this RPC node without unlocked account, simulate via eth_call
-                let sim_res: Result<String, String> = chain.rpc("eth_call", serde_json::json!([call_params[0], "latest"])).await;
+                let sim_res: Result<String, String> = chain
+                    .rpc("eth_call", serde_json::json!([call_params[0], "latest"]))
+                    .await;
                 match sim_res {
                     Ok(_) => {
                         let sim_hash = format!("0x{}", hex::encode(id.as_bytes()));
@@ -352,8 +385,11 @@ async fn clear_settlement_batch(
                         item_shard.record_escalation();
                         item_shard.release_in_flight();
                         let backoff_secs = (2u64.pow(item.attempt_count.min(6) as u32)).max(1);
-                        let next_retry = Utc::now() + chrono::Duration::seconds(backoff_secs as i64);
-                        let _ = repository.mark_settlement_failed(id, &sim_err, next_retry).await;
+                        let next_retry =
+                            Utc::now() + chrono::Duration::seconds(backoff_secs as i64);
+                        let _ = repository
+                            .mark_settlement_failed(id, &sim_err, next_retry)
+                            .await;
                     }
                 }
             }

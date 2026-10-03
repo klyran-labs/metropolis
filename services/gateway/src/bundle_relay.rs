@@ -4,8 +4,8 @@
 //! by dispatching atomic transaction bundles directly to Monad block builder RPCs.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +63,8 @@ impl BundleRelayManager {
             total_included: Arc::new(AtomicU64::new(0)),
             deflected_attacks: Arc::new(AtomicU64::new(0)),
             total_kickbacks: Arc::new(AtomicU64::new(0)),
-            builder_endpoint: builder_endpoint.unwrap_or_else(|| "https://builder.monad.xyz/v1/bundle".into()),
+            builder_endpoint: builder_endpoint
+                .unwrap_or_else(|| "https://builder.monad.xyz/v1/bundle".into()),
         }
     }
 
@@ -82,7 +83,8 @@ impl BundleRelayManager {
         let latency_ms = (start.elapsed().as_micros() as f64) / 1000.0;
         self.total_included.fetch_add(1, Ordering::Relaxed);
         self.deflected_attacks.fetch_add(1, Ordering::Relaxed);
-        self.total_kickbacks.fetch_add(req.min_kickback_wei, Ordering::Relaxed);
+        self.total_kickbacks
+            .fetch_add(req.min_kickback_wei, Ordering::Relaxed);
 
         info!(
             bundle_id = %req.bundle_id,

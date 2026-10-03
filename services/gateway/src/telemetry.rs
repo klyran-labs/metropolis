@@ -87,4 +87,3 @@ pub fn extract_or_generate_traceparent(headers: &axum::http::HeaderMap) -> (Stri
     let traceparent = format!("00-{trace_id}-{span_id}-01");
     (traceparent, trace_id)
 }
-

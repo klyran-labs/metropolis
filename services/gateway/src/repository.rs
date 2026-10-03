@@ -707,11 +707,7 @@ impl PgRepository {
     }
 
     /// Marks a settlement voucher as confirmed and mined on Monad Parallel EVM.
-    pub async fn mark_settlement_mined(
-        &self,
-        id: Uuid,
-        tx_hash: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn mark_settlement_mined(&self, id: Uuid, tx_hash: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             UPDATE settlement_outbox

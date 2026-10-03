@@ -56,7 +56,11 @@ impl ZkPolicyEngine {
         self.consumed_nullifiers.contains_key(nullifier)
     }
 
-    pub fn verify_and_consume(&self, agent: Address, proof: &ZkSpendProofWire) -> ZkVerificationResult {
+    pub fn verify_and_consume(
+        &self,
+        agent: Address,
+        proof: &ZkSpendProofWire,
+    ) -> ZkVerificationResult {
         let Ok(nullifier) = proof.nullifier.parse::<B256>() else {
             return ZkVerificationResult {
                 allowed: false,
@@ -92,7 +96,11 @@ impl ZkPolicyEngine {
         }
 
         // 2. Commitment Consistency
-        if self.agent_commitments.get(&agent).is_some_and(|expected| *expected != commitment) {
+        if self
+            .agent_commitments
+            .get(&agent)
+            .is_some_and(|expected| *expected != commitment)
+        {
             return ZkVerificationResult {
                 allowed: false,
                 reason_code: 9,

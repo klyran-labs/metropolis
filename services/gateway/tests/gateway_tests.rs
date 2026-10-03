@@ -617,7 +617,7 @@ async fn calldata_clear_signing_and_risk_evaluation() {
 
 #[tokio::test]
 async fn agent_heartbeat_and_succession_liveness() {
-    use agentguard_gateway::heartbeat::{HeartbeatManager, AgentHeartbeatRequest};
+    use agentguard_gateway::heartbeat::{AgentHeartbeatRequest, HeartbeatManager};
 
     let mgr = HeartbeatManager::new();
     let agent = "0xAgentLivenessTest".to_string();
@@ -704,4 +704,3 @@ fn approvals_cursor_round_trips_and_rejects_garbage() {
     assert!(decode_approvals_cursor("bm9waXBl").is_none()); // "nopipe"
     assert!(decode_approvals_cursor("").is_none());
 }
-

@@ -36,16 +36,18 @@ impl HeartbeatManager {
         let mut map = self.records.write().unwrap();
         let current_time = req.timestamp;
 
-        let status = map.entry(req.agent.to_lowercase()).or_insert_with(|| AgentLivenessStatus {
-            agent: req.agent.clone(),
-            last_heartbeat: current_time,
-            status: "HEALTHY".to_string(),
-            seconds_since_last_heartbeat: 0,
-            grace_period_seconds: 259_200, // 72 hours default
-            standby_key: "0x0000000000000000000000000000000000000000".to_string(),
-            fallback_treasury: "0x0000000000000000000000000000000000000000".to_string(),
-            succession_active: false,
-        });
+        let status = map
+            .entry(req.agent.to_lowercase())
+            .or_insert_with(|| AgentLivenessStatus {
+                agent: req.agent.clone(),
+                last_heartbeat: current_time,
+                status: "HEALTHY".to_string(),
+                seconds_since_last_heartbeat: 0,
+                grace_period_seconds: 259_200, // 72 hours default
+                standby_key: "0x0000000000000000000000000000000000000000".to_string(),
+                fallback_treasury: "0x0000000000000000000000000000000000000000".to_string(),
+                succession_active: false,
+            });
 
         status.last_heartbeat = current_time;
         status.seconds_since_last_heartbeat = 0;

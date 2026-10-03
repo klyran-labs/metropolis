@@ -54,10 +54,7 @@ impl NonceSequencer {
 
     /// Returns the number of currently active in-flight leases across all agents.
     pub fn active_leases_count(&self) -> usize {
-        self.in_flight
-            .iter()
-            .map(|entry| entry.value().len())
-            .sum()
+        self.in_flight.iter().map(|entry| entry.value().len()).sum()
     }
 }
 

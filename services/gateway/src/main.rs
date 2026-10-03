@@ -13,30 +13,27 @@ use agentguard_gateway::{
         calculate_spend_handler, chat_completions_handler, checkout_handler,
         compile_policy_handler, create_api_key_handler, create_onboarding_tenant_handler,
         create_or_revise_pbac_policy_handler, create_plan_handler, create_signing_wallet_handler,
-        create_tenant_handler, deactivate_pbac_policy_handler, finops_sync_handler,
-        get_abac_policy_handler, get_agent_policy_handler, get_platform_reconciliation_handler,
+        create_tenant_handler, deactivate_pbac_policy_handler, dispatch_mev_bundle_handler,
+        finops_sync_handler, get_abac_policy_handler, get_agent_policy_handler,
+        get_audit_proof_handler, get_edge_topology_handler, get_heartbeat_status_handler,
+        get_mev_stats_handler, get_platform_reconciliation_handler,
         get_platform_revenue_summary_handler, get_subscription_handler,
         get_tenant_pricing_model_handler, get_user_role_handler, grant_wallet_access_handler,
-        get_audit_proof_handler,
-        health_handler, inference_handler, list_agents_handler, list_api_keys_handler,
-        list_organization_wallets_handler, list_pbac_policies_handler, list_plans_handler,
-        list_platform_ledger_handler, list_platform_operators_handler,
-        list_platform_subscriptions_handler, list_settlement_outbox_handler, list_signing_wallets_handler,
-        list_relayers_handler,
+        health_handler, inference_handler, inspect_calldata_handler, list_agents_handler,
+        list_api_keys_handler, list_organization_wallets_handler, list_pbac_policies_handler,
+        list_pending_approvals_handler, list_plans_handler, list_platform_ledger_handler,
+        list_platform_operators_handler, list_platform_subscriptions_handler,
+        list_relayers_handler, list_settlement_outbox_handler, list_signing_wallets_handler,
         list_telemetry_events_handler, list_tenant_operators_handler, list_tenants_handler,
-        list_pending_approvals_handler, list_wallet_access_handler, list_wallet_transfers_handler,
+        list_wallet_access_handler, list_wallet_transfers_handler,
         onboarding_authentication_middleware, paymaster_rpc_handler, prepare_agent_policy_handler,
         prepare_load_handler, prepare_unload_handler, put_abac_policy_handler, ready_handler,
-        register_agent_handler, register_organization_wallet_handler, retry_settlement_outbox_handler, revoke_api_key_handler,
-        revoke_wallet_access_handler, rotate_api_key_handler, sign_approval_ticket_handler,
-        submit_payment_handler, submit_wallet_transfer_handler, telemetry_stream,
-        update_tenant_pricing_model_handler, update_user_role_handler,
-        update_wallet_threshold_handler, upsert_platform_operator_handler,
-        verify_zk_spend_handler,
-        dispatch_mev_bundle_handler, get_mev_stats_handler,
-        inspect_calldata_handler,
-        record_heartbeat_handler, get_heartbeat_status_handler,
-        get_edge_topology_handler,
+        record_heartbeat_handler, register_agent_handler, register_organization_wallet_handler,
+        retry_settlement_outbox_handler, revoke_api_key_handler, revoke_wallet_access_handler,
+        rotate_api_key_handler, sign_approval_ticket_handler, submit_payment_handler,
+        submit_wallet_transfer_handler, telemetry_stream, update_tenant_pricing_model_handler,
+        update_user_role_handler, update_wallet_threshold_handler,
+        upsert_platform_operator_handler, verify_zk_spend_handler,
     },
     repository::PgRepository,
     telemetry::EventHub,
@@ -122,7 +119,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let auth = AuthService::new(config.clone(), http_client.clone(), repository.clone());
     let relayer_pool = agentguard_gateway::relayer_pool::RelayerPool::new(vec![]);
     let (settlement_tx, settlement_rx) = tokio::sync::mpsc::channel(10_000);
-    let settlement_queue = agentguard_gateway::settlement::SettlementQueue::new(settlement_tx, repository.clone());
+    let settlement_queue =
+        agentguard_gateway::settlement::SettlementQueue::new(settlement_tx, repository.clone());
     agentguard_gateway::settlement::spawn_settlement_worker(
         settlement_rx,
         chain.clone(),
@@ -182,10 +180,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             axum::routing::post(paymaster_rpc_handler),
         )
         .route("/rpc/paymaster", axum::routing::post(paymaster_rpc_handler))
-        .route(
-            "/v1/settlement/outbox",
-            get(list_settlement_outbox_handler),
-        )
+        .route("/v1/settlement/outbox", get(list_settlement_outbox_handler))
         .route(
             "/v1/settlement/outbox/:id/retry",
             axum::routing::post(retry_settlement_outbox_handler),
@@ -198,14 +193,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/settlement/outbox/:id/retry",
             axum::routing::post(retry_settlement_outbox_handler),
         )
-        .route(
-            "/v1/settlement/relayers",
-            get(list_relayers_handler),
-        )
-        .route(
-            "/api/v1/settlement/relayers",
-            get(list_relayers_handler),
-        )
+        .route("/v1/settlement/relayers", get(list_relayers_handler))
+        .route("/api/v1/settlement/relayers", get(list_relayers_handler))
         .route(
             "/v1/settlement/bundle",
             axum::routing::post(dispatch_mev_bundle_handler),
@@ -214,22 +203,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/settlement/bundle",
             axum::routing::post(dispatch_mev_bundle_handler),
         )
-        .route(
-            "/v1/settlement/mev-stats",
-            get(get_mev_stats_handler),
-        )
-        .route(
-            "/api/v1/settlement/mev-stats",
-            get(get_mev_stats_handler),
-        )
-        .route(
-            "/v1/audit/proof/:id",
-            get(get_audit_proof_handler),
-        )
-        .route(
-            "/api/v1/audit/proof/:id",
-            get(get_audit_proof_handler),
-        )
+        .route("/v1/settlement/mev-stats", get(get_mev_stats_handler))
+        .route("/api/v1/settlement/mev-stats", get(get_mev_stats_handler))
+        .route("/v1/audit/proof/:id", get(get_audit_proof_handler))
+        .route("/api/v1/audit/proof/:id", get(get_audit_proof_handler))
         .route(
             "/v1/zk/verify-spend",
             axum::routing::post(verify_zk_spend_handler),
@@ -262,14 +239,8 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/agent/:agent/heartbeat",
             get(get_heartbeat_status_handler),
         )
-        .route(
-            "/v1/edge/topology",
-            get(get_edge_topology_handler),
-        )
-        .route(
-            "/api/v1/edge/topology",
-            get(get_edge_topology_handler),
-        );
+        .route("/v1/edge/topology", get(get_edge_topology_handler))
+        .route("/api/v1/edge/topology", get(get_edge_topology_handler));
 
     let onboarding = Router::new()
         .route(

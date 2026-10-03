@@ -24,19 +24,34 @@ impl TestDb {
             .await
             .expect("GATEWAY_TEST_DATABASE_URL is set but the database is not reachable");
         let name = format!("approvals_test_{}", Uuid::now_v7().simple());
-        sqlx::query(&format!("CREATE DATABASE {name}")).execute(&admin).await.expect("create test database");
-        let index = url.rfind('/').expect("GATEWAY_TEST_DATABASE_URL must end with /<database>");
+        sqlx::query(&format!("CREATE DATABASE {name}"))
+            .execute(&admin)
+            .await
+            .expect("create test database");
+        let index = url
+            .rfind('/')
+            .expect("GATEWAY_TEST_DATABASE_URL must end with /<database>");
         let db_url = format!("{}/{}", &url[..index], name);
-        let pool = PgPoolOptions::new().max_connections(16).connect(&db_url).await.expect("connect test database");
-        sqlx::migrate!("./migrations").run(&pool).await.expect("apply migrations");
+        let pool = PgPoolOptions::new()
+            .max_connections(16)
+            .connect(&db_url)
+            .await
+            .expect("connect test database");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("apply migrations");
         Some(Self { admin, pool, name })
     }
 
     async fn drop_db(self) {
         self.pool.close().await;
-        let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.name))
-            .execute(&self.admin)
-            .await;
+        let _ = sqlx::query(&format!(
+            "DROP DATABASE IF EXISTS {} WITH (FORCE)",
+            self.name
+        ))
+        .execute(&self.admin)
+        .await;
     }
 
     async fn ticket(&self, org: &str, required: i16) -> Uuid {
@@ -69,7 +84,11 @@ async fn concurrent_signers_never_lose_a_signature() {
     let outcomes = join_all((0..5).map(|index| {
         let pool = db.pool.clone();
         let org = org.clone();
-        async move { record_signature(&pool, &org, ticket, &format!("did:privy:op{index}")).await.expect("sign") }
+        async move {
+            record_signature(&pool, &org, ticket, &format!("did:privy:op{index}"))
+                .await
+                .expect("sign")
+        }
     }))
     .await;
 
@@ -81,7 +100,11 @@ async fn concurrent_signers_never_lose_a_signature() {
         })
         .collect();
     collected.sort_unstable();
-    assert_eq!(collected, vec![1, 2, 3, 4, 5], "every signer must see a distinct running count");
+    assert_eq!(
+        collected,
+        vec![1, 2, 3, 4, 5],
+        "every signer must see a distinct running count"
+    );
     let reached = outcomes
         .iter()
         .filter(|outcome| matches!(outcome, SignOutcome::Recorded { reached: true, .. }))
@@ -109,30 +132,65 @@ async fn repeat_signing_is_idempotent_and_closed_tickets_reject_new_signers() {
     let ticket = db.ticket(&org, 2).await;
 
     assert_eq!(
-        record_signature(&db.pool, &org, ticket, "alice").await.unwrap(),
-        SignOutcome::Recorded { collected: 1, required: 2, reached: false }
+        record_signature(&db.pool, &org, ticket, "alice")
+            .await
+            .unwrap(),
+        SignOutcome::Recorded {
+            collected: 1,
+            required: 2,
+            reached: false
+        }
     );
     // Same operator again: no change, no error.
     assert_eq!(
-        record_signature(&db.pool, &org, ticket, "alice").await.unwrap(),
-        SignOutcome::AlreadySigned { collected: 1, required: 2 }
+        record_signature(&db.pool, &org, ticket, "alice")
+            .await
+            .unwrap(),
+        SignOutcome::AlreadySigned {
+            collected: 1,
+            required: 2
+        }
     );
     assert_eq!(
-        record_signature(&db.pool, &org, ticket, "bob").await.unwrap(),
-        SignOutcome::Recorded { collected: 2, required: 2, reached: true }
+        record_signature(&db.pool, &org, ticket, "bob")
+            .await
+            .unwrap(),
+        SignOutcome::Recorded {
+            collected: 2,
+            required: 2,
+            reached: true
+        }
     );
     // Ticket is now approved: a late retry by a prior signer is still harmless, a new signer is refused.
     assert_eq!(
-        record_signature(&db.pool, &org, ticket, "alice").await.unwrap(),
-        SignOutcome::AlreadySigned { collected: 2, required: 2 }
+        record_signature(&db.pool, &org, ticket, "alice")
+            .await
+            .unwrap(),
+        SignOutcome::AlreadySigned {
+            collected: 2,
+            required: 2
+        }
     );
-    assert_eq!(record_signature(&db.pool, &org, ticket, "carol").await.unwrap(), SignOutcome::NotOpen);
-    assert_eq!(signed_state(&db.pool, &org, ticket, "bob").await.unwrap(), Some((2, 2)));
-    assert_eq!(signed_state(&db.pool, &org, ticket, "carol").await.unwrap(), None);
+    assert_eq!(
+        record_signature(&db.pool, &org, ticket, "carol")
+            .await
+            .unwrap(),
+        SignOutcome::NotOpen
+    );
+    assert_eq!(
+        signed_state(&db.pool, &org, ticket, "bob").await.unwrap(),
+        Some((2, 2))
+    );
+    assert_eq!(
+        signed_state(&db.pool, &org, ticket, "carol").await.unwrap(),
+        None
+    );
 
     // Another organization cannot see or sign the ticket.
     assert_eq!(
-        record_signature(&db.pool, &Uuid::now_v7().to_string(), ticket, "mallory").await.unwrap(),
+        record_signature(&db.pool, &Uuid::now_v7().to_string(), ticket, "mallory")
+            .await
+            .unwrap(),
         SignOutcome::NotFound
     );
     db.drop_db().await;
@@ -190,9 +248,14 @@ async fn pending_list_pages_without_gaps_and_counts_what_the_operator_can_sign()
     let mut cursor: Option<(DateTime<Utc>, Uuid)> = None;
     let mut pages = 0;
     loop {
-        let page = list_pending(&db.pool, &org, "bob", false, 3, cursor).await.unwrap();
+        let page = list_pending(&db.pool, &org, "bob", false, 3, cursor)
+            .await
+            .unwrap();
         assert_eq!(page.total, 7, "total is independent of the page");
-        assert_eq!(page.approvable, 7, "bob has wallet access and has signed nothing");
+        assert_eq!(
+            page.approvable, 7,
+            "bob has wallet access and has signed nothing"
+        );
         seen.extend(page.rows.iter().map(|row| row.id));
         pages += 1;
         match (page.has_more, page.rows.last()) {
@@ -208,25 +271,43 @@ async fn pending_list_pages_without_gaps_and_counts_what_the_operator_can_sign()
     assert_eq!(unique.len(), 7, "no transfer repeats across pages");
 
     // Someone without wallet access sees the same list but can sign none of it.
-    let carol = list_pending(&db.pool, &org, "carol", false, 50, None).await.unwrap();
+    let carol = list_pending(&db.pool, &org, "carol", false, 50, None)
+        .await
+        .unwrap();
     assert_eq!((carol.total, carol.approvable), (7, 0));
     assert!(carol.rows.iter().all(|row| !row.has_access));
     // A super admin can sign all of them without a grant.
-    let root = list_pending(&db.pool, &org, "root", true, 50, None).await.unwrap();
+    let root = list_pending(&db.pool, &org, "root", true, 50, None)
+        .await
+        .unwrap();
     assert_eq!(root.approvable, 7);
 
     // Signing removes that transfer from bob's approvable count but not from the total.
-    let first_ticket: (Uuid,) = sqlx::query_as("SELECT approval_ticket_id FROM wallet_transfers WHERE org_id = $1 LIMIT 1")
-        .bind(&org)
-        .fetch_one(&db.pool)
+    let first_ticket: (Uuid,) =
+        sqlx::query_as("SELECT approval_ticket_id FROM wallet_transfers WHERE org_id = $1 LIMIT 1")
+            .bind(&org)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    record_signature(&db.pool, &org, first_ticket.0, "bob")
         .await
         .unwrap();
-    record_signature(&db.pool, &org, first_ticket.0, "bob").await.unwrap();
-    let after = list_pending(&db.pool, &org, "bob", false, 50, None).await.unwrap();
+    let after = list_pending(&db.pool, &org, "bob", false, 50, None)
+        .await
+        .unwrap();
     assert_eq!((after.total, after.approvable), (7, 6));
 
     // Other organizations see nothing.
-    let other = list_pending(&db.pool, &Uuid::now_v7().to_string(), "bob", false, 50, None).await.unwrap();
+    let other = list_pending(
+        &db.pool,
+        &Uuid::now_v7().to_string(),
+        "bob",
+        false,
+        50,
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!((other.total, other.rows.len()), (0, 0));
     db.drop_db().await;
 }
