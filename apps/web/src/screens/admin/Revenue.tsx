@@ -38,15 +38,14 @@ export function AdminRevenue() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Revenue</span>
-          <h1>Revenue reporting</h1>
-          <p>Confirmed settlement, derived directly from the billing ledger.</p>
+          <h1>Revenue</h1>
+          <p>Confirmed revenue across all tenants.</p>
         </div>
       </header>
 
       {revenue.isError ? (
         <Surface>
-          <EmptyState title="Revenue report unavailable" detail="We couldn't load the revenue report right now." />
+          <EmptyState title="Couldn't load revenue" detail="Try refreshing the page." />
         </Surface>
       ) : (
         <>
@@ -81,7 +80,7 @@ export function AdminRevenue() {
               data={dailyRevenue}
               seriesName="Net revenue"
               emptyTitle="No confirmed settlement yet"
-              emptyDetail="Revenue appears once tenant subscriptions settle onchain."
+              emptyDetail="Revenue appears once tenant subscriptions are paid."
               valueFormatter={currencyFormatter}
             />
           </Surface>

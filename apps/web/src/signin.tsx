@@ -60,7 +60,7 @@ export function InlineSignIn() {
         </div>
         <div className="signin-title-wrap">
           <h2 className="signin-title">Access AgentGuard</h2>
-          <p className="signin-subtitle">Institutional spend control & Monad parallel EVM settlement</p>
+          <p className="signin-subtitle">Spending rules and controls for your AI agents</p>
         </div>
       </div>
 
@@ -233,17 +233,17 @@ export function InlineSignIn() {
 
       <div className="signin-card-footer">
         <div className="signin-security-badges">
-          <span className="signin-security-badge" title="Cryptographic spend intent validation">
+          <span className="signin-security-badge" title="Every payment request is verified">
             <Lock size={12} />
-            <span>EIP-712 Signed</span>
+            <span>Verified payments</span>
           </span>
           <span className="signin-security-badge" title="Self-custodied wallet key generation">
             <ShieldCheck size={12} />
             <span>Non-Custodial</span>
           </span>
-          <span className="signin-security-badge" title="Hardware-sealed sovereign key vault">
+          <span className="signin-security-badge" title="Agent keys are kept in secure storage">
             <CheckCircle2 size={12} />
-            <span>Hardware Sealed</span>
+            <span>Secure keys</span>
           </span>
         </div>
       </div>

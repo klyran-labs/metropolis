@@ -49,11 +49,11 @@ export function TopBar({
     if (pathname.startsWith("/admin")) return "Platform Administration";
 
     if (pathname.startsWith("/app/fleet")) return "Fleet Orchestration";
-    if (pathname.startsWith("/app/policy")) return "Policy Studio";
+    if (pathname.startsWith("/app/policy")) return "Policy";
     if (pathname.startsWith("/app/simulator")) return "Policy Simulator";
     if (pathname.startsWith("/app/activity")) return "Activity & Audit";
     if (pathname.startsWith("/app/merchants")) return "Merchant Directory";
-    if (pathname.startsWith("/app/quorum")) return "Quorum Approvals";
+    if (pathname.startsWith("/app/quorum")) return "Approvals";
     if (pathname.startsWith("/app/treasury")) return "Treasury & Reserves";
     if (pathname.startsWith("/app/billing")) return "Billing & Subscriptions";
     if (pathname.startsWith("/app/settings")) return "Settings & Access";
@@ -182,7 +182,7 @@ export function TopBar({
         )}
 
         {/* Ambient Monad Finality Beacon */}
-        <div className="top-bar-finality-beacon" title="Configured Monad block cadence (400ms blocks)">
+        <div className="top-bar-finality-beacon" title="Network status: live">
           <span className="beacon-radar" aria-hidden="true">
             <span className="beacon-radar-ping" />
             <span className="beacon-radar-dot" />

@@ -54,10 +54,10 @@ function loadStoredMerchants(): MerchantEntry[] {
   if (configuration.contracts.agentWalletGuard) {
     initial.push({
       id: "m-wallet-guard",
-      name: "AgentWalletGuard Escrow",
+      name: "AgentGuard Payment Escrow",
       category: "defi",
       address: configuration.contracts.agentWalletGuard,
-      endpointUrl: "Onchain Monad Settlement Escrow",
+      endpointUrl: "Holds payments until they are confirmed",
       whitelisted: true,
       spendCapUsdc: "1000.00",
       protocolStandard: "EIP-712",
@@ -67,10 +67,10 @@ function loadStoredMerchants(): MerchantEntry[] {
   if (configuration.contracts.settlementToken) {
     initial.push({
       id: "m-settlement-token",
-      name: "USDC Settlement Vault",
+      name: "USDC Payments",
       category: "defi",
       address: configuration.contracts.settlementToken,
-      endpointUrl: "ERC-20 Payment Clearing Contract",
+      endpointUrl: "Processes USDC payments",
       whitelisted: true,
       spendCapUsdc: "500.00",
       protocolStandard: "EIP-712",
@@ -121,7 +121,7 @@ function MerchantCard({
           <h3>{merchant.name}</h3>
         </div>
         <Badge tone={isWhitelisted ? "success" : "neutral"}>
-          {isWhitelisted ? "Whitelisted onchain" : "Restricted"}
+          {isWhitelisted ? "Approved" : "Not approved"}
         </Badge>
       </div>
 
@@ -130,32 +130,35 @@ function MerchantCard({
           <Mono>{truncateMiddle(merchant.address, 10, 6)}</Mono>
           <button
             type="button"
-            className="inline-copy-btn"
+            className={`inline-copy-btn table-copy-btn ${copiedAddress === merchant.address ? "copied-active" : ""}`}
             onClick={() => onCopy(merchant.address)}
-            title="Copy merchant contract address"
+            title="Copy merchant address"
             aria-label="Copy merchant address"
           >
             {copiedAddress === merchant.address ? (
-              <CheckCircle2 size={13} className="copied-icon" />
+              <>
+                <CheckCircle2 size={13} className="copied-icon" />
+                <span className="copied-pill-text">Copied</span>
+              </>
             ) : (
               <Copy size={13} />
             )}
           </button>
         </div>
-        <span className="protocol-pill">{merchant.protocolStandard}</span>
+        <span className="protocol-pill">{merchant.protocolStandard === "EIP-712" ? "Verified" : merchant.protocolStandard === "x402" ? "Pay-per-use" : "Agent payments"}</span>
       </div>
 
       <p className="merchant-endpoint">{merchant.endpointUrl}</p>
 
       <div className="merchant-metrics">
         <div className="merchant-metric-cell">
-          <small>Max Spend Allowance</small>
+          <small>Spending limit</small>
           <strong>{merchant.spendCapUsdc} USDC</strong>
         </div>
         <div className="merchant-metric-cell">
-          <small>Trust Status</small>
+          <small>Status</small>
           <strong className="reputation-green">
-            {isWhitelisted ? "Authorized" : "Awaiting Authorization"}
+            {isWhitelisted ? "Approved" : "Awaiting approval"}
           </strong>
         </div>
       </div>
@@ -166,7 +169,7 @@ function MerchantCard({
           onClick={() => onToggleWhitelist(merchant)}
           disabled={isToggling || !agentAddress}
         >
-          {isWhitelisted ? "Revoke onchain" : "Whitelist onchain"}
+          {isWhitelisted ? "Remove approval" : "Approve merchant"}
         </Button>
         <Link to="/app/simulator" className="merchant-test-link">
           <span>Dry-Run in Simulator</span>
@@ -207,7 +210,7 @@ export function MerchantDirectory() {
   }, [agents, selectedAgentAddress]);
 
   const setWhitelistMutation = useSetMerchantWhitelist(() => {
-    setStatusMessage("Onchain merchant whitelist transaction confirmed.");
+    setStatusMessage("Merchant list updated.");
     setTimeout(() => setStatusMessage(""), 5000);
   });
 
@@ -230,11 +233,11 @@ export function MerchantDirectory() {
 
   const handleToggleWhitelist = async (merchant: MerchantEntry) => {
     if (!activeAgent) {
-      setStatusMessage("Select an agent to configure merchant whitelist.");
+      setStatusMessage("Choose an agent to manage its approved merchants.");
       return;
     }
     const nextAllowed = !merchant.whitelisted;
-    setStatusMessage(`Broadcasting onchain whitelist update to Monad for ${truncateMiddle(merchant.address, 8, 4)}…`);
+    setStatusMessage(`Updating ${truncateMiddle(merchant.address, 8, 4)}…`);
     try {
       await setWhitelistMutation.mutateAsync({
         agentAddress: activeAgent.address,
@@ -247,18 +250,18 @@ export function MerchantDirectory() {
       setMerchants(updated);
       saveStoredMerchants(updated);
     } catch (err) {
-      setStatusMessage(toUserFacingError(err, "Whitelist transaction was rejected."));
+      setStatusMessage(toUserFacingError(err, "The update was not completed."));
     }
   };
 
   const handleAddMerchant = async () => {
     setFormMessage("");
     if (!newName.trim() || !newAddress.trim()) {
-      setFormMessage("Please provide a vendor label and valid contract address.");
+      setFormMessage("Enter a merchant name and a valid address.");
       return;
     }
     if (!isAddress(newAddress.trim())) {
-      setFormMessage("The provided recipient is not a valid EVM contract address.");
+      setFormMessage("That address doesn't look valid.");
       return;
     }
 
@@ -267,7 +270,7 @@ export function MerchantDirectory() {
       name: newName.trim(),
       category: newCategory,
       address: newAddress.trim(),
-      endpointUrl: newEndpoint.trim() || "x402 Negotiated Endpoint",
+      endpointUrl: newEndpoint.trim() || "Pay-per-use service",
       whitelisted: true,
       spendCapUsdc: newSpendCap.trim() || "100.00",
       protocolStandard: "x402",
@@ -280,14 +283,14 @@ export function MerchantDirectory() {
 
     if (activeAgent) {
       try {
-        setStatusMessage(`Authorizing merchant ${truncateMiddle(newEntry.address, 8, 4)} onchain…`);
+        setStatusMessage(`Approving merchant ${truncateMiddle(newEntry.address, 8, 4)}…`);
         await setWhitelistMutation.mutateAsync({
           agentAddress: activeAgent.address,
           merchantAddress: newEntry.address,
           allowed: true,
         });
       } catch (err) {
-        setStatusMessage("Merchant registered locally. Onchain confirmation failed or was cancelled.");
+        setStatusMessage("Merchant saved, but approval wasn't confirmed.");
       }
     }
 
@@ -301,16 +304,13 @@ export function MerchantDirectory() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Risk Governance / Merchant Whitelist</span>
-          <h1>Approved Merchant & Paywall Directory</h1>
-          <p>
-            Curated registry of verified service endpoints, x402 programmatic paywalls, and authorized autonomous recipient targets.
-          </p>
+          <h1>Merchant Directory</h1>
+          <p>Merchants your agents are allowed to pay.</p>
         </div>
         <div className="page-heading-actions">
           <Button variant="filled" onClick={() => setShowAddModal(true)}>
             <Plus size={15} />
-            <span>Register Merchant Target</span>
+            <span>Add Merchant</span>
           </Button>
         </div>
       </header>
@@ -327,7 +327,7 @@ export function MerchantDirectory() {
         {agents.length > 0 && (
           <div className="merchant-toolbar-agent-row">
             <AgentSelect
-              label="Managing Whitelist for Agent"
+              label="Approved merchants for"
               value={selectedAgentAddress || (agents[0]?.address ?? "")}
               agents={agents}
               onChange={(val) => setSelectedAgentAddress(val)}
@@ -340,7 +340,7 @@ export function MerchantDirectory() {
             <Search size={14} />
             <input
               type="text"
-              placeholder="Search merchants, categories, contract addresses..."
+              placeholder="Search merchants…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -404,8 +404,8 @@ export function MerchantDirectory() {
       ) : (
         <Surface>
           <EmptyState
-            title="No merchant targets configured"
-            detail="Register your first authorized service endpoint or contract address to enforce onchain whitelist governance."
+            title="No merchants yet"
+            detail="Add the first merchant your agents are allowed to pay."
           />
         </Surface>
       )}
@@ -418,8 +418,8 @@ export function MerchantDirectory() {
               <div className="modal-title-group">
                 <Store size={20} />
                 <div>
-                  <h3>Register Approved Merchant Target</h3>
-                  <small>Authorize autonomous agent payments to a verified vendor or contract</small>
+                  <h3>Add a merchant</h3>
+                  <small>Allow your agents to pay this merchant</small>
                 </div>
               </div>
               <button
@@ -434,21 +434,21 @@ export function MerchantDirectory() {
 
             <div className="custom-modal-body">
               <TextField
-                label="Merchant / Vendor Name"
+                label="Merchant name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Together AI GPU Cluster"
               />
 
               <TextField
-                label="Merchant Contract / Settlement Address"
+                label="Merchant payment address"
                 value={newAddress}
                 onChange={(e) => setNewAddress(e.target.value)}
                 placeholder="0x..."
               />
 
               <TextField
-                label="Payment Challenge Endpoint / Domain"
+                label="Website or service address (optional)"
                 value={newEndpoint}
                 onChange={(e) => setNewEndpoint(e.target.value)}
                 placeholder="https://api.vendor.com/v1/service"
@@ -467,7 +467,7 @@ export function MerchantDirectory() {
               />
 
               <TextField
-                label="Default Spend Cap (USDC)"
+                label="Spending limit (USDC)"
                 value={newSpendCap}
                 onChange={(e) => setNewSpendCap(e.target.value)}
               />

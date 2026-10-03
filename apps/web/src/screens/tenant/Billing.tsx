@@ -26,13 +26,13 @@ async function waitForReceipt(
     })) as { status?: string } | null;
     if (receipt) {
       if (receipt.status === "0x0") {
-        throw new Error("The settlement approval was rejected by the network.");
+        throw new Error("The payment was rejected.");
       }
       return;
     }
     await new Promise((resolve) => window.setTimeout(resolve, 750));
   }
-  throw new Error("The settlement approval did not reach finality in time.");
+  throw new Error("The payment took too long to confirm. Try again.");
 }
 
 export function Billing() {
@@ -49,14 +49,14 @@ export function Billing() {
     const wallet = wallets[0];
     const guard = configuration.contracts.agentWalletGuard;
     if (!wallet || !guard) {
-      setMessage("Connect a settlement wallet and configure the verified payment guard.");
+      setMessage("Connect a wallet before subscribing.");
       return;
     }
     setWorking(true);
     setTransactionPhase("awaiting_wallet");
     setTransactionHash(undefined);
     setTransactionError("");
-    setMessage("Creating a signed settlement intent…");
+    setMessage("Preparing your payment…");
     try {
       const checkout = await request<Checkout>("/subscription/checkout", {
         method: "POST",
@@ -134,10 +134,10 @@ export function Billing() {
         body: JSON.stringify({ transactionHash }),
       });
       setTransactionPhase("confirmed");
-      setMessage("Settlement submitted. Subscription activation will follow receipt confirmation.");
+      setMessage("Payment submitted. Your subscription will activate once it's confirmed.");
       void subscription.refetch();
     } catch (error) {
-      const safeError = toUserFacingError(error, "The settlement could not be completed.");
+      const safeError = toUserFacingError(error, "The payment could not be completed.");
       setTransactionPhase("failed");
       setTransactionError(safeError);
       setMessage(safeError);
@@ -149,9 +149,8 @@ export function Billing() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Home / Subscription</span>
-          <h1>Subscription</h1>
-          <p>Onchain settlement becomes active only after a verified receipt.</p>
+          <h1>Billing & Subscription</h1>
+          <p>Manage your subscription plan and payment receipts.</p>
         </div>
       </header>
       <Surface>
@@ -187,9 +186,7 @@ export function Billing() {
       <TransactionStatus phase={transactionPhase} hash={transactionHash} error={transactionError} />
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Current subscription</h2>
-          </div>
+          <h2>Current Subscription</h2>
           {subscription.data?.subscription && (
             <Badge tone="success">{String(subscription.data.subscription.status ?? "recorded")}</Badge>
           )}

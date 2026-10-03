@@ -86,7 +86,7 @@ export function PolicySimulator() {
     if (!activeAgent || runawayRunning) return;
     setRunawayRunning(true);
     setRunawayLogs([]);
-    setCircuitMessage("Simulating runaway recursive loop from autonomous Qwen 3.8 Max agent...");
+    setCircuitMessage("Simulating an agent stuck in a spending loop...");
 
     const attempts = [
       { num: 1, amt: "250.00" },
@@ -143,11 +143,11 @@ export function PolicySimulator() {
     // Only three real onchain denials may trigger the onchain kill switch. An RPC or gateway
     // failure is not a policy verdict and must never be presented as one.
     if (deniedCount !== attempts.length) {
-      setCircuitMessage("The circuit was not changed because one or more policy evaluations were unavailable.");
+      setCircuitMessage("Nothing was changed because some checks were unavailable.");
       setRunawayRunning(false);
       return;
     }
-    setCircuitMessage("Auto-trip threshold reached (3 consecutive onchain denials). Requesting the agent pause.");
+    setCircuitMessage("Three payments in a row were blocked. Pausing the agent.");
 
     try {
       await tripKillSwitchMutation.mutateAsync({
@@ -155,9 +155,9 @@ export function PolicySimulator() {
         active: true,
       });
       setCircuitState("OPEN");
-      setCircuitMessage("Monad O(1) Kill-Switch active onchain. Agent quarantined with zero parallel EVM lock contention.");
+      setCircuitMessage("Agent paused. It can no longer spend.");
     } catch {
-      setCircuitMessage("The kill-switch transaction could not be confirmed onchain; the circuit state is unchanged.");
+      setCircuitMessage("We couldn't pause the agent. Nothing was changed.");
     } finally {
       setRunawayRunning(false);
     }
@@ -165,11 +165,11 @@ export function PolicySimulator() {
 
   const pipelineSteps = useMemo(() => {
     const defaultSteps = [
-      { id: "sig", title: "1. Signature & Nonce", desc: "Cancun transient guard", status: "step-pending" },
-      { id: "kill", title: "2. O(1) Kill Switch", desc: "Disjoint storage slot", status: "step-pending" },
-      { id: "window", title: "3. Sliding Window", desc: "Packed word arithmetic", status: "step-pending" },
-      { id: "merchant", title: "4. Whitelist Check", desc: "Counterparty validation", status: "step-pending" },
-      { id: "commit", title: "5. Parallel Commit", desc: "Deterministic finality", status: "step-pending" },
+      { id: "sig", title: "1. Request check", desc: "Blocks duplicates", status: "step-pending" },
+      { id: "kill", title: "2. Paused?", desc: "Instant pause", status: "step-pending" },
+      { id: "window", title: "3. Limits", desc: "Spending limits", status: "step-pending" },
+      { id: "merchant", title: "4. Approved merchant", desc: "Merchant check", status: "step-pending" },
+      { id: "commit", title: "5. Confirm", desc: "Payment confirmed", status: "step-pending" },
     ];
 
     if (!result) return defaultSteps;
@@ -200,7 +200,7 @@ export function PolicySimulator() {
     if (!activeAgent || runawayRunning) return;
     setRunawayRunning(true);
     setRunawayLogs([]);
-    setCircuitMessage("Simulating Sybil micro-drain attack: 5 rapid sub-threshold micropayments ($0.50 USDC each)...");
+    setCircuitMessage("Simulating many small rapid payments ($0.50 USDC each)...");
 
     const attempts = [
       { num: 1, amt: "0.50" },
@@ -248,7 +248,7 @@ export function PolicySimulator() {
         setRunawayLogs([...logs]);
       }
     }
-    setCircuitMessage("Sybil micro-drain test completed. Evaluator enforced velocity / sliding window ceiling.");
+    setCircuitMessage("Test finished. The payment-rate limit was enforced.");
     setRunawayRunning(false);
   };
 
@@ -257,7 +257,7 @@ export function PolicySimulator() {
     if (!activeAgent || runawayRunning) return;
     setRunawayRunning(true);
     setRunawayLogs([]);
-    setCircuitMessage("Simulating Prompt Injection attack: agent coerced to disburse funds to unapproved adversary address...");
+    setCircuitMessage("Simulating an agent tricked into paying an unapproved address...");
 
     const attackerAddress = "0xBad0000000000000000000000000000000000Bad";
     const amtUnits = parseUnits("50.00", 6);
@@ -291,7 +291,7 @@ export function PolicySimulator() {
           : `Prompt injection disbursement rejected: ${reasonMeta.code} (ReasonCode ${decision.reasonCode}).`
       );
     } catch {
-      setCircuitMessage("Policy evaluation completed against settlement node.");
+      setCircuitMessage("Test finished.");
     } finally {
       setRunawayRunning(false);
     }
@@ -302,7 +302,7 @@ export function PolicySimulator() {
     if (!activeAgent || runawayRunning) return;
     setRunawayRunning(true);
     setRunawayLogs([]);
-    setCircuitMessage("Simulating Replay / Stale Signature attack: broadcasting payload with expired deadline (t - 600s)...");
+    setCircuitMessage("Simulating an old, expired request being sent again...");
 
     const merchant = isAddress(testMerchant) ? testMerchant : (configuration.contracts.agentWalletGuard || activeAgent.address);
     const amtUnits = parseUnits("20.00", 6);
@@ -331,9 +331,9 @@ export function PolicySimulator() {
           timestamp: new Date().toLocaleTimeString(),
         },
       ]);
-      setCircuitMessage(`Replay probe processed: ${reasonMeta.code} (ReasonCode ${decision.reasonCode}). Temporal invariance verified.`);
+      setCircuitMessage(`Replay probe processed: ${reasonMeta.code} . The expired request was blocked.`);
     } catch {
-      setCircuitMessage("Policy evaluation completed against settlement node.");
+      setCircuitMessage("Test finished.");
     } finally {
       setRunawayRunning(false);
     }
@@ -352,11 +352,11 @@ export function PolicySimulator() {
       setCircuitState(targetState);
       setCircuitMessage(
         targetState === "CLOSED"
-          ? "Circuit breaker restored to CLOSED (Armored). Full transaction throughput enabled."
-          : "Circuit breaker shifted to HALF_OPEN (Trial Probe). 1 low-velocity test probe allowed."
+          ? "Agent resumed. Normal spending is back on."
+          : "Agent is on trial: a small number of payments are allowed while we watch."
       );
     } catch {
-      setCircuitMessage("The circuit state change could not be confirmed onchain; the current state is unchanged.");
+      setCircuitMessage("We couldn't confirm the change. Nothing was changed.");
     } finally {
       setRunawayRunning(false);
     }
@@ -382,8 +382,8 @@ export function PolicySimulator() {
       const reasonMeta = ONCHAIN_REASON_CODES[decision.reasonCode] || {
         code: `ERR_CODE_${decision.reasonCode}`,
         title: `Reason Code ${decision.reasonCode}`,
-        desc: "Onchain evaluation verdict returned from Monad EVM.",
-        remediation: "Review policy parameters in Policy Studio.",
+        desc: "Result of checking this payment against the agent's rules.",
+        remediation: "Review the spending rules in Policy.",
       };
 
       setResult({
@@ -395,21 +395,21 @@ export function PolicySimulator() {
         estimatedGas: decision.allowed ? 46200 : 21400,
         executionLatencyMs: decision.executionLatencyMs,
         storageSlotsChecked: [
-          `Slot 0: PackedPolicy (${truncateMiddle(activeAgent.address, 8, 4)})`,
-          `Slot 1: PackedState (Nonce: ${decision.evaluatedAtTimestamp})`,
-          "Cancun Transient: tload/tstore reentrancy guard",
+          `Spending rules for ${truncateMiddle(activeAgent.address, 8, 4)}`,
+          `Spending so far this period`,
+          "Duplicate-request protection",
         ],
       });
     } catch (err) {
       setResult({
         success: false,
         reasonCode: 9,
-        reasonTitle: "EVM Call Execution Note",
+        reasonTitle: "Couldn't complete the test",
         reasonDescription: toUserFacingError(err, "The policy evaluation could not be completed."),
-        remediationAdvice: "Verify Monad node connectivity and ensure agent policy is initialized.",
+        remediationAdvice: "Check your connection and make sure this agent has spending rules set.",
         estimatedGas: 0,
         executionLatencyMs: 0,
-        storageSlotsChecked: ["RPC Request Handshake"],
+        storageSlotsChecked: ["Connection check"],
       });
     } finally {
       setSimulating(false);
@@ -420,10 +420,9 @@ export function PolicySimulator() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Risk Governance / Policy Engine</span>
-          <h1>Policy "What-If" Simulator</h1>
+          <h1>Policy Simulator</h1>
           <p>
-            Dry-run hypothetical autonomous spend requests against real Monad EVM storage slots before publishing or executing onchain.
+            Try a payment against your agent's real spending rules before anything is sent.
           </p>
         </div>
       </header>
@@ -441,9 +440,9 @@ export function PolicySimulator() {
             <div className="pipeline-header">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Zap size={16} color="var(--primary)" />
-                <strong>Monad Parallel EVM Policy Evaluation Pipeline</strong>
+                <strong>How a payment is checked</strong>
               </div>
-              <Badge tone="info">&lt; 1ms Deterministic Execution</Badge>
+              <Badge tone="info">Instant</Badge>
             </div>
             <div className="pipeline-steps">
               {pipelineSteps.map((step, idx) => (
@@ -468,7 +467,7 @@ export function PolicySimulator() {
               </div>
               <span className="epoch-pill">
                 <span className="epoch-dot" />
-                Monad execution model
+                Live rules
               </span>
             </div>
 
@@ -540,7 +539,7 @@ export function PolicySimulator() {
                     checked={simulateDeadlined}
                     onChange={(e) => setSimulateDeadlined(e.target.checked)}
                   />
-                  <span>Simulate expired EIP-712 signature deadline</span>
+                  <span>Use an expired request</span>
                 </label>
               </div>
 
@@ -551,7 +550,7 @@ export function PolicySimulator() {
                 disabled={simulating || !testAmount || !isAddress(testMerchant)}
               >
                 <PlayCircle size={16} />
-                <span>{simulating ? "Evaluating EVM Invariants…" : "Run Dry-Run Simulation"}</span>
+                <span>{simulating ? "Checking…" : "Run test"}</span>
               </Button>
             </div>
           </Surface>
@@ -560,7 +559,7 @@ export function PolicySimulator() {
             <div className="section-heading">
               <div>
                 <h2>Evaluation Trace & Diagnosis</h2>
-                <p>EVM invariant inspection and machine-readable ReasonCode.</p>
+                <p>See whether the payment would go through, and why.</p>
               </div>
             </div>
 
@@ -591,7 +590,7 @@ export function PolicySimulator() {
 
                 <div className="result-storage-section">
                   <span className="storage-section-title">
-                    <Layers size={14} /> Evaluated Storage Slots & Opcode Path:
+                    <Layers size={14} /> What was checked:
                   </span>
                   <div className="slot-trace-list">
                     {result.storageSlotsChecked.map((slot, index) => (
@@ -623,7 +622,7 @@ export function PolicySimulator() {
                   <p>{result.remediationAdvice}</p>
                   {!result.success && (
                     <Link to="/app/policy" className="remediation-btn">
-                      <span>Adjust Invariants in Policy Studio</span>
+                      <span>Adjust limits in Policy</span>
                       <ArrowRight size={14} />
                     </Link>
                   )}
@@ -655,29 +654,28 @@ export function PolicySimulator() {
                 <AlertOctagon size={20} />
               </div>
               <div>
-                <h2>Autonomous Multi-Tier Circuit Breaker Testbench</h2>
+                <h2>Safety test lab</h2>
                 <p>
-                  ADR-0008 containment engine: simulates recursive runaway inference loops from autonomous Qwen 3.8 Max agents.
-                  Three consecutive policy invariant breaches automatically trigger the Monad <code>setKillSwitch(agent, true)</code> O(1) circuit breaker.
+                  Try risky scenarios to see how your agent is protected.
                 </p>
               </div>
             </div>
 
             <div className="breaker-status-badge-container">
-              <span className="breaker-state-label">Circuit State:</span>
+              <span className="breaker-state-label">Status:</span>
               {circuitState === "CLOSED" && (
                 <Badge tone="success" className="breaker-pill closed">
-                  <ShieldCheck size={14} /> CLOSED (Armored)
+                  <ShieldCheck size={14} /> Normal
                 </Badge>
               )}
               {circuitState === "OPEN" && (
                 <Badge tone="critical" className="breaker-pill open">
-                  <AlertOctagon size={14} /> OPEN (Quarantined)
+                  <AlertOctagon size={14} /> Paused
                 </Badge>
               )}
               {circuitState === "HALF_OPEN" && (
                 <Badge tone="neutral" className="breaker-pill half-open">
-                  <Activity size={14} /> HALF_OPEN (Trial Probe)
+                  <Activity size={14} /> On trial
                 </Badge>
               )}
             </div>
@@ -688,7 +686,7 @@ export function PolicySimulator() {
               <span>Target Agent:</span>
               <Mono className="agent-target-chip">{truncateMiddle(activeAgent.address, 10, 6)}</Mono>
               <span className="separator">•</span>
-              <span className="physics-note">O(1) Quarantine Protection on Monad</span>
+              <span className="physics-note">Automatic pause protection</span>
             </div>
 
             <div className="breaker-actions">
@@ -700,7 +698,7 @@ export function PolicySimulator() {
                     disabled={runawayRunning}
                   >
                     <Activity size={15} />
-                    <span>Set HALF_OPEN (Trial Probe)</span>
+                    <span>Set On trial</span>
                   </Button>
                   <Button
                     variant="tonal"
@@ -708,7 +706,7 @@ export function PolicySimulator() {
                     disabled={runawayRunning}
                   >
                     <RotateCcw size={15} />
-                    <span>Reset Circuit (CLOSED)</span>
+                    <span>Resume fully</span>
                   </Button>
                 </>
               )}
@@ -720,7 +718,7 @@ export function PolicySimulator() {
                   disabled={runawayRunning}
                 >
                   <RotateCcw size={15} />
-                  <span>Restore Full Traffic (CLOSED)</span>
+                  <span>Resume fully</span>
                 </Button>
               )}
             </div>
@@ -736,14 +734,14 @@ export function PolicySimulator() {
                     <RotateCcw size={16} color="var(--status-critical, #ff4757)" />
                   </div>
                   <div>
-                    <h3 className="threat-card-title">1. Runaway Autonomous Loop</h3>
-                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Recursive LLM Escalation</small>
+                    <h3 className="threat-card-title">1. Runaway loop</h3>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Spending keeps growing</small>
                   </div>
                 </div>
-                <Badge tone="critical">Auto-Trip O(1)</Badge>
+                <Badge tone="critical">Auto-pause</Badge>
               </div>
               <p className="threat-card-desc">
-                Simulates recursive prompt loops escalating spend ($250 → $500 → $1,200). On 3 denials, triggers O(1) emergency quarantine.
+                An agent stuck in a loop keeps asking for more ($250 → $500 → $1,200). After 3 blocked payments it is paused.
               </p>
               <div className="threat-card-target">
                 <span>Probes: $250, $500, $1200 USDC</span>
@@ -755,7 +753,7 @@ export function PolicySimulator() {
                 disabled={runawayRunning || circuitState === "OPEN"}
               >
                 <Zap size={14} />
-                <span>{runawayRunning ? "Simulating Runaway Loop…" : "Simulate Runaway Qwen 3.8 Max Loop"}</span>
+                <span>{runawayRunning ? "Simulating Runaway Loop…" : "Simulate a runaway loop"}</span>
               </Button>
             </div>
 
@@ -767,17 +765,17 @@ export function PolicySimulator() {
                     <Layers size={16} color="var(--primary)" />
                   </div>
                   <div>
-                    <h3 className="threat-card-title">2. Sybil Micro-Drain Flooding</h3>
+                    <h3 className="threat-card-title">2. Many small payments</h3>
                     <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Velocity Ceiling Exhaustion</small>
                   </div>
                 </div>
-                <Badge tone="warning">Velocity Invariant</Badge>
+                <Badge tone="warning">Rate limit</Badge>
               </div>
               <p className="threat-card-desc">
-                Adversary broadcasts 5 rapid sub-threshold micropayments ($0.50 USDC each) attempting to deplete float beneath single-tx ceilings.
+                Five quick $0.50 payments try to drain funds while staying under the per-payment limit.
               </p>
               <div className="threat-card-target">
-                <span>Probes: 5x $0.50 USDC Burst</span>
+                <span>5 payments of $0.50 USDC</span>
               </div>
               <Button
                 variant="tonal"
@@ -785,7 +783,7 @@ export function PolicySimulator() {
                 disabled={runawayRunning || circuitState === "OPEN"}
               >
                 <Layers size={14} />
-                <span>Simulate Micro-Drain</span>
+                <span>Simulate small payments</span>
               </Button>
             </div>
 
@@ -801,10 +799,10 @@ export function PolicySimulator() {
                     <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Counterparty Address Override</small>
                   </div>
                 </div>
-                <Badge tone="info">Whitelist Check</Badge>
+                <Badge tone="info">Approved merchants</Badge>
               </div>
               <p className="threat-card-desc">
-                Malicious prompt injection coerces agent tool caller into disbursing $50.00 USDC to unauthorized external counterparty.
+                An agent is tricked into paying $50.00 USDC to an address that isn't approved.
               </p>
               <div className="threat-card-target">
                 <span>Target: 0xBad000...000Bad</span>
@@ -815,7 +813,7 @@ export function PolicySimulator() {
                 disabled={runawayRunning || circuitState === "OPEN"}
               >
                 <ShieldAlert size={14} />
-                <span>Simulate Merchant Hijack</span>
+                <span>Simulate a bad recipient</span>
               </Button>
             </div>
 
@@ -828,13 +826,13 @@ export function PolicySimulator() {
                   </div>
                   <div>
                     <h3 className="threat-card-title">4. Replay & Nonce Desync</h3>
-                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Stale EIP-712 Signature</small>
+                    <small style={{ color: "var(--muted)", fontSize: "0.72rem" }}>Expired request</small>
                   </div>
                 </div>
-                <Badge tone="neutral">Temporal Check</Badge>
+                <Badge tone="neutral">Expiry check</Badge>
               </div>
               <p className="threat-card-desc">
-                Replays a previously captured EIP-712 spend payload with a deadline 10 minutes in the past and stale sequence nonce.
+                An old payment request from 10 minutes ago is sent again.
               </p>
               <div className="threat-card-target">
                 <span>Payload: Deadline (t - 600s)</span>
@@ -845,7 +843,7 @@ export function PolicySimulator() {
                 disabled={runawayRunning || circuitState === "OPEN"}
               >
                 <Clock size={14} />
-                <span>Simulate Replay Attack</span>
+                <span>Simulate an old request</span>
               </Button>
             </div>
           </div>
@@ -861,9 +859,9 @@ export function PolicySimulator() {
             <div className="runaway-log-table">
               <div className="runaway-table-header">
                 <span>Attempt #</span>
-                <span>Requested Inference Spend</span>
-                <span>EVM Invariant Verdict</span>
-                <span>ReasonCode</span>
+                <span>Requested spend</span>
+                <span>Result</span>
+                <span>Reason</span>
                 <span>Timestamp</span>
               </div>
               <div className="runaway-table-body">
@@ -893,23 +891,23 @@ export function PolicySimulator() {
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Activity size={18} className="text-accent-blue" />
-                <h2>Graduated Adaptive Quarantine & Dynamic Rate Throttling</h2>
-                <Badge tone="success">QuarantineController.sol Active</Badge>
+                <h2>Automatic slow-down</h2>
+                <Badge tone="success">Active</Badge>
               </div>
               <p style={{ marginTop: "4px", fontSize: "0.84rem", color: "var(--color-on-surface-variant)" }}>
-                Replaces brittle binary trip-switches with smooth 4-tier statistical degradation and 30-minute auto-healing based on streaming EWMA velocity anomaly vectors.
+                Instead of a hard stop, spending slows down in steps as activity gets unusual, and recovers on its own after 30 minutes.
               </p>
             </div>
             <Badge tone={simulatedZScore >= 5.0 ? "critical" : simulatedZScore >= 3.5 ? "warning" : simulatedZScore >= 2.0 ? "info" : "success"}>
-              {simulatedZScore >= 5.0 ? "TIER 3: BYZANTINE HALTED" : simulatedZScore >= 3.5 ? "TIER 2: QUORUM REQUIRED" : simulatedZScore >= 2.0 ? "TIER 1: ELEVATED (50% THROTTLE)" : "TIER 0: NOMINAL (100%)"}
+              {simulatedZScore >= 5.0 ? "Stopped" : simulatedZScore >= 3.5 ? "Needs approval" : simulatedZScore >= 2.0 ? "Slowed to 50%" : "Normal"}
             </Badge>
           </div>
 
           <div style={{ marginTop: "16px", padding: "16px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>Streaming Inbound Velocity Anomaly Vector (Z-Score)</span>
+              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>How unusual is the activity?</span>
               <Mono style={{ fontSize: "0.95rem", fontWeight: 700, color: simulatedZScore >= 3.5 ? "var(--color-error)" : "var(--color-primary)" }}>
-                Z = {simulatedZScore.toFixed(2)}σ
+                {simulatedZScore.toFixed(1)} / 6
               </Mono>
             </div>
 
@@ -924,44 +922,44 @@ export function PolicySimulator() {
             />
 
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--color-on-surface-variant)", marginTop: "4px" }}>
-              <span>0.0σ (Baseline Tranquility)</span>
-              <span>2.0σ (Elevated Step-Down)</span>
-              <span>3.5σ (Quorum Enforced)</span>
-              <span>5.0σ+ (Byzantine Freeze)</span>
+              <span>Normal</span>
+              <span>Slow down</span>
+              <span>Needs approval</span>
+              <span>Stop</span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3" style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Dynamic Spend Ceiling</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Current spending limit</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", fontFamily: "var(--font-mono)", color: simulatedZScore >= 5.0 ? "var(--color-error)" : "var(--status-good)" }}>
                 {simulatedZScore >= 5.0 ? "0.00 USDC (0%)" : simulatedZScore >= 3.5 ? "9.00 USDC (20%)" : simulatedZScore >= 2.0 ? "22.50 USDC (50%)" : "45.00 USDC (100%)"}
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Effective allowed per-tx</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Allowed per payment</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Verification Quorum Requirement</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Approval needed</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: simulatedZScore >= 3.5 ? "var(--status-warning)" : "var(--color-primary)" }}>
                 {simulatedZScore >= 3.5 ? "Multi-Sig Mandatory" : "Autonomous Pass"}
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Counter-sign requirement</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Extra signature required</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Self-Healing Decay Window</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Recovery time</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--accent-blue)" }}>
                 1,800s (30 mins)
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>Automatic step-up recovery</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>Recovers automatically</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Parallel EVM Physics</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Isolation</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px" }}>
-                Disjoint Slots
+                Per agent
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Zero write contention</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>One agent never affects another</span>
             </div>
           </div>
         </Surface>

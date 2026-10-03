@@ -1,3 +1,83 @@
+# Institutional Minimalist UI Patterns & Practices Specification
+
+## 1. Executive Summary & Architectural Mandate
+This specification outlines the concrete engineering implementation of five core Linear/Stripe/Vercel-grade UI/UX patterns requested by the user:
+1. **Progressive Disclosure via Hover-Revealed Micro-Actions**: Tables and lists hide secondary/destructive action clusters at rest (`opacity: 0; transform: translateX(4px)`), smoothly fading and sliding them in on `:hover` and keyboard `:focus-within`.
+2. **Segmented Filter Pills with Integrated Live Counters**: Instant single-click filter switches displaying real-time counts (e.g. `All (18)`, `Guarded (16)`, `Quarantined (2)`), replacing modal dialogues and multi-click dropdowns.
+3. **Inline State Morphing (Optimistic Micro-Feedback)**: Buttons, copy widgets, and inline triggers smoothly morph into emerald success pills with checkmarks (`copied-pill`) for 1.2s instead of triggering intrusive modal alerts or sticky banners.
+4. **Side-Drawer Inspect Panels over Stacked Modals**: Complex inspection flows (TBA passports, TEE attestations, transaction calldata) slide in as a right-hand drawer, preserving the parent table in view.
+5. **Keyboard-First Drawer Cycling**: Operators can smoothly navigate through the underlying dataset using <kbd>J</kbd> (Next / <kbd>↓</kbd>) and <kbd>K</kbd> (Previous / <kbd>↑</kbd>) without closing and reopening the inspect drawer.
+
+---
+
+# Modern Minimalist SaaS UI Transformation: All Tenant & Admin Pages
+
+## Executive Summary
+Per user direction ("did you do it for all pages admin & tenant? We need a UI like modern SaaS and not fill it with text"), this plan establishes a repository-wide UI overhaul across all 19 screens in `apps/web`. We will transition the interface from verbose, text-heavy documentation cards to a sleek, high-signal modern SaaS control plane inspired by Stripe, Linear, and Vercel.
+
+### Core Design System Principles
+1. **Zero Text Bloat**: Eliminate marketing copy, essay-length paragraphs, and repetitive explanations from inside operational screens. Let live metrics, status badges, and intuitive controls communicate intent.
+2. **High Signal-to-Noise Ratio**: Elevate data density with generous breathing room. Replace giant nested colored boxes with clean surfaces, crisp single-line headers, and subtle dividers.
+3. **Linear/Stripe-Grade Visual Hierarchy**: Crisp typography, subtle borders (`var(--outline-soft)`), modern toggle switches instead of heavy checkbox cards, and compact action bars.
+4. **100% Invariant Compliance & Zero-Mock**: Maintain all 70 automated test assertions, zero `Math.random()`, zero hardcoded fallback addresses, and live onchain Viem contract connectivity.
+
+---
+
+## Screen-by-Screen Transformation Scope
+
+### A. Tenant Workspace (`/app/*`)
+1. **Overview (`Overview.tsx`)**:
+   - Remove `saas-hero-card` ("High-Throughput Policy Engine...") and the 3 text-heavy `saas-feature-card` blocks.
+   - Surface clean high-signal metrics: Sleek StatTiles, net spend volume chart, agent distribution breakdown, and clean live audit ledger.
+   - Condense the workspace readiness card into a clean, minimalist progress bar.
+
+2. **Fleet (`Fleet.tsx`)**:
+   - Remove the multi-paragraph inline "Register an agent" explanation block and redundant tabs (agent onboarding is handled cleanly via the modal wizard).
+   - Streamline the fleet table with clean status indicators, risk pills, and instant 1-click pause/activate controls.
+   - Keep the Swarm Topology Visualizer compact and collapsible.
+
+3. **Policy Studio (`Policy.tsx`)**:
+   - Completed: Proportional `1fr 340px` grid, unified agent/presets bar, dollar-formatted inputs, modern toggle switches for Kill Switch & Whitelist, and a sleek Live Settlement receipt sidebar.
+
+4. **Activity & Audit Waterfall (`ActivityTrace.tsx`)**:
+   - Remove essay-like text from reason codes. Replace with crisp, color-coded badges and machine reason codes.
+   - Clean data table with search, status filters, latency metrics, and clear slide-over inspector for raw calldata and hashes.
+
+5. **Treasury & Reserves (`Treasury.tsx`)**:
+   - Remove technical lectures about Cancun storage and gas sponsorship.
+   - Present clean financial cards: Organization Reserves, Allocated Float, and Available Liquidity. Clean modal actions for Deposit and Withdraw.
+
+6. **Policy Simulator (`PolicySimulator.tsx`)**:
+   - Streamline the scenario testbench: Clean input parameters, quick scenario chips (Standard vs. Rogue vs. Velocity Spike), and a crisp execution verdict tile without paragraphs of filler text.
+
+7. **Merchant Directory (`MerchantDirectory.tsx`) & Quorum Approvals (`QuorumApprovals.tsx`)**:
+   - Clean data tables with quick search, inline status toggles, and minimalist modal forms for adding merchants or collecting multisig signatures.
+
+8. **Settings & Access (`Settings.tsx`)**:
+   - Clean, modern tabbed navigation (`General`, `Machine Credentials`, `PBAC Policies`, `Rate Cards`).
+   - Replace wordy legalistic paragraphs with clean labeled inputs and modern toggle switches.
+
+### B. Platform Administration (`/admin/*`)
+1. **Overview (`Overview.tsx`)**:
+   - Clean financial KPI tiles (MRR, Tenants, Active Subscriptions, Refund Volume). Clean 90-day revenue trendline and active subscription gauge.
+2. **Tenants (`Tenants.tsx`)**:
+   - Clean organizations table with quick search, status badges, and a streamlined inline create modal/drawer instead of a sprawling form.
+3. **Plans & Subscriptions (`Plans.tsx`, `Subscriptions.tsx`)**:
+   - Crisp SaaS pricing tier cards, clear quota ceilings, and an uncluttered subscriber management table.
+4. **Ledger & Reconciliation (`Ledger.tsx`, `Reconciliation.tsx`, `Revenue.tsx`)**:
+   - Clean fintech accounting grids, timestamp sorting, export actions, zero text clutter.
+5. **Access Governance (`Access.tsx`)**:
+   - Clean operator directory table, role selector, and 1-click invitation modal.
+
+---
+
+## Validation & Merge-Blocking Quality Gates
+- `npm run build`: Sub-second zero-error Vite production build.
+- `npm test`: 100% pass rate (70/70 tests).
+- Zero-mock verification (`Math.random` = 0, fallback addresses = 0).
+
+---
+
 # Implementation Plan: Institutional UI/UX Architecture & End-to-End Feature Completeness
 
 ## 1. Executive Assessment & Architectural Review
@@ -751,3 +831,29 @@ All 4 phases of the Usability, Ergonomics & Operator Clarity rollout have been i
 
 
 
+
+
+---
+
+## 18. Plain-Language UI Pass (Self-Guided SaaS)
+
+**Goal:** a low-cognitive-load, Google/Stripe-style interface for both tenant and admin, with blockchain and protocol machinery hidden from primary UI content.
+
+**Foundation**
+- `globals.css`: spacing, radius and type-scale tokens; shared primitive styles.
+- `design-system.tsx`: `Tooltip`, `Tabs`, `Stepper`, `Switch`, `CurrencyInput`.
+- `copy.ts`: single source for plain wording (reason codes, wallet types, network fees, trust score).
+
+**Screens updated**
+- Tenant: Overview, Fleet (incl. team map), Policy, Policy Simulator, Activity, Merchant Directory, Approvals, Treasury, Settings, Billing, Agent Inspector.
+- Admin: Overview, Tenants, Plans, Subscriptions, Payment history, Payment checks, Revenue, Access.
+- Shell: landing page, sign-in, navigation, command palette, shortcuts, toasts, AI assistant, onboarding wizard.
+
+**Removed (non-functional or fabricated)**
+- Policy: ZK Shield and Omnichain cards (local state only, no backend call).
+- Agent Inspector: raw storage slots, attestation registers, registry/contract names, fabricated hash values.
+- Activity: fixed per-step timings in the payment detail view.
+- Fleet: fallback region latencies (regions now render only when the service returns them).
+- Admin Ledger: chain ID column.
+
+**Tests:** assertions that pinned old jargon now pin the new wording; structural, hook and API checks are unchanged. Root `npm test` 70/70, web 20/20, `npm run build:all` clean.

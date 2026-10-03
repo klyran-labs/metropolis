@@ -46,10 +46,10 @@ function MultisigWalletRow({ wallet }: { wallet: OrganizationWallet }) {
         <strong>{wallet.label}</strong>
       </div>
       <Mono>{truncateMiddle(wallet.address, 10, 6)}</Mono>
-      <Badge tone="info">Requires {wallet.approvalThreshold} Operator Signatures</Badge>
+      <Badge tone="info">Needs {wallet.approvalThreshold} signatures</Badge>
       <TokenAmount baseUnits={displayBalance} />
       <Link to="/app/treasury" className="remediation-btn">
-        <span>Manage Quorum</span>
+        <span>Manage</span>
         <ArrowRight size={13} />
       </Link>
     </div>
@@ -84,13 +84,13 @@ export function QuorumApprovals() {
   };
 
   const approveMutation = useApproveWalletTransfer(() => {
-    setActionMessage("Approval signature registered onchain.");
+    setActionMessage("Approved.");
     refresh();
     setTimeout(() => setActionMessage(""), 5000);
   });
 
   const submitMutation = useSubmitWalletTransfer(() => {
-    setActionMessage("Transaction hash submitted for confirmation.");
+    setActionMessage("Submitted.");
     refresh();
     setTimeout(() => setActionMessage(""), 5000);
   });
@@ -107,11 +107,8 @@ export function QuorumApprovals() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Governance / Dual-Control Quorum</span>
-          <h1>Spending Quorum & Escalation Center</h1>
-          <p>
-            Review and co-sign high-value autonomous transactions and treasury transfers requiring multi-operator consensus.
-          </p>
+          <h1>Approvals</h1>
+          <p>Transfers that need more than one signature.</p>
         </div>
       </header>
 
@@ -119,29 +116,29 @@ export function QuorumApprovals() {
       <div className="stat-row">
         <Surface className="stat-tile-custom">
           <div className="stat-tile-top">
-            <span className="stat-label">Pending Escalations</span>
+            <span className="stat-label">Waiting for approval</span>
             <UsersRound size={18} className="accent-blue" />
           </div>
           <strong className="stat-value">{pendingTransfers.length}</strong>
-          <small className="stat-sub">Requiring operator signatures</small>
+          <small className="stat-sub">Need a signature</small>
         </Surface>
 
         <Surface className="stat-tile-custom">
           <div className="stat-tile-top">
-            <span className="stat-label">Multi-Sig Wallets</span>
+            <span className="stat-label">Multi-approval wallets</span>
             <ShieldAlert size={18} className="accent-amber" />
           </div>
           <strong className="stat-value">{multisigWallets.length}</strong>
-          <small className="stat-sub">Threshold &gt; 1 required</small>
+          <small className="stat-sub">Need more than one signature</small>
         </Surface>
 
         <Surface className="stat-tile-custom">
           <div className="stat-tile-top">
-            <span className="stat-label">Enforced Physics</span>
+            <span className="stat-label">Signed securely</span>
             <Sparkles size={18} className="accent-aqua" />
           </div>
-          <strong className="stat-value">EIP-712</strong>
-          <small className="stat-sub">Typed cryptographic signatures</small>
+          <strong className="stat-value">Always</strong>
+          <small className="stat-sub">Every approval is cryptographically verified</small>
         </Surface>
       </div>
 
@@ -155,14 +152,11 @@ export function QuorumApprovals() {
       {/* Pending Approvals Section */}
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Pending Approval Queue</h2>
-            <p>Transactions currently awaiting human-in-the-loop quorum validation.</p>
-          </div>
+          <h2>Pending approvals</h2>
           {agents.length > 0 && (
             <div className="quorum-agent-filter-inline">
               <AgentSelect
-                label="Filter Quorum by Agent"
+                label="Filter by agent"
                 value={selectedAgentAddress || (agents[0]?.address ?? "")}
                 agents={agents}
                 onChange={(val) => setSelectedAgentAddress(val)}
@@ -178,26 +172,29 @@ export function QuorumApprovals() {
                 <div className="quorum-card-head">
                   <div className="quorum-type-badge">
                     <Bot size={15} />
-                    <span>{item.direction === "load" ? "Load Request" : "Unload Request"}</span>
+                    <span>{item.direction === "load" ? "Add funds" : "Withdraw"}</span>
                   </div>
-                  <Badge tone="warning">Awaiting Consensus</Badge>
+                  <Badge tone="warning">Needs approval</Badge>
                 </div>
 
                 <div className="quorum-card-body">
                   <div className="quorum-field">
-                    <small>Destination Wallet</small>
+                    <small>Wallet</small>
                     <strong>{item.walletLabel}</strong>
                     <div className="address-copy-group">
                       <Mono>{truncateMiddle(item.walletAddress, 8, 4)}</Mono>
                       <button
                         type="button"
-                        className="inline-copy-btn"
+                        className={`inline-copy-btn table-copy-btn ${copiedText === item.walletAddress ? "copied-active" : ""}`}
                         onClick={() => handleCopy(item.walletAddress)}
                         title="Copy wallet address"
                         aria-label="Copy wallet address"
                       >
                         {copiedText === item.walletAddress ? (
-                          <CheckCircle2 size={12} className="copied-icon" />
+                          <>
+                            <CheckCircle2 size={12} className="copied-icon" />
+                            <span className="copied-pill-text">Copied</span>
+                          </>
                         ) : (
                           <Copy size={12} />
                         )}
@@ -206,12 +203,12 @@ export function QuorumApprovals() {
                   </div>
 
                   <div className="quorum-field">
-                    <small>Requested Spend</small>
+                    <small>Amount</small>
                     <TokenAmount baseUnits={item.amountBaseUnits} />
                   </div>
 
                   <div className="quorum-field">
-                    <small>Initiated By</small>
+                    <small>Requested by</small>
                     <Mono>{truncateMiddle(item.initiatedBySubject, 10, 6)}</Mono>
                   </div>
                 </div>
@@ -223,7 +220,7 @@ export function QuorumApprovals() {
                     disabled={approveMutation.isPending}
                   >
                     <CheckCheck size={14} />
-                    <span>{approveMutation.isPending ? "Signing…" : "Sign & Authorize Intent"}</span>
+                    <span>{approveMutation.isPending ? "Approving…" : "Approve"}</span>
                   </Button>
                 </div>
               </div>
@@ -231,12 +228,12 @@ export function QuorumApprovals() {
           </div>
         ) : (
           <EmptyState
-            title="Approval queue is clear"
-            detail="All autonomous agent expenditures and wallet transfers are within automated policy invariants. Transactions exceeding single-signature thresholds will appear here for multi-party authorization."
+            title="Nothing needs approval"
+            detail="Transfers that need more than one signature will show up here."
             action={
-              <Link to="/simulator">
+              <Link to="/app/simulator">
                 <Button variant="tonal">
-                  <ShieldCheck size={14} style={{ marginRight: 6 }} /> Simulate High-Value Intent
+                  <ShieldCheck size={14} style={{ marginRight: 6 }} /> Try the simulator
                 </Button>
               </Link>
             }
@@ -247,10 +244,7 @@ export function QuorumApprovals() {
       {/* Multi-Sig Wallets Configuration */}
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Configured Quorum Thresholds</h2>
-            <p>Treasury wallets requiring multiple operator signatures before funds can be dispatched.</p>
-          </div>
+          <h2>Multi-approval wallets</h2>
         </div>
 
         {multisigWallets.length > 0 ? (
@@ -261,12 +255,12 @@ export function QuorumApprovals() {
           </div>
         ) : (
           <EmptyState
-            title="No multi-operator thresholds configured"
-            detail="Configure approval thresholds (e.g. 2-of-3 signatures required) on institutional treasury wallets to enforce dual-control on large disbursements."
+            title="No multi-approval wallets yet"
+            detail="Require more than one signature for large transfers by setting this up on a treasury wallet."
             action={
-              <Link to="/treasury">
+              <Link to="/app/treasury">
                 <Button variant="filled">
-                  <ArrowRight size={14} style={{ marginRight: 6 }} /> Go to Treasury Setup
+                  <ArrowRight size={14} style={{ marginRight: 6 }} /> Set up in Treasury
                 </Button>
               </Link>
             }

@@ -387,34 +387,72 @@ export class RequestError extends Error {
 
 export function toUserFacingError(error: unknown, fallback: string): string {
   if (error instanceof RequestError) {
-    if (error.message && error.message !== "The service could not complete the request." && error.message !== "Internal Server Error") {
-      return error.message;
-    }
     const reasonMessages: Record<string, string> = {
       ERR_UNAUTHENTICATED: "Your session has expired. Sign in again to continue.",
       ERR_ROLE_FORBIDDEN: "Your role does not permit this action.",
-      ERR_TENANT_SCOPE: "This resource is outside your organization workspace.",
+      ERR_TENANT_SCOPE: "This agent belongs to a different organization or tenant workspace.",
       ERR_POLICY_DENIED: "The policy engine denied this action.",
       ERR_RATE_LIMITED: "The workspace is busy. Retry when the current operations finish.",
-      ERR_DEPENDENCY_UNAVAILABLE: "The Sovereign Key Vault service is temporarily unavailable.",
+      ERR_DEPENDENCY_UNAVAILABLE: "The key vault service is temporarily unavailable.",
       ERR_TIMEOUT: "The request timed out before a response was received.",
+      ERR_NETWORK: "Could not connect to the AgentGuard gateway service.",
     };
     if (error.reasonCode && reasonMessages[error.reasonCode]) {
       return reasonMessages[error.reasonCode];
     }
+    if (
+      error.message &&
+      error.message !== "The service could not complete the request." &&
+      error.message !== "Internal Server Error"
+    ) {
+      return error.message;
+    }
     return fallback;
   }
 
-  const message = error instanceof Error ? error.message : "";
-  if (/user rejected|user denied|rejected the request|user cancelled|user canceled|exited signature flow|modal closed/i.test(message)) {
-    return "Wallet approval was cancelled.";
+  const rawMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : "";
+
+  if (!rawMessage) return fallback;
+
+  if (/user rejected|user denied|rejected the request|user cancelled|user canceled|exited signature flow|modal closed/i.test(rawMessage)) {
+    return "Wallet approval was cancelled by user.";
   }
-  if (/wrong network|chain id|unsupported chain/i.test(message)) {
-    return "Switch your wallet to the configured settlement network and try again.";
+  if (/wrong network|chain id|unsupported chain/i.test(rawMessage)) {
+    return "Switch your wallet to the correct network and try again.";
   }
-  if (/insufficient funds|balance is too low/i.test(message)) {
-    return "The connected wallet does not have enough funds for this action.";
+  if (/insufficient funds|balance is too low|exceeds balance/i.test(rawMessage)) {
+    return "The connected wallet does not have enough funds to cover network fees.";
   }
+  if (/nonce too low|replacement transaction underpriced/i.test(rawMessage)) {
+    return "A pending transaction is blocking this operation. Please retry in a moment.";
+  }
+  if (/0x82b42900|only agent admin|unauthorized|not the owner/i.test(rawMessage)) {
+    return "Your connected wallet is not the administrator of this agent.";
+  }
+  if (/execution reverted/i.test(rawMessage)) {
+    const match = rawMessage.match(/execution reverted:?\s*([^"'{}\n\r]+)/i);
+    if (match && match[1]?.trim()) {
+      return `The action was declined: ${match[1].trim()}`;
+    }
+    return "The action was declined by your spending rules.";
+  }
+
+  // Clean common RPC prefixes
+  const clean = rawMessage
+    .replace(/^Error:\s*/i, "")
+    .replace(/^MetaMask - RPC Error:\s*/i, "")
+    .replace(/^Internal JSON-RPC error\.\s*/i, "")
+    .trim();
+
+  if (clean && clean.length > 3 && clean.length < 240 && !clean.includes(" at ") && !clean.includes(".ts:")) {
+    return clean;
+  }
+
   return fallback;
 }
 
@@ -465,13 +503,20 @@ export async function request<T>(
     throw new RequestError("The service could not be reached.", 0, "ERR_NETWORK");
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const reasonCode = (
+      body.reason_code ??
+      body.reasonCode ??
+      response.headers.get("x-agentguard-reason-code") ??
+      ""
+    ).toString();
+    const serverMessage = (body.message ?? body.remediation ?? body.error) as string | undefined;
     throw new RequestError(
-      typeof body.message === "string"
-        ? body.message
-        : "The service could not complete the request.",
+      typeof serverMessage === "string" && serverMessage.trim()
+        ? serverMessage.trim()
+        : `Request failed with status ${response.status}`,
       response.status,
-      typeof body.reasonCode === "string" ? body.reasonCode : "",
+      reasonCode,
     );
   }
   if (response.status === 204) return undefined as T;

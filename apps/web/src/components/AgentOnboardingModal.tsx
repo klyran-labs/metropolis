@@ -168,7 +168,7 @@ export function AgentOnboardingModal({
           : walletSource === "tba"
             ? {
                 walletSource: "sovereign",
-                label: `${label.trim()} [ERC-6551 TBA]`,
+                label: `${label.trim()} [Identity wallet]`,
                 environment,
                 riskTier: "tier2_standard",
               }
@@ -233,7 +233,7 @@ receipt = client.settle_spend(
     amount_usdc=4.50,
     category="inference"
 )
-print("Settlement confirmed on Monad:", receipt.transaction_hash)
+print("Payment confirmed:", receipt.transaction_hash)
 `;
   };
 
@@ -253,7 +253,7 @@ const receipt = await client.settleSpend({
   amountUsdc: 4.50,
   category: "inference"
 });
-console.log("Settlement Hash:", receipt.transactionHash);
+console.log("Receipt:", receipt.transactionHash);
 `;
   };
 
@@ -290,7 +290,7 @@ console.log("Settlement Hash:", receipt.transactionHash);
           <div className="modal-header-text">
             <span className="modal-eyebrow">Fleet Governance · {networkLabel}</span>
             <h2 id="agent-onboarding-title">Provision Autonomous Agent</h2>
-            <p>Deploy a sovereign keypair with Monad Parallel EVM policy enforcement.</p>
+            <p>Create an agent with its own wallet and spending limits.</p>
           </div>
           <button
             type="button"
@@ -340,7 +340,7 @@ console.log("Settlement Hash:", receipt.transactionHash);
               <div className="form-group">
                 <TextField
                   label="Agent Label or Identity"
-                  placeholder="e.g. Qwen 3.8 Inference Worker"
+                  placeholder="e.g. Research Assistant"
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
                   autoFocus
@@ -403,7 +403,7 @@ console.log("Settlement Hash:", receipt.transactionHash);
                       <Sparkles size={18} />
                     </div>
                     <div className="custody-title">
-                      <strong>Sovereign Managed Enclave</strong>
+                      <strong>Secure wallet (hosted for you)</strong>
                       <span className="custody-tag">Recommended</span>
                     </div>
                   </div>
@@ -423,7 +423,7 @@ console.log("Settlement Hash:", receipt.transactionHash);
                       <ShieldCheck size={18} />
                     </div>
                     <div className="custody-title">
-                      <strong>Sovereign Passport (ERC-6551 TBA)</strong>
+                      <strong>Agent identity wallet</strong>
                       <span className="custody-tag">Token Bound</span>
                     </div>
                   </div>
@@ -633,7 +633,7 @@ console.log("Settlement Hash:", receipt.transactionHash);
               </Button>
               <Button onClick={() => void handleProvision()} disabled={submitting}>
                 <Sparkles size={14} />
-                <span>{submitting ? "Provisioning Onchain…" : "Provision Agent"}</span>
+                <span>{submitting ? "Creating agent…" : "Provision Agent"}</span>
               </Button>
             </>
           )}

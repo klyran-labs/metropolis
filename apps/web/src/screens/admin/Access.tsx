@@ -28,22 +28,18 @@ export function AdminAccess() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Access</span>
-          <h1>Platform access</h1>
-          <p>Grant or update platform-level roles, separate from tenant membership.</p>
+          <h1>Platform Access</h1>
+          <p>Grant and manage platform-level administrative roles.</p>
         </div>
       </header>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Assign a platform role</h2>
-            <p>Roles are evaluated independently from the six tenant roles.</p>
-          </div>
+          <h2>Add team member</h2>
         </div>
         <div className="inline-form">
-          <TextField label="Identity subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
+          <TextField label="Account ID" value={subject} onChange={(event) => setSubject(event.target.value)} />
           <Select
-            label="Platform Role"
+            label="Role"
             value={role}
             onChange={(val) => setRole(val as (typeof platformRoles)[number])}
             options={platformRoles.map((item) => ({
@@ -71,13 +67,10 @@ export function AdminAccess() {
       </Surface>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Platform operators</h2>
-            <p>{operators.data?.length ?? 0} identities hold a platform role.</p>
-          </div>
+          <h2>Team ({operators.data?.length ?? 0})</h2>
         </div>
         {operators.isError ? (
-          <EmptyState title="Access directory unavailable" detail="We couldn't load platform operators right now." />
+          <EmptyState title="Couldn't load team" detail="Try refreshing the page." />
         ) : operators.data?.length ? (
           <div className="entity-list">
             {operators.data.map((operator) => (
@@ -89,7 +82,7 @@ export function AdminAccess() {
             ))}
           </div>
         ) : (
-          <EmptyState title="No platform operators" detail="Assign the first platform role above." />
+          <EmptyState title="No team members yet" detail="Add your first team member above." />
         )}
       </Surface>
     </div>

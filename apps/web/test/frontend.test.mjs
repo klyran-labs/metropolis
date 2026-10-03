@@ -113,9 +113,9 @@ test("InlineSignIn implements enterprise dual-mode auth, OTP flow, and non-custo
   assert.match(signin, /inputMode="numeric"/);
 
   // Non-custodial institutional trust assurance
-  assert.match(signin, /EIP-712 Signed/);
+  assert.match(signin, /Verified payments/);
   assert.match(signin, /Non-Custodial/);
-  assert.match(signin, /Hardware Sealed/);
+  assert.match(signin, /Secure keys/);
 
   // Router layout: auth card is isolated strictly to the right panel
   assert.match(router, /landing-auth-panel/);
@@ -169,7 +169,7 @@ test("Modern UI/UX invariants: canonical brand mark, zero-mock overview, and add
   assert.match(topBar, /top-bar-breadcrumbs/);
 });
 
-test("Phase 2 UI/UX Invariants: dynamic storage slots, Policy Studio presets, and merchant copying", async () => {
+test("Phase 2 UI/UX Invariants: live policy data, Policy Studio presets, and merchant copying", async () => {
   const [inspector, policy, merchantDir, quorum, simulator] = await Promise.all([
     readFile(new URL("../src/screens/tenant/AgentInspector.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
@@ -182,7 +182,7 @@ test("Phase 2 UI/UX Invariants: dynamic storage slots, Policy Studio presets, an
   assert.doesNotMatch(inspector, /28% of hourly cap/);
   assert.match(inspector, /useAgentPolicy/);
   assert.match(inspector, /maxSpendPerTxFormatted/);
-  assert.match(inspector, /windowDurationFormatted/);
+  assert.match(inspector, /maxSpendPerWindowFormatted/);
 
   // Policy Studio modern UX invariants: presets, duration chips, and studio grid
   assert.match(policy, /policy-studio-grid/);
@@ -346,17 +346,16 @@ test("finops dual-denomination rate cards and enterprise pricing models are inte
   assert.match(settingsSrc, /per_unit_request/);
   assert.match(settingsSrc, /hybrid_commit_volume/);
 
-  // Settings UI contains AI Rate Cards tab, 4D matrix, Tool catalog, and FinOps controls
+  // Settings UI contains AI Rate Cards tab, model-level overrides, Tool catalog, and FinOps controls
+  // (plain-language pass: section copy is now in everyday language, not jargon)
   assert.match(settingsSrc, /AI Rate Cards/);
-  assert.match(settingsSrc, /Dual-Denomination Engine/);
-  assert.match(settingsSrc, /4-Dimension Matrix/);
   assert.match(settingsSrc, /Cache Read/);
   assert.match(settingsSrc, /Cache Write/);
-  assert.match(settingsSrc, /Per-Operation Tool & Service Rate Cards/);
-  assert.match(settingsSrc, /Monthly Compute Token Quota Cap/);
-  assert.match(settingsSrc, /Volume Discount Ladders/);
-  assert.match(settingsSrc, /Live Spend Simulator & FinOps Sandbox/);
-  assert.match(settingsSrc, /Async Batch API Mode/);
+  assert.match(settingsSrc, /Tool & service pricing/);
+  assert.match(settingsSrc, /Monthly usage cap/);
+  assert.match(settingsSrc, /Volume discount tiers/);
+  assert.match(settingsSrc, /Estimate your cost/);
+  assert.match(settingsSrc, /Batch mode \(50% off\)/);
 
   // API endpoints, types, and hooks wired
   assert.match(apiSrc, /useTenantPricingModel/);
@@ -381,7 +380,7 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
   // AI Copilot connects to /copilot/compile-policy and stages into Policy Studio
   assert.match(copilotSrc, /useCompilePolicy/);
   assert.match(copilotSrc, /agentguard_staged_policy/);
-  assert.match(copilotSrc, /Apply to Policy Studio/);
+  assert.match(copilotSrc, /Apply to Policy/);
   assert.match(policySrc, /agentguard_staged_policy/);
   assert.match(apiSrc, /\/copilot\/compile-policy/);
 
@@ -389,7 +388,7 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
   // The UI blocks staging an invalid policy to Policy Studio (mirrors Qwen backend bounds clamping)
   assert.match(copilotSrc, /AlertTriangle/, "AICopilot must import AlertTriangle for invariant warning");
   assert.match(copilotSrc, /copilot-invariant-warning/, "AICopilot must render invariant violation banner class");
-  assert.match(copilotSrc, /Policy Invariant Violated/, "AICopilot must display a clear invariant violation message");
+  assert.match(copilotSrc, /Limits don't add up/, "AICopilot must display a clear limits-conflict message");
   assert.match(copilotSrc, /maxPerTx.*maxPerWindow|maxPerWindow.*maxPerTx/, "AICopilot must compare maxPerTx and maxPerWindow values");
 
   // React Hook rules: All hooks in AICopilot must precede conditional return (open check)
@@ -400,11 +399,11 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
   assert.match(copilotSrc, /createPortal/, "AICopilot must render to portal root");
 
   // PolicySimulator includes ADR-0008 Multi-Tier Circuit Breaker Testbench
-  assert.match(simulatorSrc, /Autonomous Multi-Tier Circuit Breaker Testbench/);
-  assert.match(simulatorSrc, /Simulate Runaway Qwen 3.8 Max Loop/);
-  assert.match(simulatorSrc, /CLOSED \(Armored\)/);
-  assert.match(simulatorSrc, /OPEN \(Quarantined\)/);
-  assert.match(simulatorSrc, /HALF_OPEN \(Trial Probe\)/);
+  assert.match(simulatorSrc, /Safety test lab/);
+  assert.match(simulatorSrc, /Simulate a runaway loop/);
+  assert.match(simulatorSrc, /Normal/);
+  assert.match(simulatorSrc, /Paused/);
+  assert.match(simulatorSrc, /On trial/);
   assert.match(simulatorSrc, /useTripKillSwitch/);
   assert.match(simulatorSrc, /runRunawayCircuitBreaker/);
 });
@@ -464,19 +463,19 @@ test("Tier-1 Recommendations: ERC-4337 Paymaster sponsorship and ERC-6551 Token 
   assert.match(hooksSrc, /useAgentTba/);
 
   // Fleet screen UI integration
-  assert.match(fleetSrc, /Sovereign Passport \(ERC-6551 TBA\)/);
-  assert.match(fleetSrc, /Paymaster Sponsored Gas/);
-  assert.match(fleetSrc, /Token Bound Account/);
+  assert.match(fleetSrc, /Agent identity wallet/);
+  assert.match(fleetSrc, /AgentGuard covers network fees/);
+  assert.match(fleetSrc, /Identity wallet/);
 
-  // Treasury screen Paymaster float replenishment integration
+  // Treasury screen Paymaster float replenishment integration (plain-language copy: "network fee balance")
   const treasurySrc = await readFile(new URL("../src/screens/tenant/Treasury.tsx", import.meta.url), "utf8");
   assert.match(hooksSrc, /usePaymasterTreasuryBalance/);
   assert.match(hooksSrc, /useDepositPaymasterGas/);
-  assert.match(treasurySrc, /Paymaster Gas Float/);
-  assert.match(treasurySrc, /Replenish Gas Float/);
+  assert.match(treasurySrc, /Network fee balance/);
+  assert.match(treasurySrc, /Add network fee funds/);
 });
 
-test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, TEE/Passport Tabs, 4-Scenario Testbench, and Compliance Manifest", async () => {
+test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, Plain-Language Security Tab, 4-Scenario Testbench, and Compliance Manifest", async () => {
   const [fleetSrc, policySrc, inspectorSrc, simulatorSrc, activitySrc, globalsCss] = await Promise.all([
     readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
@@ -489,8 +488,8 @@ test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, TEE/Passport Tabs,
   // Feature 1: Fleet Management Batch Actions, Faceted Filters & Export
   assert.match(fleetSrc, /selectedAgents/);
   assert.match(fleetSrc, /fleet-batch-bar/);
-  assert.match(fleetSrc, /Freeze Selected/);
-  assert.match(fleetSrc, /Resume Selected/);
+  assert.match(fleetSrc, /Pause selected/);
+  assert.match(fleetSrc, /Resume selected/);
   assert.match(fleetSrc, /Export CSV/);
   assert.match(fleetSrc, /Export JSON/);
   assert.match(fleetSrc, /statusFilter/);
@@ -502,21 +501,18 @@ test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, TEE/Passport Tabs,
   assert.match(policySrc, /policy-diff-table/);
   assert.match(policySrc, /policy-dryrun-section/);
   assert.match(policySrc, /dryRunVerdict/);
-  assert.match(policySrc, /Pre-Flight Spend Invariant Simulator/);
+  assert.match(policySrc, /Test before you publish/);
   assert.match(policySrc, /ERR_MAX_PER_TX_EXCEEDED/);
   assert.match(policySrc, /ERR_MAX_PER_WINDOW_EXCEEDED/);
   assert.match(policySrc, /ERR_MERCHANT_NOT_WHITELISTED/);
 
-  // Feature 3: Agent Inspector TEE Remote Attestation & ERC-6551 Passport Tabs
-  assert.match(inspectorSrc, /activeTab === "attestation"/);
-  assert.match(inspectorSrc, /activeTab === "passport"/);
-  assert.match(inspectorSrc, /EnclaveAttestationRegistry\.sol/);
-  assert.match(inspectorSrc, /AWS Nitro Enclave/);
-  assert.match(inspectorSrc, /PCR0/);
-  assert.match(inspectorSrc, /AgentAccount\.sol/);
-  assert.match(inspectorSrc, /AgentIdentityRegistry\.sol/);
-  assert.match(inspectorSrc, /ReputationRegistry\.sol/);
-  assert.match(inspectorSrc, /Sliding Window Epoch/);
+  // Feature 3: Agent Inspector Security tab (hardware attestation & identity, surfaced in plain language
+  // rather than raw TEE registers / ERC standard numbers)
+  assert.match(inspectorSrc, /activeTab === "security"/);
+  assert.match(inspectorSrc, /Hardware security/);
+  assert.match(inspectorSrc, /Agent identity/);
+  assert.match(inspectorSrc, /trustScoreLabel/);
+  assert.match(inspectorSrc, /rolloverText/);
 
   // Feature 4: Policy Simulator 4-Scenario Adversarial Threat Suite & Visual Pipeline
   assert.match(simulatorSrc, /physics-pipeline-container/);
@@ -553,7 +549,7 @@ test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollb
 
   // Option 1: Hierarchical Swarm Governance & Interactive DAG Visualizer
   assert.match(fleetSrc, /fleet-view-toggle/);
-  assert.match(fleetSrc, /Swarm Topology \(DAG\)/);
+  assert.match(fleetSrc, /Team map/);
   assert.match(fleetSrc, /SwarmTopologyVisualizer/);
   assert.match(swarmSrc, /swarm-topology-container/);
   assert.match(swarmSrc, /supervisor-tier/);
@@ -574,24 +570,24 @@ test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollb
   assert.match(policySrc, /25% Scale/);
   assert.match(policySrc, /50% Trial/);
   assert.match(policySrc, /100% Consensus/);
-  assert.match(policySrc, /Emergency Atomic Rollback to Baseline/);
+  assert.match(policySrc, /Roll back now/);
   assert.match(policySrc, /handleEmergencyRollback/);
   assert.match(policySrc, /handleAdvanceCanary/);
-  assert.match(policySrc, /ANOMALOUS BREACH RATE DETECTED/);
+  assert.match(policySrc, /Unusual activity detected/);
   assert.match(apiSrc, /CanaryDeployment/);
   assert.match(apiSrc, /CanaryStage/);
 
   // Option 3: Predictive Threat Radar & Counterparty Category Drift Engine
   assert.match(activitySrc, /threat-radar-surface/);
   assert.match(activitySrc, /threatIntelligence/);
-  assert.match(activitySrc, /Fleet Threat Index/);
-  assert.match(activitySrc, /Max Velocity Deviation/);
-  assert.match(activitySrc, /Counterparty Drift Ratio/);
-  assert.match(activitySrc, /Sub-Ceiling Probes/);
+  assert.match(activitySrc, /Overall risk/);
+  assert.match(activitySrc, /Spending speed spike/);
+  assert.match(activitySrc, /New merchants/);
+  assert.match(activitySrc, /Limit testing/);
   assert.match(activitySrc, /threat-categories/);
   assert.match(activitySrc, /handleRemediate/);
-  assert.match(activitySrc, /Trip Circuit Breaker/);
-  assert.match(activitySrc, /Fleet Armored: Zero Adversarial Drift Signatures Detected/);
+  assert.match(activitySrc, /Pause agent/);
+  assert.match(activitySrc, /All clear: no unusual activity detected/);
   assert.match(apiSrc, /ThreatAnomaly/);
   assert.match(apiSrc, /ThreatAnomalyType/);
 

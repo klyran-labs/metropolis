@@ -29,6 +29,7 @@ Act as a **Principal Web3 Fintech & Agentic Systems Architect**. Optimize for ma
   - The web UI must use pure domain-specific, functional, and user-centric terminology.
   - **Zero Developer / Infrastructure Leakage**: NEVER display development commands, container jargon, daemon plumbing, raw port numbers, or low-level library names on user-facing UI screens, modals, toasts, tooltips, or fallback states.
   - **Prohibited on UI**: `docker compose up ...`, `docker`, `daemon`, `container`, `:3001`, `localhost:port`, `Web Crypto API`, `process`, `socket`, `exit code`, `npm run`, raw exception stack traces.
+  - **Plain-Language Mandate**: Screens must be self-guided and low in cognitive load. Do not show EIP/ERC numbers, contract or file names, storage slots, `O(1)`, "kill switch"/"circuit breaker", raw reason codes, or chain IDs as primary UI content. Use the shared wording in `apps/web/src/copy.ts` (e.g. "pause agent", "secure wallet", "network fees") and map reason codes to plain sentences.
   - **Mandated Domain Alternatives**: Use business & functional capabilities: e.g., *"Sovereign Key Vault"* or *"Dedicated Enclave"* instead of *"OpenSigner container/daemon"*; *"Ensure the key vault service is connected and running"* instead of *"Start it via docker compose"*; *"Browser Key Generation"* instead of *"Web Crypto generation"*; *"Service Unavailable"* instead of *"daemon offline (:3001)"*.
 
 ---
@@ -64,7 +65,7 @@ Act as a **Principal Web3 Fintech & Agentic Systems Architect**. Optimize for ma
 - **Live Privy SDK**: Official `@privy-io/react-auth` mounted at root level via `PrivyAuthProvider.tsx`.
 - **Official App ID**: `cmton65ao004l0cl11tgmwiah`
 - **Supported Chains**: Monad Testnet (`10143`).
-- **Zero Technical Debug Leaks**: Never leak internal port numbers, raw contract addresses, or backend debug logs onto the login/landing page. Display only institutional metrics: 400ms finality, O(1) kill-switch, x402 & AP2 compatibility, and non-custodial safety.
+- **Zero Technical Debug Leaks**: Never leak internal port numbers, raw contract addresses, or backend debug logs onto the login/landing page. Describe capabilities in plain language (fast payment confirmation, one-click pause, signed and verified requests, non-custodial safety) rather than protocol or complexity-class terms.
 
 ---
 

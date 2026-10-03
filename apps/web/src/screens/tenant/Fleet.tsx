@@ -30,19 +30,26 @@ function CopyAddressButton({ address }: { address: string }) {
     e.stopPropagation();
     void navigator.clipboard?.writeText(address);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1600);
   };
   return (
     <div className="agent-cell-wrapper">
       <Mono>{truncateMiddle(address, 10, 6)}</Mono>
       <button
         type="button"
-        className="table-copy-btn"
+        className={`table-copy-btn ${copied ? "copied-active" : ""}`}
         onClick={copy}
         title={copied ? "Copied!" : "Copy address to clipboard"}
         aria-label="Copy address"
       >
-        {copied ? <Check size={13} className="copy-success" /> : <Copy size={13} />}
+        {copied ? (
+          <span className="copied-pill-text">
+            <Check size={11} className="copy-success" />
+            <span>Copied</span>
+          </span>
+        ) : (
+          <Copy size={13} />
+        )}
       </button>
     </div>
   );
@@ -69,7 +76,7 @@ const fleetColumns = fleetColumnHelper.columns([
     header: "Wallet",
     cell: (info) => (
       <Badge tone={info.getValue() === "sovereign" ? "info" : "neutral"}>
-        {info.getValue() === "sovereign" ? "Managed Enclave" : "Connected Wallet"}
+        {info.getValue() === "sovereign" ? "Secure wallet" : "Connected wallet"}
       </Badge>
     ),
   }),
@@ -130,7 +137,7 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
     } else {
       toast({
         title: "Funds Loaded",
-        message: "Agent wallet load confirmed onchain.",
+        message: "The agent's wallet has been topped up.",
         tone: "success",
       });
     }
@@ -141,7 +148,7 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
   const unload = useUnloadAgentWallet(agent.address, (result) => {
     toast({
       title: result.status === "confirmed" ? "Funds Unloaded" : "Unload Submitted",
-      message: result.status === "confirmed" ? "Unload confirmed onchain to treasury." : "Unload transaction submitted.",
+      message: result.status === "confirmed" ? "Sent back to your treasury." : "Withdrawal submitted.",
       tone: "success",
     });
     setUnloadAmount("");
@@ -157,8 +164,8 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
     .map((w) => ({
       value: w.id,
       label: w.label,
-      detail: `${w.kind === "sovereign" ? "Managed" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
-      badge: <Badge tone="info">{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
+      detail: `${w.kind === "sovereign" ? "Secure" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
+      badge: <Badge tone="info">{w.kind === "sovereign" ? "Secure" : "Connected"}</Badge>,
     }));
 
   return (
@@ -170,11 +177,11 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
           </h2>
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.35rem", marginBottom: "0.35rem", flexWrap: "wrap", alignItems: "center" }}>
             <Badge tone={paymaster.data?.eligible ? "success" : "neutral"}>
-              {paymaster.data?.eligible ? "Paymaster Sponsored Gas" : "Self-Funded Gas"}
+              {paymaster.data?.eligible ? "AgentGuard covers network fees" : "Agent pays its own network fees"}
             </Badge>
             {tba.data?.tbaAddress && (
               <Badge tone="info">
-                Token Bound Account: <Mono>{truncateMiddle(tba.data.tbaAddress, 8, 4)}</Mono>
+                Identity wallet: <Mono>{truncateMiddle(tba.data.tbaAddress, 8, 4)}</Mono>
               </Badge>
             )}
           </div>
@@ -311,7 +318,7 @@ function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => voi
           setTxHashInput("");
         }}
         title="Confirm Transfer Broadcast"
-        description="Provide the transaction hash from your wallet once the transfer has settled on Monad."
+        description="Provide the transaction hash from your wallet once the transfer has completed."
         footer={
           <>
             <Button
@@ -405,15 +412,15 @@ export function Fleet() {
         successCount++;
       }
       toast({
-        title: "Batch Emergency Freeze",
-        message: `Successfully tripped O(1) kill switch on ${successCount} agents onchain.`,
+        title: "Agents paused",
+        message: `Paused ${successCount} agents.`,
         tone: "critical",
       });
       void client.invalidateQueries({ queryKey: ["agents"] });
     } catch (err) {
       toast({
         title: "Batch Action Error",
-        message: toUserFacingError(err, "Batch freeze encountered an onchain failure."),
+        message: toUserFacingError(err, "Some agents could not be paused."),
         tone: "warning",
       });
     } finally {
@@ -432,14 +439,14 @@ export function Fleet() {
       }
       toast({
         title: "Batch Operational Recovery",
-        message: `Reset kill switch and resumed execution across ${successCount} agents.`,
+        message: `Resumed ${successCount} agents.`,
         tone: "success",
       });
       void client.invalidateQueries({ queryKey: ["agents"] });
     } catch (err) {
       toast({
         title: "Batch Action Error",
-        message: toUserFacingError(err, "Batch reset encountered an onchain failure."),
+        message: toUserFacingError(err, "Some agents could not be resumed."),
         tone: "warning",
       });
     } finally {
@@ -535,9 +542,9 @@ export function Fleet() {
       fleetColumnHelper.accessor("walletSource", {
         header: "Wallet",
         cell: (info) => (
-          <span title={info.getValue() === "sovereign" ? "Managed Enclave: Private key sealed in vault, signs EIP-712 spend vouchers directly." : "Connected Wallet: External human or treasury multi-sig signer."}>
+          <span title={info.getValue() === "sovereign" ? "Secure wallet: hosted for you, signs payments automatically." : "Connected wallet: a wallet you manage yourself."}>
             <Badge tone={info.getValue() === "sovereign" ? "info" : "neutral"}>
-              {info.getValue() === "sovereign" ? "Managed Enclave" : "Connected Wallet"}
+              {info.getValue() === "sovereign" ? "Secure wallet" : "Connected wallet"}
             </Badge>
           </span>
         ),
@@ -556,7 +563,7 @@ export function Fleet() {
         cell: (info) => (
           <div
             className="agent-state-pill"
-            title={info.getValue() === "active" ? "Guarded Active: Passing real-time onchain policy checks." : "Circuit Paused: O(1) emergency kill switch active."}
+            title={info.getValue() === "active" ? "Active: every payment is checked against its rules." : "Paused: this agent cannot spend."}
           >
             <span
               className={`status-dot ${info.getValue() === "active" ? "status-dot-success" : "status-dot-warning"}`}
@@ -576,7 +583,7 @@ export function Fleet() {
               <button
                 type="button"
                 className={`fleet-quick-action-btn ${isAgentActive ? "freeze-btn" : "resume-btn"}`}
-                title={isAgentActive ? "Trip O(1) emergency kill switch" : "Resume spending authority"}
+                title={isAgentActive ? "Pause this agent" : "Resume spending authority"}
                 onClick={async () => {
                   try {
                     await tripKillSwitch.mutateAsync({
@@ -584,9 +591,9 @@ export function Fleet() {
                       active: isAgentActive,
                     });
                     toast({
-                      title: isAgentActive ? "Circuit Breaker Tripped" : "Spending Restored",
+                      title: isAgentActive ? "Agent paused" : "Spending Restored",
                       message: isAgentActive
-                        ? `Agent ${truncateMiddle(agent.address, 8, 4)} is frozen onchain in O(1) time.`
+                        ? `Agent ${truncateMiddle(agent.address, 8, 4)} is paused.`
                         : `Agent ${truncateMiddle(agent.address, 8, 4)} spending authority resumed.`,
                       tone: isAgentActive ? "critical" : "success",
                       onUndo: async () => {
@@ -606,7 +613,7 @@ export function Fleet() {
                   } catch (err) {
                     toast({
                       title: "Action Failed",
-                      message: toUserFacingError(err, "Failed to update circuit breaker state."),
+                      message: toUserFacingError(err, "Could not update this agent."),
                       tone: "warning",
                     });
                   }
@@ -652,7 +659,7 @@ export function Fleet() {
           walletSource === "sovereign"
             ? { walletSource: "sovereign", label: label.trim(), environment: "production", riskTier: "tier2_standard" }
             : walletSource === "tba"
-            ? { walletSource: "sovereign", label: `${label.trim() || "Passport Agent"} [ERC-6551 TBA]`, environment: "production", riskTier: "tier2_standard" }
+            ? { walletSource: "sovereign", label: `${label.trim() || "Passport Agent"} [Identity wallet]`, environment: "production", riskTier: "tier2_standard" }
             : { walletSource: "external", address, label: label.trim() || undefined, environment: "production", riskTier: "tier2_standard" },
         ),
       });
@@ -673,12 +680,21 @@ export function Fleet() {
     }
   };
   const selectedAgent = rows.find((agent) => agent.address === selected) ?? null;
+  const currentIndex = selected ? filteredRows.findIndex((agent) => agent.address === selected) : -1;
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex < filteredRows.length - 1;
+  const handlePrevAgent = () => {
+    if (hasPrev) setSelected(filteredRows[currentIndex - 1].address);
+  };
+  const handleNextAgent = () => {
+    if (hasNext) setSelected(filteredRows[currentIndex + 1].address);
+  };
 
   const linkTreasuryOptions = (treasuryWallets.data ?? []).map((w) => ({
     value: w.address,
     label: w.label,
-    detail: `${w.kind === "sovereign" ? "Managed" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
-    badge: <Badge tone="info">{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
+    detail: `${w.kind === "sovereign" ? "Secure" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
+    badge: <Badge tone="info">{w.kind === "sovereign" ? "Secure" : "Connected"}</Badge>,
   }));
 
   const hasActiveFilters = Boolean(searchFilter.trim() || statusFilter !== "all" || sourceFilter !== "all" || riskFilter !== "all");
@@ -687,9 +703,8 @@ export function Fleet() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Home / Fleet</span>
           <h1>Fleet</h1>
-          <p>Every agent below belongs to your organization.</p>
+          <p>Autonomous agents registered to your organization.</p>
         </div>
         <div className="page-heading-actions">
           <Button onClick={() => setOnboardingOpen(true)}>
@@ -707,8 +722,8 @@ export function Fleet() {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Register an agent</h2>
-            <p>Generate a wallet we'll manage for this agent, bind an ERC-6551 Token Bound Account, or connect one you already control. Either way, the private key never enters this app.</p>
+            <h2>Register Agent</h2>
+            <p>Create a secure wallet, an identity wallet, or link your treasury.</p>
           </div>
         </div>
         <div className="wallet-kind-toggle" role="tablist" aria-label="Wallet source">
@@ -724,7 +739,7 @@ export function Fleet() {
             className={walletSource === "tba" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => setWalletSource("tba")}
           >
-            <ShieldCheck size={14} /> Sovereign Passport (ERC-6551 TBA)
+            <ShieldCheck size={14} /> Agent identity wallet
           </button>
           <button
             type="button"
@@ -781,8 +796,8 @@ export function Fleet() {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Registered agents</h2>
-            <p>{rows.length} agents registered ({filteredRows.length} displayed). Select multiple agents for batch operations or inspect hierarchical swarm topology.</p>
+            <h2>Fleet Directory</h2>
+            <p>{rows.length} agents registered.</p>
           </div>
           <div className="fleet-view-toggle" role="tablist" aria-label="Fleet View Mode">
             <button
@@ -797,7 +812,7 @@ export function Fleet() {
               className={viewMode === "swarm" ? "workspace-tab active" : "workspace-tab"}
               onClick={() => setViewMode("swarm")}
             >
-              <Network size={14} style={{ marginRight: 6 }} /> Swarm Topology (DAG)
+              <Network size={14} style={{ marginRight: 6 }} /> Team map
             </button>
           </div>
         </div>
@@ -806,6 +821,47 @@ export function Fleet() {
           <SwarmTopologyVisualizer agents={rows} onInspectAgent={(addr) => setSelected(addr)} />
         ) : (
           <>
+            {/* Segmented Filter Pills with Integrated Live Counters */}
+            <div className="segmented-filter-pills" role="tablist" aria-label="Fleet quick status filters" style={{ marginBottom: "12px" }}>
+              <button
+                type="button"
+                className={`segmented-filter-pill ${statusFilter === "all" && sourceFilter === "all" ? "active" : ""}`}
+                onClick={() => {
+                  setStatusFilter("all");
+                  setSourceFilter("all");
+                }}
+              >
+                <span>All</span>
+                <span className="pill-count">{rows.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`segmented-filter-pill ${statusFilter === "active" ? "active" : ""}`}
+                onClick={() => setStatusFilter("active")}
+              >
+                <span className="status-dot status-dot-success" style={{ width: 6, height: 6 }} />
+                <span>Active</span>
+                <span className="pill-count">{active}</span>
+              </button>
+              <button
+                type="button"
+                className={`segmented-filter-pill ${statusFilter === "tripped" ? "active" : ""}`}
+                onClick={() => setStatusFilter("tripped")}
+              >
+                <span className="status-dot status-dot-warning" style={{ width: 6, height: 6 }} />
+                <span>Paused</span>
+                <span className="pill-count">{rows.length - active}</span>
+              </button>
+              <button
+                type="button"
+                className={`segmented-filter-pill ${sourceFilter === "sovereign" ? "active" : ""}`}
+                onClick={() => setSourceFilter("sovereign")}
+              >
+                <span>Managed</span>
+                <span className="pill-count">{sovereign}</span>
+              </button>
+            </div>
+
             {/* Real-time Fleet Search & Granular Filters */}
             <div className="fleet-filter-bar">
           <div className="fleet-search-box">
@@ -837,8 +893,8 @@ export function Fleet() {
               onChange={(val) => setSourceFilter(val as any)}
               options={[
                 { value: "all", label: "All Custody Models" },
-                { value: "sovereign", label: "Managed Enclave" },
-                { value: "external", label: "Connected Wallet" },
+                { value: "sovereign", label: "Secure wallet" },
+                { value: "external", label: "Connected wallet" },
               ]}
             />
           </div>
@@ -893,7 +949,7 @@ export function Fleet() {
             )}
             {sourceFilter !== "all" && (
               <span className="active-filter-chip">
-                Custody: {sourceFilter === "sovereign" ? "Managed Enclave" : "Connected"}
+                Wallet: {sourceFilter === "sovereign" ? "Secure" : "Connected"}
                 <button type="button" onClick={() => setSourceFilter("all")} aria-label="Clear custody filter">
                   <X size={12} />
                 </button>
@@ -939,19 +995,19 @@ export function Fleet() {
                 className="control-critical"
                 onClick={handleBatchFreeze}
                 disabled={batchWorking}
-                title="Simultaneously trip O(1) emergency kill switch on all selected agents"
+                title="Pause all selected agents"
               >
                 <ShieldAlert size={14} style={{ marginRight: 6 }} />
-                <span>{batchWorking ? "Broadcasting…" : "Freeze Selected"}</span>
+                <span>{batchWorking ? "Working…" : "Pause selected"}</span>
               </Button>
               <Button
                 variant="tonal"
                 onClick={handleBatchResume}
                 disabled={batchWorking}
-                title="Reset O(1) kill switch and restore execution"
+                title="Resume all selected agents"
               >
                 <Activity size={14} style={{ marginRight: 6 }} />
-                <span>Resume Selected</span>
+                <span>Resume selected</span>
               </Button>
               <Button
                 variant="tonal"
@@ -1075,6 +1131,10 @@ export function Fleet() {
           agent={selectedAgent}
           onClose={() => setSelected(null)}
           onTripCircuit={() => void client.invalidateQueries({ queryKey: ["agents"] })}
+          onPrevAgent={hasPrev ? handlePrevAgent : undefined}
+          onNextAgent={hasNext ? handleNextAgent : undefined}
+          currentIndex={currentIndex >= 0 ? currentIndex : undefined}
+          totalCount={filteredRows.length}
         />
       )}
       <AgentOnboardingModal

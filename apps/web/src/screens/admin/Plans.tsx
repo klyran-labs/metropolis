@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { configuration } from "../../configuration";
 import { request, toUserFacingError, usePlatformPlans } from "../../api";
-import { Badge, Button, EmptyState, Select, Surface, TextField, TokenAmount } from "../../design-system";
+import { Badge, Button, CurrencyInput, EmptyState, Select, Surface, TextField, TokenAmount } from "../../design-system";
 import { useIdentity } from "../../identity";
 
 export function AdminPlans() {
@@ -40,29 +40,23 @@ export function AdminPlans() {
       setMessage(toUserFacingError(error, "The plan could not be created."));
     }
   };
-  const fields = ["code", "name", "description", "amount", "token"] as const;
+  const fields = ["code", "name", "description"] as const;
   const fieldLabels: Record<(typeof fields)[number], string> = {
     code: "Plan code",
     name: "Plan name",
     description: "Description",
-    amount: "Price (e.g. 1000000 = $1.00)",
-    token: "Settlement token address",
   };
   return (
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Plans</span>
-          <h1>Plans and pricing</h1>
-          <p>Publish real prices bound to the active chain and settlement token.</p>
+          <h1>Plans & Pricing</h1>
+          <p>Publish and manage subscription pricing tiers.</p>
         </div>
       </header>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Create a plan</h2>
-            <p>Prices must be bound to the active chain and configured settlement token.</p>
-          </div>
+          <h2>Create plan</h2>
         </div>
         <div className="admin-form-grid">
           {fields.map((key) => (
@@ -73,8 +67,22 @@ export function AdminPlans() {
               label={fieldLabels[key]}
             />
           ))}
+          <div className="stack" style={{ gap: "4px" }}>
+            <label className="field-group-label">Price</label>
+            <CurrencyInput
+              valueBaseUnits={form.amount}
+              onChangeBaseUnits={(next) => setForm({ ...form, amount: next })}
+              decimals={6}
+            />
+          </div>
           <Select
-            label="Billing Interval"
+            label="Currency"
+            value={form.token}
+            onChange={(val) => setForm({ ...form, token: val })}
+            options={[{ value: configuration.contracts.settlementToken ?? "", label: "USDC" }]}
+          />
+          <Select
+            label="Billing interval"
             value={form.interval}
             onChange={(val) => setForm({ ...form, interval: val })}
             options={[
@@ -88,13 +96,10 @@ export function AdminPlans() {
       </Surface>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Plan catalog</h2>
-            <p>Every plan and price currently published on the platform.</p>
-          </div>
+          <h2>Plans</h2>
         </div>
         {plans.isError || !identity.platformAccess ? (
-          <EmptyState title="Plan catalog unavailable" detail="A platform role is required to view plans, and the service must be reachable." />
+          <EmptyState title="Couldn't load plans" detail="A platform role is required to view plans." />
         ) : plans.data?.length ? (
           <div className="pricing-cards">
             {plans.data.map((plan) => (
@@ -113,7 +118,7 @@ export function AdminPlans() {
             ))}
           </div>
         ) : (
-          <EmptyState title="No plans published" detail="Create your first subscription plan above." />
+          <EmptyState title="No plans yet" detail="Create your first plan above." />
         )}
       </Surface>
     </div>

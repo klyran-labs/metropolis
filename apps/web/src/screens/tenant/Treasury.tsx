@@ -61,7 +61,7 @@ async function waitForReceipt(
     })) as { status?: string } | null;
     if (receipt) {
       if (receipt.status === "0x0") {
-        throw new Error("The transfer was rejected onchain by the network.");
+        throw new Error("The transfer was rejected.");
       }
       return;
     }
@@ -233,7 +233,7 @@ export function Treasury() {
     if (!isAddress(trimmedAddress)) {
       return {
         status: "invalid" as const,
-        message: "Invalid hexadecimal characters or invalid ERC-55 checksum.",
+        message: "That address isn't valid. Check it for typos.",
       };
     }
     if (trimmedAddress.toLowerCase() === "0x0000000000000000000000000000000000000000") {
@@ -393,7 +393,7 @@ export function Treasury() {
   const depositPaymaster = useDepositPaymasterGas(() => {
     setPaymasterWorking(false);
     setPaymasterModalOpen(false);
-    setMessage("Paymaster gas sponsorship float replenished on Monad.");
+    setMessage("Network fee balance topped up.");
     void paymasterBalanceQuery.refetch();
   });
 
@@ -408,7 +408,7 @@ export function Treasury() {
         amountWei,
       });
     } catch (err) {
-      setPaymasterMessage(toUserFacingError(err, "Paymaster deposit failed."));
+      setPaymasterMessage(toUserFacingError(err, "Couldn't add network fee funds."));
       setPaymasterWorking(false);
     }
   };
@@ -423,7 +423,7 @@ export function Treasury() {
     } else {
       setTransferFeedback({
         type: "success",
-        message: "Disbursement executed and confirmed onchain.",
+        message: "Transfer sent and confirmed.",
         txHash: result.transactionHash ?? undefined,
       });
       void wallets.refetch();
@@ -460,7 +460,7 @@ export function Treasury() {
     if (sourceWallet.kind === "sovereign" && tokenSymbol === "MON") {
       setTransferFeedback({
         type: "error",
-        message: "Sovereign Managed Vaults disburse USDC float. To sponsor native MON gas for agents, use the Paymaster Gas Float panel.",
+        message: "Secure wallets send USDC balances. To cover network fees for agents, use the Network fee balance panel below.",
       });
       return;
     }
@@ -507,7 +507,7 @@ export function Treasury() {
             setTransferWorking(false);
             setTransferFeedback({
               type: "error",
-              message: toUserFacingError(err, "The sovereign transfer could not be dispatched."),
+              message: toUserFacingError(err, "The transfer could not be sent."),
             });
           },
         },
@@ -523,7 +523,7 @@ export function Treasury() {
     if (!activeConnectedWallet && sourceWallet.kind === "external") {
       setTransferFeedback({
         type: "error",
-        message: `Please connect or switch to wallet ${sourceWallet.address.slice(0, 8)}… in your browser to sign this disbursement.`,
+        message: `Connect or switch to wallet ${sourceWallet.address.slice(0, 8)}… in your browser to approve this transfer.`,
       });
       return;
     }
@@ -531,7 +531,7 @@ export function Treasury() {
     if (sourceWallet.kind === "sovereign") {
       setTransferFeedback({
         type: "info",
-        message: `Sovereign vault disbursement to ${resolvedRecipient.slice(0, 8)}… dispatched to queue for institutional settlement.`,
+        message: `Sending to ${resolvedRecipient.slice(0, 8)}… this will be confirmed shortly.`,
       });
       return;
     }
@@ -578,14 +578,14 @@ export function Treasury() {
       await waitForReceipt(provider, txHash);
       setTransferFeedback({
         type: "success",
-        message: "Onchain transfer confirmed on Monad.",
+        message: "Transfer confirmed.",
         txHash,
       });
       void wallets.refetch();
     } catch (err) {
       setTransferFeedback({
         type: "error",
-        message: toUserFacingError(err, "The transaction failed onchain."),
+        message: toUserFacingError(err, "The transfer failed."),
       });
     } finally {
       setTransferWorking(false);
@@ -596,23 +596,19 @@ export function Treasury() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Home / Treasury</span>
-          <h1>Treasury wallets</h1>
-          <p>Fund and reclaim agent wallets from wallets you and your team control.</p>
+          <h1>Treasury</h1>
+          <p>Manage your organization's wallets and funding.</p>
         </div>
       </header>
       <div className="stat-row">
         <StatTile label="Treasury wallets" value={String(rows.length)} icon={<Landmark size={18} />} accent={0} />
         <StatTile label="Wallets we manage" value={String(sovereignCount)} icon={<ShieldCheck size={18} />} accent={2} />
         <StatTile label="You can access" value={String(withAccessCount)} icon={<UsersRound size={18} />} accent={1} />
-        <StatTile label="Paymaster Gas Float" value={`${paymasterFloatMon.toFixed(2)} MON`} icon={<Fuel size={18} />} accent={3} />
+        <StatTile label="Network fee balance" value={`${paymasterFloatMon.toFixed(2)} MON`} icon={<Fuel size={18} />} accent={3} />
       </div>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Register a treasury wallet</h2>
-            <p>Connect a wallet you already control, or have us generate one and hold the key sealed on your behalf.</p>
-          </div>
+          <h2>Add treasury wallet</h2>
         </div>
         <div className="wallet-kind-toggle" role="tablist" aria-label="Wallet source">
           <button
@@ -748,7 +744,7 @@ export function Treasury() {
             <div style={{ flex: "1 1 340px" }}>
               <TextField
                 label="Wallet Label"
-                placeholder="e.g. Sovereign Vault, Reserve Treasury"
+                placeholder="e.g. Main Treasury, Reserve"
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
                 autoComplete="off"
@@ -767,16 +763,13 @@ export function Treasury() {
       </Surface>
       <Surface>
         <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h2>Organization wallets</h2>
-            <p>{rows.length} wallets registered for this organization.</p>
-          </div>
+          <h2>Wallets ({rows.length})</h2>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <Button
               variant="tonal"
               onClick={() => setPaymasterModalOpen(true)}
             >
-              <Fuel size={14} style={{ marginRight: 6 }} /> Replenish Gas Float
+              <Fuel size={14} style={{ marginRight: 6 }} /> Add network fee funds
             </Button>
             {configuration.profile === "local" && (
               <Button
@@ -826,7 +819,7 @@ export function Treasury() {
         ) : (
           <EmptyState
             title="No treasury wallets configured"
-            detail="Register an institutional sovereign enclave or connected Web3 wallet above to disburse funds and enforce multi-operator approval thresholds."
+            detail="Register a treasury vault or connected Web3 wallet above to manage fleet disbursements."
             action={
               <Button
                 variant="filled"
@@ -846,63 +839,58 @@ export function Treasury() {
       {/* Autonomous Yield Float Sweeper & Liquid Staking Optimizer */}
       <div style={{ marginTop: "20px" }}>
         <Surface className="treasury-section-panel">
-          <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <TrendingUp className="h-5 w-5 text-accent-blue" />
-                <h2>Autonomous Yield Float Sweeper & Liquidity Optimizer</h2>
-                <Badge tone="success">5.20% Annualized APY</Badge>
-              </div>
-              <p style={{ marginTop: "4px", fontSize: "0.84rem", color: "var(--color-on-surface-variant)" }}>
-                Eliminates idle capital drag in CircuitVault by sweeping excess balances into liquid staking reserves while enforcing a strict 20% liquid instant settlement buffer.
-              </p>
+          <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <TrendingUp className="h-5 w-5 text-accent-blue" />
+              <h2>Grow idle balances</h2>
+              <Badge tone="success">5.20% APY</Badge>
             </div>
             <Button
               variant="tonal"
               onClick={() => {
                 toast({
-                  title: "Yield Float Rebalanced",
-                  message: "Swept unallocated float reserves into Tier 1 liquid staking. 20% Tier 0 buffer preserved.",
+                  title: "Balances rebalanced",
+                  message: "Moved idle funds into yield, keeping 20% available for instant use.",
                   tone: "success",
                 });
               }}
             >
               <Sparkles size={14} style={{ marginRight: 6 }} />
-              <span>Rebalance Float Reserves</span>
+              <span>Rebalance now</span>
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3" style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Total Float Reserves</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Total balance</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", fontFamily: "var(--font-mono)" }}>
                 {primaryUsdcBalance.toFixed(2)} USDC
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Non-custodial CircuitVault float</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Held in your treasury</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Tier 0 Instant Settlement Buffer</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Available instantly</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--color-primary)", fontFamily: "var(--font-mono)" }}>
                 {(primaryUsdcBalance * 0.2).toFixed(2)} USDC
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>20% instant micro-voucher reserve</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>20% kept liquid for immediate use</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Tier 1 Liquid Staking Yield Float</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Earning yield</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--status-good)", fontFamily: "var(--font-mono)" }}>
                 {(primaryUsdcBalance * 0.8).toFixed(2)} USDC
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>80% deployed to Monad LST</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>80% earning yield</span>
             </div>
 
             <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Just-In-Time (JIT) De-Staking</span>
+              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Instant withdrawal</span>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--accent-blue)" }}>
                 Active
               </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Zero settlement latency delay</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>No wait time to access funds</span>
             </div>
           </div>
         </Surface>
@@ -914,8 +902,8 @@ export function Treasury() {
         onClose={() => {
           if (!transferWorking) setTransferModalOpen(false);
         }}
-        title="Disburse / Transfer Funds"
-        description="Transfer institutional USDC or native MON to fund autonomous agents, rebalance treasury vaults, or settle external counterparties on Monad."
+        title="Send funds"
+        description="Send USDC or MON to an agent, another treasury wallet, or any address."
         footer={
           <>
             <Button
@@ -939,10 +927,10 @@ export function Treasury() {
             >
               <SendHorizontal size={14} style={{ marginRight: 6 }} />
               {transferWorking
-                ? "Executing Transfer…"
+                ? "Sending…"
                 : transferAmount && Number(transferAmount) > 0
-                  ? `Disburse ${transferAmount} ${tokenSymbol}`
-                  : "Confirm & Disburse"}
+                  ? `Send ${transferAmount} ${tokenSymbol}`
+                  : "Send"}
             </Button>
           </>
         }
@@ -951,7 +939,7 @@ export function Treasury() {
           {/* Source Treasury Wallet */}
           <div className="stack" style={{ gap: "6px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Source Treasury Wallet</label>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>From</label>
               {sourceWallet && (
                 <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
                   Available:{" "}
@@ -975,7 +963,7 @@ export function Treasury() {
               options={rows.map((w) => ({
                 value: w.id,
                 label: w.label,
-                detail: `${w.kind === "sovereign" ? "Managed Vault" : "Connected Wallet"} · ${truncateMiddle(w.address, 8, 4)}`,
+                detail: `${w.kind === "sovereign" ? "Secure wallet" : "Connected wallet"} · ${truncateMiddle(w.address, 8, 4)}`,
                 disabled: !w.hasAccess,
                 badge: <Badge tone={w.kind === "sovereign" ? "info" : "neutral"}>{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
               }))}
@@ -1053,7 +1041,7 @@ export function Treasury() {
                     .map((w) => ({
                       value: w.id,
                       label: w.label,
-                      detail: `${w.kind === "sovereign" ? "Managed Vault" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
+                      detail: `${w.kind === "sovereign" ? "Secure wallet" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
                       badge: <Badge tone="info">{w.kind === "sovereign" ? "Managed" : "Connected"}</Badge>,
                     }))}
                   placeholder="Select a destination treasury wallet"
@@ -1157,7 +1145,7 @@ export function Treasury() {
 
             {sourceWallet?.kind === "sovereign" && (
               <small style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: "-2px" }}>
-                ℹ Sovereign vaults disburse USDC float. For agent native MON gas sponsorship, replenish the Paymaster.
+                ℹ Secure wallets send USDC. To cover network fees for agents, use "Add network fee funds" above.
               </small>
             )}
 
@@ -1224,11 +1212,11 @@ export function Treasury() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "8px", borderTop: "1px solid var(--outline-soft)", fontSize: "0.76rem", color: "var(--muted)", flexWrap: "wrap", gap: "6px" }}>
               <span>
                 {sourceWallet?.kind === "sovereign"
-                  ? "✨ Sovereign Enclave · Programmatic Execution"
-                  : "💼 Browser Extension · 1 Signature Required"}
+                  ? "✨ Sent automatically, no signature needed"
+                  : "💼 Browser wallet · 1 approval required"}
               </span>
               <span style={{ color: "var(--status-good)", fontWeight: 600 }}>
-                Monad Fast Finality (~400ms)
+                Confirms in seconds
               </span>
             </div>
           </div>
@@ -1276,8 +1264,8 @@ export function Treasury() {
         onClose={() => {
           if (!paymasterWorking) setPaymasterModalOpen(false);
         }}
-        title="Replenish Paymaster Gas Sponsorship Float"
-        description="Deposit native MON into CircuitPaymaster.sol to sponsor gasless transaction execution for sovereign autonomous agents."
+        title="Add network fee funds"
+        description="Add MON to cover network fees, so your agents don't need their own gas."
         footer={
           <>
             <Button

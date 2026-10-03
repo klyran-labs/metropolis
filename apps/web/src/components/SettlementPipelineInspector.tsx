@@ -98,8 +98,8 @@ export function SettlementPipelineInspector() {
         <div>
           <div className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-accent-blue" />
-            <h2 className="text-xl font-bold tracking-tight">Transactional Settlement Outbox</h2>
-            <Badge tone="info">Monad Parallel EVM</Badge>
+            <h2 className="text-xl font-bold tracking-tight">Payment queue</h2>
+            <Badge tone="info">Live</Badge>
           </div>
           <p className="mt-1 text-sm text-text-secondary">
             Durable transactional clearing pipeline enforcing zero-loss voucher persistence, optimistic batching, and onchain settlement.
@@ -320,7 +320,7 @@ export function SettlementPipelineInspector() {
                 <th className="px-4 py-3">Merchant</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">W3C Trace ID</th>
-                <th className="px-4 py-3">Monad Tx Hash</th>
+                <th className="px-4 py-3">Receipt</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -471,7 +471,7 @@ export function SettlementPipelineInspector() {
                   <Mono className="text-text-primary font-medium">{selectedVoucherForProof}</Mono>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-text-muted">Settlement Anchor Registry:</span>
+                  <span className="text-text-muted">Record keeper:</span>
                   <Mono className="text-accent-blue font-medium">
                     {auditProofQuery.data?.anchor_registry ?? "0xee28...bd42"}
                   </Mono>

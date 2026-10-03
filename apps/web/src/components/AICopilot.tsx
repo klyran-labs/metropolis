@@ -51,10 +51,10 @@ const WORKLOAD_PRESETS: WorkloadPreset[] = [
   },
   {
     id: "telemetry-oracle",
-    name: "Telemetry Oracle",
+    name: "Data Reporter",
     badge: "$1 / tx · $25 / hr",
     summary: "Periodic state pings and high-frequency oracles",
-    prompt: "High-frequency telemetry reporter executing up to $1 oracle pings, max $25 per hour with velocity cap 60.",
+    prompt: "Frequent data reporter making up to $1 payments, max $25 per hour with velocity cap 60.",
   },
 ];
 
@@ -378,9 +378,9 @@ export function AICopilot({
                       <div className="copilot-invariant-warning" role="alert">
                         <AlertTriangle size={14} className="copilot-invariant-icon" />
                         <span>
-                          <strong>Policy Invariant Violated</strong> — Max per Transaction (
-                          {(txVal / 1_000_000).toFixed(2)} USDC) exceeds the Hourly Window Ceiling (
-                          {(windowVal / 1_000_000).toFixed(2)} USDC). Reduce the transaction limit or raise the window ceiling before applying.
+                          <strong>Limits don't add up</strong> — the per-payment limit (
+                          {(txVal / 1_000_000).toFixed(2)} USDC) is higher than the hourly limit (
+                          {(windowVal / 1_000_000).toFixed(2)} USDC). Lower the per-payment limit or raise the hourly limit before applying.
                         </span>
                       </div>
                     ) : null;
@@ -398,11 +398,11 @@ export function AICopilot({
                     >
                       {applied ? (
                         <>
-                          <CheckCircle2 size={15} /> Applying to Policy Studio…
+                          <CheckCircle2 size={15} /> Applying to Policy…
                         </>
                       ) : (
                         <>
-                          Apply to Policy Studio <ArrowRight size={15} />
+                          Apply to Policy <ArrowRight size={15} />
                         </>
                       )}
                     </Button>
@@ -412,36 +412,36 @@ export function AICopilot({
                 <div className="copilot-guide-card">
                   <div className="copilot-guide-header">
                     <Terminal size={15} className="copilot-sparkle-icon" />
-                    <span>Autonomous Policy Architecture</span>
+                    <span>What the assistant sets up</span>
                   </div>
                   <p className="copilot-guide-desc">
-                    The AI Risk Copilot parses plain-language specifications into deterministic Monad EVM PackedPolicy storage slots:
+                    Describe your agent in plain words, and the assistant turns it into these spending rules:
                   </p>
                   <div className="copilot-guide-grid">
                     <div className="copilot-guide-slot">
-                      <span className="slot-badge">Slot 0</span>
-                      <strong>Single Tx Cap (maxPerTx)</strong>
-                      <p>Atomic ceiling preventing individual rogue or drained transactions.</p>
+                      <span className="slot-badge">1</span>
+                      <strong>Per-payment limit</strong>
+                      <p>The most this agent can spend in one payment.</p>
                     </div>
                     <div className="copilot-guide-slot">
-                      <span className="slot-badge">Slot 1</span>
-                      <strong>Rolling Epoch (maxPerWindow)</strong>
-                      <p>Cumulative hourly expenditure ceiling evaluated in disjoint storage.</p>
+                      <span className="slot-badge">2</span>
+                      <strong>Hourly limit</strong>
+                      <p>The most this agent can spend in an hour.</p>
                     </div>
                     <div className="copilot-guide-slot">
-                      <span className="slot-badge">Slot 2</span>
-                      <strong>Velocity Limit (maxVelocity)</strong>
-                      <p>Upper bound on transaction dispatch rate within the sliding epoch.</p>
+                      <span className="slot-badge">3</span>
+                      <strong>Payment rate</strong>
+                      <p>The most payments this agent can make in an hour.</p>
                     </div>
                     <div className="copilot-guide-slot">
-                      <span className="slot-badge">Slot 3</span>
-                      <strong>Merchant Whitelist</strong>
-                      <p>Strict address verification for permitted counterparty contracts.</p>
+                      <span className="slot-badge">4</span>
+                      <strong>Approved merchants</strong>
+                      <p>Only merchants you approve can be paid.</p>
                     </div>
                   </div>
                   <div className="copilot-guide-footer">
                     <ShieldAlert size={14} className="copilot-sparkle-icon" />
-                    <span>Zero-Reentrancy Guard · O(1) Short-Circuit Kill Switch · EIP-712 Settlement</span>
+                    <span>Every payment is checked · Pause any agent instantly</span>
                   </div>
                 </div>
               )}
@@ -457,7 +457,7 @@ export function AICopilot({
                 <input
                   type="text"
                   className="copilot-search-input"
-                  placeholder="Search reason codes (e.g. kill switch, velocity, nonce)..."
+                  placeholder="Search why a payment was blocked (e.g. paused, too many, expired)..."
                   value={reasonSearch}
                   onChange={(e) => setReasonSearch(e.target.value)}
                 />

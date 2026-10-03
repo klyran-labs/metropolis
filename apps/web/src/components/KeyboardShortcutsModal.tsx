@@ -36,14 +36,34 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     category: "Rapid Screen Jumps",
     items: [
       {
+        keys: ["G", "O"],
+        label: "Flight Deck Overview",
+        detail: "Balances, spending, and activity",
+      },
+      {
         keys: ["G", "F"],
-        label: "Fleet Overview",
+        label: "Fleet Directory",
         detail: "Monitor autonomous agent statuses and spend velocities",
       },
       {
         keys: ["G", "P"],
-        label: "Policy Studio",
-        detail: "Configure spend limits, velocity caps, and invariants",
+        label: "Policy",
+        detail: "Set spending limits and safety controls",
+      },
+      {
+        keys: ["G", "S"],
+        label: "Testbench Simulator",
+        detail: "Run adversarial risk scenarios and policy evaluations",
+      },
+      {
+        keys: ["G", "A"],
+        label: "Activity Trace",
+        detail: "See live payments and why they were approved or blocked",
+      },
+      {
+        keys: ["G", "T"],
+        label: "Treasury & Reserves",
+        detail: "Manage treasury wallets and network fees",
       },
       {
         keys: ["G", "Q"],
@@ -55,16 +75,6 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
         label: "Merchant Directory",
         detail: "Review AI inference vendors and payment endpoints",
       },
-      {
-        keys: ["G", "T"],
-        label: "Activity Trace",
-        detail: "Stream real-time Monad settlement telemetry",
-      },
-      {
-        keys: ["G", "S"],
-        label: "Testbench Simulator",
-        detail: "Run adversarial risk scenarios and policy evaluations",
-      },
     ],
   },
   {
@@ -73,11 +83,11 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       {
         keys: ["P"],
         label: "Provision Autonomous Agent",
-        detail: "Open the 4-step wizard to deploy an agent and keypair",
+        detail: "Create a new agent step by step",
       },
       {
         keys: ["Space"],
-        label: "Trip / Reset Kill-Switch",
+        label: "Pause / Resume agent",
         detail: "Instantly halt or resume agent execution in inspector",
       },
       {

@@ -19,14 +19,14 @@ const columns = columnHelper.columns([
     cell: (info) => <Badge tone={statusTone(info.getValue())}>{info.getValue()}</Badge>,
   }),
   columnHelper.accessor("reconciled", {
-    header: "Ledger match",
+    header: "Checked",
     cell: (info) =>
       info.row.original.status === "confirmed" ? (
         <Badge tone={info.getValue() ? "success" : "critical"}>
-          {info.getValue() ? "Reconciled" : "Missing ledger entry"}
+          {info.getValue() ? "Matched" : "Needs review"}
         </Badge>
       ) : (
-        <Badge tone="neutral">n/a</Badge>
+        <Badge tone="neutral">Not applicable</Badge>
       ),
   }),
   columnHelper.accessor("amountBaseUnits", {
@@ -52,21 +52,20 @@ export function AdminReconciliation() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Reconciliation</span>
-          <h1>Reconciliation</h1>
-          <p>Every settlement attempt compared against its billing ledger entry.</p>
+          <h1>Payment checks</h1>
+          <p>We check every payment against the record. Anything that doesn't match shows up here.</p>
         </div>
       </header>
       {report.data && (
         <div className="stat-row">
           <StatTile
-            label="Reconciled"
+            label="Matched"
             value={String(report.data.summary.confirmedReconciled)}
             icon={<CheckCircle2 size={18} />}
             accent={2}
           />
           <StatTile
-            label="Anomalies"
+            label="Needs review"
             value={String(report.data.summary.confirmedUnreconciled)}
             icon={<AlertTriangle size={18} />}
             accent={1}
@@ -77,7 +76,7 @@ export function AdminReconciliation() {
       )}
       <Surface>
         {report.isError ? (
-          <EmptyState title="Reconciliation report unavailable" detail="We couldn't load the reconciliation report right now." />
+          <EmptyState title="Couldn't load payment checks" detail="Try refreshing the page." />
         ) : rows.length ? (
           <div className="table-viewport">
             <table>
@@ -104,7 +103,7 @@ export function AdminReconciliation() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No payment attempts yet" detail="Reconciliation rows appear once a tenant attempts checkout." />
+          <EmptyState title="No payment attempts yet" detail="Rows appear here once a tenant attempts checkout." />
         )}
       </Surface>
     </div>

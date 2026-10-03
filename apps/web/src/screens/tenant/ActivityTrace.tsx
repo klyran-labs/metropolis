@@ -22,6 +22,8 @@ import {
   Sparkles,
   X,
   Zap,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useTelemetryEvents, useAgents, type TelemetryEvent, type ThreatAnomaly } from "../../api";
 import { Badge, Button, EmptyState, Mono, Surface, TextField, truncateMiddle } from "../../design-system";
@@ -44,82 +46,82 @@ export const REASON_CODES: Record<number, ReasonCodeInfo> = {
   0: {
     code: 0,
     key: "ERR_NONE",
-    label: "Cleared onchain",
+    label: "Approved",
     tone: "success",
-    explanation: "Transaction passed all single-tx, velocity, and whitelist invariants.",
-    remediation: "Settles atomically on Monad Parallel EVM with sub-second finality.",
+    explanation: "This payment passed every spending rule.",
+    remediation: "No action needed. The payment went through.",
   },
   1: {
     code: 1,
     key: "ERR_EXCEEDS_MAX_TX",
-    label: "Ceiling Exceeded",
+    label: "Over the limit",
     tone: "critical",
-    explanation: "Requested payment exceeds the agent's maximum allowed single-transaction limit.",
-    remediation: "Lower transfer amount or increase 'Maximum per transaction' in Policy Studio.",
+    explanation: "The payment was larger than this agent's per-transaction limit.",
+    remediation: "Lower the amount, or raise the per-transaction limit in Policy.",
   },
   2: {
     code: 2,
     key: "ERR_VELOCITY_EXCEEDED",
-    label: "Window Exhausted",
+    label: "Period limit reached",
     tone: "critical",
-    explanation: "Cumulative spend exceeds the budget ceiling for the current rolling window.",
-    remediation: "Wait for sliding window epoch rollover or increase 'Maximum per window' in Policy Studio.",
+    explanation: "This agent has used up its spending limit for the current period.",
+    remediation: "Wait for the period to reset, or raise the period limit in Policy.",
   },
   3: {
     code: 3,
     key: "ERR_MAX_VELOCITY_EXCEEDED",
-    label: "Velocity Spike",
+    label: "Too many payments",
     tone: "warning",
-    explanation: "Too many transactions dispatched within the current window epoch.",
-    remediation: "Increase 'Velocity limit' in Policy Studio or throttle agent frequency.",
+    explanation: "This agent made too many payments in a short time.",
+    remediation: "Raise the payments-per-period limit in Policy, or slow the agent down.",
   },
   4: {
     code: 4,
     key: "ERR_KILL_SWITCH_ACTIVE",
-    label: "Emergency Freeze",
+    label: "Agent paused",
     tone: "critical",
-    explanation: "Spending is halted because the O(1) circuit breaker is active for this agent.",
-    remediation: "Review threat telemetry and reset kill switch in Fleet Overview or Policy Studio to resume.",
+    explanation: "This agent is paused, so it can't spend.",
+    remediation: "Resume the agent in Fleet or Policy when you're ready.",
   },
   5: {
     code: 5,
     key: "ERR_MERCHANT_NOT_WHITELISTED",
-    label: "Unapproved Counterparty",
+    label: "Unapproved merchant",
     tone: "warning",
-    explanation: "Target recipient address is not approved on the agent's merchant directory whitelist.",
-    remediation: "Add counterparty in Merchant Directory or disable whitelist requirement in Policy Studio.",
+    explanation: "The recipient isn't on this agent's approved merchant list.",
+    remediation: "Add the merchant in Merchant Directory, or turn off the approved-merchants requirement in Policy.",
   },
   6: {
     code: 6,
     key: "ERR_BUDGET_POOL_EXHAUSTED",
-    label: "Treasury Depleted",
+    label: "Out of funds",
     tone: "critical",
-    explanation: "Organization treasury pool balance is insufficient to back this allocation.",
-    remediation: "Deposit funds into organization float in Treasury reserves.",
+    explanation: "Your treasury doesn't have enough funds for this payment.",
+    remediation: "Add funds in Treasury.",
   },
   7: {
     code: 7,
     key: "ERR_EXPIRED",
-    label: "Voucher Expired",
+    label: "Request expired",
     tone: "warning",
-    explanation: "EIP-712 payment voucher timestamp exceeded the valid execution deadline.",
-    remediation: "Agent must sign a fresh voucher with a current timestamp.",
+    explanation: "The payment request took too long and expired.",
+    remediation: "The agent needs to send a fresh request.",
   },
   8: {
     code: 8,
     key: "ERR_NONCE_REUSED",
-    label: "Nonce Collision",
+    label: "Duplicate request",
     tone: "critical",
-    explanation: "Voucher nonce was already consumed onchain. Replay defense triggered.",
-    remediation: "Ensure the agent key vault increments nonces monotonically.",
+    explanation: "This exact request was already used, so it was blocked.",
+    remediation: "Check that the agent isn't sending the same request twice.",
   },
   9: {
     code: 9,
     key: "ERR_SIGNATURE_INVALID",
-    label: "Invalid Signature",
+    label: "Couldn't verify",
     tone: "critical",
-    explanation: "EIP-712 cryptographic signature verification failed.",
-    remediation: "Verify that the agent keypair matches the registered address on Monad.",
+    explanation: "The request's signature could not be verified.",
+    remediation: "Check that the agent is using the wallet it was registered with.",
   },
 };
 
@@ -146,22 +148,6 @@ export function ActivityTrace() {
   const [viewMode, setViewMode] = useState<"telemetry" | "outbox">("telemetry");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "/" &&
-        document.activeElement !== searchInputRef.current &&
-        !(document.activeElement instanceof HTMLInputElement) &&
-        !(document.activeElement instanceof HTMLTextAreaElement)
-      ) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
   const filteredEvents = useMemo(() => {
     return events.filter((ev) => {
       if (filterType !== "all" && ev.eventName.toLowerCase() !== filterType.toLowerCase()) {
@@ -176,6 +162,62 @@ export function ActivityTrace() {
       );
     });
   }, [events, filterType, searchQuery]);
+
+  const currentEventIndex = selectedEvent
+    ? filteredEvents.findIndex(
+        (ev) =>
+          ev.transactionHash === selectedEvent.transactionHash &&
+          ev.blockNumber === selectedEvent.blockNumber &&
+          ev.eventName === selectedEvent.eventName,
+      )
+    : -1;
+  const hasPrevEvent = currentEventIndex > 0;
+  const hasNextEvent = currentEventIndex >= 0 && currentEventIndex < filteredEvents.length - 1;
+  const handlePrevEvent = () => {
+    if (hasPrevEvent) setSelectedEvent(filteredEvents[currentEventIndex - 1]);
+  };
+  const handleNextEvent = () => {
+    if (hasNextEvent) setSelectedEvent(filteredEvents[currentEventIndex + 1]);
+  };
+
+  const clearedCount = useMemo(() => events.filter((e) => e.eventName.toLowerCase() === "payment_cleared").length, [events]);
+  const policyCount = useMemo(() => events.filter((e) => e.eventName.toLowerCase() === "policy_evaluated").length, [events]);
+  const trippedCount = useMemo(() => events.filter((e) => e.eventName.toLowerCase() === "circuit_tripped").length, [events]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedEvent) {
+        setSelectedEvent(null);
+        return;
+      }
+      if (
+        e.key === "/" &&
+        !selectedEvent &&
+        document.activeElement !== searchInputRef.current &&
+        !(document.activeElement instanceof HTMLInputElement) &&
+        !(document.activeElement instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName || "") || Boolean(target?.isContentEditable);
+      if (isInput) return;
+
+      if (selectedEvent) {
+        if ((e.key === "j" || e.key === "ArrowDown") && hasNextEvent) {
+          e.preventDefault();
+          handleNextEvent();
+        } else if ((e.key === "k" || e.key === "ArrowUp") && hasPrevEvent) {
+          e.preventDefault();
+          handlePrevEvent();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedEvent, hasNextEvent, hasPrevEvent, currentEventIndex, filteredEvents]);
 
   const [liveStreamActive, setLiveStreamActive] = useState(false);
 
@@ -256,9 +298,9 @@ export function ActivityTrace() {
             severity: "critical",
             zScore: 3.8,
             historicalCategory: "Policy Compliant",
-            attemptedCategory: "Circuit Tripped / Invariant Violation",
+            attemptedCategory: "Blocked by a spending rule",
             observedAt: ev.observedAt,
-            details: `Onchain PolicyEngine halted execution with ReasonCode ${payload.reasonCode ?? 1}.`,
+            details: `A spending rule blocked this payment.`,
             remediationAction: "trip_killswitch",
           });
         }
@@ -322,27 +364,27 @@ export function ActivityTrace() {
       try {
         await tripKillSwitch.mutateAsync({ agentAddress: anomaly.agentAddress, active: true });
         toast({
-          title: "Circuit Breaker Tripped",
-          message: `O(1) kill switch executed onchain for ${truncateMiddle(anomaly.agentAddress, 8, 4)}. Threat neutralized.`,
+          title: "Agent paused",
+          message: `${truncateMiddle(anomaly.agentAddress, 8, 4)} has been paused.`,
           tone: "critical",
         });
       } catch {
         toast({
-          title: "Action Failed",
-          message: "Failed to broadcast emergency freeze transaction on Monad.",
+          title: "Couldn't pause agent",
+          message: "Try again in a moment.",
           tone: "warning",
         });
       }
     } else if (anomaly.remediationAction === "tighten_policy") {
       toast({
-        title: "Policy Tightening Recommended",
-        message: `Navigate to Policy Studio to lower single transaction ceiling for ${truncateMiddle(anomaly.agentAddress, 8, 4)}.`,
+        title: "Consider tighter limits",
+        message: `Open Policy to lower the per-transaction limit for ${truncateMiddle(anomaly.agentAddress, 8, 4)}.`,
         tone: "warning",
       });
     } else {
       toast({
-        title: "Whitelist Review",
-        message: `Verify counterparty legitimacy in Merchant Directory before whitelisting.`,
+        title: "Check this merchant",
+        message: `Make sure this merchant is legitimate before approving it in Merchant Directory.`,
         tone: "info",
       });
     }
@@ -411,10 +453,9 @@ export function ActivityTrace() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Observability / Telemetry</span>
-          <h1>Live Spend Waterfall & Trace Explorer</h1>
+          <h1>Activity</h1>
           <p>
-            Sub-second Monad Parallel EVM telemetry, disjoint storage slot evaluations, and atomic settlement receipts.
+            Real-time spend evaluations, settlement receipts, and audit trail.
           </p>
         </div>
         <div className="page-heading-actions">
@@ -430,7 +471,7 @@ export function ActivityTrace() {
             variant="tonal"
             onClick={exportComplianceCsv}
             disabled={filteredEvents.length === 0}
-            title="Export filtered telemetry events as CSV"
+            title="Export the filtered activity as CSV"
           >
             <Download size={14} />
             <span>Export CSV</span>
@@ -440,7 +481,7 @@ export function ActivityTrace() {
             variant="tonal"
             onClick={exportComplianceJson}
             disabled={filteredEvents.length === 0}
-            title="Export institutional compliance audit manifest (JSON)"
+            title="Export a compliance audit report (JSON)"
           >
             <Download size={14} />
             <span>Export JSON</span>
@@ -452,7 +493,7 @@ export function ActivityTrace() {
             disabled={telemetryQuery.isFetching}
           >
             <RefreshCw size={14} className={telemetryQuery.isFetching ? "spin" : ""} />
-            <span>{telemetryQuery.isFetching ? "Refreshing…" : "Refresh Feed"}</span>
+            <span>{telemetryQuery.isFetching ? "Refreshing…" : "Refresh"}</span>
           </Button>
           <Link to="/app/simulator" className="control control-filled">
             <Sparkles size={14} />
@@ -469,7 +510,7 @@ export function ActivityTrace() {
           onClick={() => setViewMode("telemetry")}
         >
           <Activity size={14} style={{ marginRight: "6px" }} />
-          <span>Telemetry & Events Feed</span>
+          <span>Activity</span>
         </Button>
         <Button
           type="button"
@@ -477,7 +518,7 @@ export function ActivityTrace() {
           onClick={() => setViewMode("outbox")}
         >
           <Layers size={14} style={{ marginRight: "6px" }} />
-          <span>Transactional Settlement Outbox</span>
+          <span>Payment queue</span>
         </Button>
       </div>
 
@@ -494,7 +535,7 @@ export function ActivityTrace() {
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <h2>Predictive Threat Radar & Drift Engine</h2>
+                <h2>Risk monitor</h2>
                 <Badge
                   tone={
                     threatIntelligence.threatScore > 50
@@ -505,14 +546,14 @@ export function ActivityTrace() {
                   }
                 >
                   {threatIntelligence.threatScore > 50
-                    ? `CRITICAL RISK · ${threatIntelligence.threatScore}`
+                    ? `High risk · ${threatIntelligence.threatScore}`
                     : threatIntelligence.threatScore > 20
-                      ? `ELEVATED DRIFT · ${threatIntelligence.threatScore}`
-                      : `ARMORED · ${threatIntelligence.threatScore}`}
+                      ? `Some risk · ${threatIntelligence.threatScore}`
+                      : `Low risk · ${threatIntelligence.threatScore}`}
                 </Badge>
               </div>
               <p>
-                Continuous EWMA velocity monitoring, non-parametric Z-score deviation, and heuristic counterparty category drift detection across Monad EVM.
+                We watch for unusual spending speed and unfamiliar merchants.
               </p>
             </div>
           </div>
@@ -521,7 +562,7 @@ export function ActivityTrace() {
         {/* Radar Metric Tiles */}
         <div className="threat-radar-grid">
           <div className="threat-tile">
-            <span className="threat-tile-label">Fleet Threat Index</span>
+            <span className="threat-tile-label">Overall risk</span>
             <strong
               className="threat-tile-val"
               style={{
@@ -535,31 +576,31 @@ export function ActivityTrace() {
             >
               {threatIntelligence.threatScore} / 100
             </strong>
-            <small className="threat-tile-sub">Composite Adversarial Probability</small>
+            <small className="threat-tile-sub">Chance something is wrong</small>
           </div>
 
           <div className="threat-tile">
-            <span className="threat-tile-label">Max Velocity Deviation</span>
+            <span className="threat-tile-label">Spending speed spike</span>
             <strong className="threat-tile-val">
               +{threatIntelligence.maxZScore}σ
             </strong>
-            <small className="threat-tile-sub">Standard Deviation above EWMA</small>
+            <small className="threat-tile-sub">Compared with the usual pace</small>
           </div>
 
           <div className="threat-tile">
-            <span className="threat-tile-label">Counterparty Drift Ratio</span>
+            <span className="threat-tile-label">New merchants</span>
             <strong className="threat-tile-val">
               {threatIntelligence.driftRatePct}%
             </strong>
-            <small className="threat-tile-sub">Traffic to Unclassified Contracts</small>
+            <small className="threat-tile-sub">Payments to unfamiliar recipients</small>
           </div>
 
           <div className="threat-tile">
-            <span className="threat-tile-label">Sub-Ceiling Probes</span>
+            <span className="threat-tile-label">Limit testing</span>
             <strong className="threat-tile-val">
               {threatIntelligence.probingCount}
             </strong>
-            <small className="threat-tile-sub">95-99% maxPerTx Clustering</small>
+            <small className="threat-tile-sub">Payments just under the limit</small>
           </div>
         </div>
 
@@ -567,7 +608,7 @@ export function ActivityTrace() {
         {threatIntelligence.anomalies.length > 0 ? (
           <div className="threat-anomalies-list">
             <span className="threat-stream-kicker">
-              Active Behavioral Anomalies ({threatIntelligence.anomalies.length} Flagged)
+              Unusual activity ({threatIntelligence.anomalies.length} flagged)
             </span>
             <div className="threat-cards-stack">
               {threatIntelligence.anomalies.map((anom) => (
@@ -607,17 +648,17 @@ export function ActivityTrace() {
                       {anom.remediationAction === "trip_killswitch" ? (
                         <>
                           <ShieldAlert size={13} style={{ marginRight: 6 }} />
-                          <span>Trip Circuit Breaker</span>
+                          <span>Pause agent</span>
                         </>
                       ) : anom.remediationAction === "tighten_policy" ? (
                         <>
                           <Gauge size={13} style={{ marginRight: 6 }} />
-                          <span>Tighten Ceiling</span>
+                          <span>Lower limit</span>
                         </>
                       ) : (
                         <>
                           <CheckCircle2 size={13} style={{ marginRight: 6 }} />
-                          <span>Verify Merchant</span>
+                          <span>Review merchant</span>
                         </>
                       )}
                     </Button>
@@ -631,10 +672,10 @@ export function ActivityTrace() {
             <ShieldCheck size={22} color="var(--status-good, #10b981)" />
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
               <strong style={{ fontSize: "0.88rem", color: "var(--on-surface)" }}>
-                Fleet Armored: Zero Adversarial Drift Signatures Detected
+                All clear: no unusual activity detected
               </strong>
               <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--muted)" }}>
-                All agent spending requests operate within standard EWMA velocity baselines and verified merchant categories.
+                Every agent is spending at its usual pace and paying familiar merchants.
               </p>
             </div>
           </div>
@@ -674,34 +715,38 @@ export function ActivityTrace() {
             )}
           </div>
 
-          <div className="activity-type-chips">
+          <div className="activity-type-chips segmented-filter-pills">
             <button
               type="button"
-              className={`activity-chip ${filterType === "all" ? "active" : ""}`}
+              className={`activity-chip segmented-filter-pill ${filterType === "all" ? "active" : ""}`}
               onClick={() => setFilterType("all")}
             >
-              All Events ({events.length})
+              <span>All Events</span>
+              <span className="pill-count">{events.length}</span>
             </button>
             <button
               type="button"
-              className={`activity-chip ${filterType === "payment_cleared" ? "active" : ""}`}
+              className={`activity-chip segmented-filter-pill ${filterType === "payment_cleared" ? "active" : ""}`}
               onClick={() => setFilterType("payment_cleared")}
             >
-              Cleared Payments
+              <span>Approved payments</span>
+              <span className="pill-count">{clearedCount}</span>
             </button>
             <button
               type="button"
-              className={`activity-chip ${filterType === "policy_evaluated" ? "active" : ""}`}
+              className={`activity-chip segmented-filter-pill ${filterType === "policy_evaluated" ? "active" : ""}`}
               onClick={() => setFilterType("policy_evaluated")}
             >
-              Policy Invariants
+              <span>Rule checks</span>
+              <span className="pill-count">{policyCount}</span>
             </button>
             <button
               type="button"
-              className={`activity-chip ${filterType === "circuit_tripped" ? "active" : ""}`}
+              className={`activity-chip segmented-filter-pill ${filterType === "circuit_tripped" ? "active" : ""}`}
               onClick={() => setFilterType("circuit_tripped")}
             >
-              Circuit Tripped
+              <span>Paused</span>
+              <span className="pill-count">{trippedCount}</span>
             </button>
           </div>
         </div>
@@ -711,31 +756,31 @@ export function ActivityTrace() {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Finalized Monad Telemetry Feed</h2>
-            <p>Real-time chain events observed across your organization's sovereign agent fleet.</p>
+            <h2>Activity feed</h2>
+            <p>Live activity across all of your agents.</p>
           </div>
           <div className="beacon-container">
             <span className="beacon-dot" />
-            <span className="beacon-text">{networkLabel} · 400ms block finality</span>
+            <span className="beacon-text">Live</span>
           </div>
         </div>
 
         {telemetryQuery.isError ? (
           <EmptyState
-            title="Telemetry feed unavailable"
-            detail="We couldn't connect to the telemetry service right now. Please verify service connectivity."
+            title="Activity unavailable"
+            detail="We couldn't load activity right now. Try again in a moment."
             action={
               <Button variant="tonal" onClick={() => void telemetryQuery.refetch()}>
-                <RefreshCw size={14} style={{ marginRight: 6 }} /> Retry Connection
+                <RefreshCw size={14} style={{ marginRight: 6 }} /> Try again
               </Button>
             }
           />
         ) : filteredEvents.length === 0 ? (
           <EmptyState
-            title="No telemetry events observed yet"
-            detail="When your agents execute spending requests or when policy is adjusted on Monad, chain-derived traces will stream in here."
+            title="No activity yet"
+            detail="Payments and rule changes will show up here as they happen."
             action={
-              <Link to="/simulator">
+              <Link to="/app/simulator">
                 <Button variant="filled">
                   <Sparkles size={14} style={{ marginRight: 6 }} /> Run Testbench Simulation
                 </Button>
@@ -810,20 +855,22 @@ export function ActivityTrace() {
                             {reason.label}
                           </Badge>
                           <span className="reason-code-remediation">
-                            {reason.key !== "ERR_NONE" ? reason.key : "Finalized onchain"}
+                            {reason.key !== "ERR_NONE" ? reason.key : "Approved"}
                           </span>
                         </div>
                       </td>
                       <td>
-                        <Button
-                          variant="text"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedEvent(ev);
-                          }}
-                        >
-                          Inspect
-                        </Button>
+                        <div className="trace-row-actions">
+                          <Button
+                            variant="text"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEvent(ev);
+                            }}
+                          >
+                            Inspect
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -845,90 +892,104 @@ export function ActivityTrace() {
                 </div>
                 <div>
                   <div className="inspector-address-row">
-                    <h3>Execution Trace: {selectedEvent.eventName}</h3>
+                    <h3>Payment details: {selectedEvent.eventName}</h3>
                   </div>
                   <div className="inspector-tags">
                     <Badge tone="success">Block #{selectedEvent.blockNumber}</Badge>
-                    <span className="inspector-env-pill">Monad Testnet</span>
+                    <span className="inspector-env-pill">Testnet</span>
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                className="inspector-close-btn"
-                onClick={() => setSelectedEvent(null)}
-                aria-label="Close trace drawer"
-              >
-                <X size={18} />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {filteredEvents.length > 1 && (
+                  <div className="drawer-cycle-controls" role="group" aria-label="Cycle events">
+                    <button
+                      type="button"
+                      className="drawer-cycle-btn"
+                      onClick={handlePrevEvent}
+                      disabled={!hasPrevEvent}
+                      title="Previous trace (K or Up Arrow)"
+                      aria-label="Previous trace"
+                    >
+                      <ChevronUp size={14} />
+                    </button>
+                    <span className="drawer-cycle-counter">
+                      {currentEventIndex + 1}/{filteredEvents.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="drawer-cycle-btn"
+                      onClick={handleNextEvent}
+                      disabled={!hasNextEvent}
+                      title="Next trace (J or Down Arrow)"
+                      aria-label="Next trace"
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                    <kbd className="drawer-cycle-kbd">J/K</kbd>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="inspector-close-btn"
+                  onClick={() => setSelectedEvent(null)}
+                  aria-label="Close trace drawer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </header>
 
             <div className="inspector-body">
-              {/* Monad Parallel EVM Pipeline Steps */}
+              {/* How this payment was checked */}
               <div className="trace-pipeline">
-                <span className="trace-pipeline-kicker">Monad Parallel Pipeline Execution</span>
+                <span className="trace-pipeline-kicker">How this was checked</span>
 
-                {/* Step 1 */}
                 <div className="trace-step step-completed">
                   <div className="step-marker">
                     <CheckCircle2 size={16} />
                   </div>
                   <div className="step-content">
                     <div className="step-head">
-                      <strong>1. Cryptographic Invariants & Nonce Check</strong>
-                      <span className="step-time">0.11 ms</span>
+                      <strong>1. Request verified</strong>
                     </div>
-                    <p>
-                      EIP-712 structured data hash verified against agent signer key. Nonce checked to eliminate replay vulnerabilities.
-                    </p>
+                    <p>We confirmed the request came from this agent and hasn't been used before.</p>
                   </div>
                 </div>
 
-                {/* Step 2 */}
                 <div className="trace-step step-completed">
                   <div className="step-marker">
                     <CheckCircle2 size={16} />
                   </div>
                   <div className="step-content">
                     <div className="step-head">
-                      <strong>2. Cancun Transient Reentrancy Guard</strong>
-                      <span className="step-time">0.08 ms</span>
+                      <strong>2. Safety check</strong>
                     </div>
-                    <p>
-                      Opcode <Mono>tstore</Mono> set reentrancy lock in transient memory with zero persistent SSTORE slot allocation.
-                    </p>
+                    <p>We made sure the payment couldn't be triggered twice at once.</p>
                   </div>
                 </div>
 
-                {/* Step 3 */}
                 <div className="trace-step step-completed">
                   <div className="step-marker">
                     <CheckCircle2 size={16} />
                   </div>
                   <div className="step-content">
                     <div className="step-head">
-                      <strong>3. Disjoint EVM Partition Slot Invariants</strong>
-                      <span className="step-time">0.18 ms</span>
+                      <strong>3. Spending rules</strong>
                     </div>
-                    <p>
-                      Policy struct evaluated in memory. Checked maxPerTx ceiling, hourly sliding window velocity, and merchant whitelist.
-                    </p>
+                    <p>We checked the amount, how often this agent pays, and whether the merchant is approved.</p>
                   </div>
                 </div>
 
-                {/* Step 4 */}
                 <div className="trace-step step-completed">
                   <div className="step-marker">
                     <CheckCircle2 size={16} />
                   </div>
                   <div className="step-content">
                     <div className="step-head">
-                      <strong>4. Atomic Settlement Dispatch</strong>
-                      <span className="step-time">398 ms</span>
+                      <strong>4. Payment sent</strong>
                     </div>
-                    <p>
-                      Dispatched onchain to AgentWalletGuard. Non-custodial token transfer confirmed in Monad Testnet block #{selectedEvent.blockNumber}.
-                    </p>
+                    <p>The payment was sent and confirmed.</p>
                   </div>
                 </div>
               </div>
@@ -949,14 +1010,14 @@ export function ActivityTrace() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                      <Badge tone={selectedReason.tone}>{selectedReason.key} ({selectedReason.code})</Badge>
+                      <Badge tone={selectedReason.tone}>{selectedReason.code === 0 ? "Approved" : "Blocked"}</Badge>
                       <strong style={{ fontSize: "0.85rem", color: "var(--on-surface)" }}>{selectedReason.label}</strong>
                     </div>
                     <p style={{ margin: "0 0 8px", fontSize: "0.8rem", color: "var(--on-surface-secondary)", lineHeight: 1.4 }}>
                       {selectedReason.explanation}
                     </p>
                     <div style={{ fontSize: "0.76rem", color: "var(--primary)", display: "flex", alignItems: "flex-start", gap: "4px" }}>
-                      <strong style={{ whiteSpace: "nowrap" }}>Remediation:</strong>
+                      <strong style={{ whiteSpace: "nowrap" }}>What to do:</strong>
                       <span>{selectedReason.remediation}</span>
                     </div>
                   </div>
@@ -965,7 +1026,7 @@ export function ActivityTrace() {
 
               {/* Transaction Context Card */}
               <div className="trace-meta-card">
-                <h4>Transaction Identifiers</h4>
+                <h4>Details</h4>
                 <div className="trace-meta-grid">
                   <div className="meta-row">
                     <small>Transaction Hash</small>
@@ -1000,7 +1061,7 @@ export function ActivityTrace() {
                   )}
 
                   <div className="meta-row">
-                    <small>Observed Timestamp</small>
+                    <small>Time</small>
                     <span>{new Date(selectedEvent.observedAt).toLocaleString()}</span>
                   </div>
                 </div>
@@ -1009,7 +1070,7 @@ export function ActivityTrace() {
               {/* Payload Parameters */}
               {selectedEvent.payload && Object.keys(selectedEvent.payload).length > 0 && (
                 <div className="trace-payload-card">
-                  <h4>Event Attributes</h4>
+                  <h4>More details</h4>
                   <pre className="payload-json">
                     {JSON.stringify(selectedEvent.payload, null, 2)}
                   </pre>

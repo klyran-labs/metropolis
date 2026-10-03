@@ -791,3 +791,194 @@ export function formatPlatformRole(role?: string): string {
   return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export function Tooltip({
+  label,
+  children,
+  side = "top",
+}: {
+  label: string;
+  children: ReactNode;
+  side?: "top" | "bottom";
+}) {
+  const id = useId();
+  return (
+    <span className="tooltip-anchor">
+      <span className="tooltip-trigger" tabIndex={0} aria-describedby={id}>
+        {children}
+      </span>
+      <span role="tooltip" id={id} className={clsx("tooltip-bubble", `tooltip-bubble-${side}`)}>
+        {label}
+      </span>
+    </span>
+  );
+}
+
+export interface TabItem {
+  key: string;
+  label: string;
+  icon?: ReactNode;
+}
+
+export function Tabs({
+  items,
+  active,
+  onChange,
+  className,
+}: {
+  items: TabItem[];
+  active: string;
+  onChange: (key: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={clsx("tabs", className)} role="tablist">
+      {items.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          role="tab"
+          aria-selected={active === item.key}
+          className={clsx("tabs-tab", active === item.key && "is-active")}
+          onClick={() => onChange(item.key)}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export interface StepperStep {
+  key: string;
+  label: string;
+}
+
+export function Stepper({
+  steps,
+  activeIndex,
+  className,
+}: {
+  steps: StepperStep[];
+  activeIndex: number;
+  className?: string;
+}) {
+  return (
+    <ol className={clsx("stepper", className)}>
+      {steps.map((step, idx) => {
+        const state = idx < activeIndex ? "done" : idx === activeIndex ? "active" : "pending";
+        return (
+          <li key={step.key} className={clsx("stepper-step", `stepper-step-${state}`)}>
+            <span className="stepper-step-marker">
+              {state === "done" ? <Check size={12} strokeWidth={2.5} /> : idx + 1}
+            </span>
+            <span className="stepper-step-label">{step.label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled,
+  className,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label?: ReactNode;
+  description?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <div className={clsx("switch-row", className)}>
+      {(label || description) && (
+        <div className="switch-text">
+          {label && <label htmlFor={id}>{label}</label>}
+          {description && <small>{description}</small>}
+        </div>
+      )}
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        className={clsx("switch", checked && "is-on")}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="switch-knob" />
+      </button>
+    </div>
+  );
+}
+
+function baseUnitsToDollarText(base: string, decimals: number): string {
+  if (!base || !base.trim()) return "";
+  try {
+    const negative = base.trim().startsWith("-");
+    const n = BigInt(negative ? base.trim().slice(1) : base.trim());
+    const divisor = BigInt(10) ** BigInt(decimals);
+    const whole = n / divisor;
+    const frac = (n % divisor).toString().padStart(decimals, "0").slice(0, 2);
+    return `${negative ? "-" : ""}${whole}.${frac}`;
+  } catch {
+    return "";
+  }
+}
+
+/** Dollar-denominated input that stores and emits the underlying base-unit integer string, so callers never hand-convert `1000000 = $1.00`. */
+export function CurrencyInput({
+  valueBaseUnits,
+  onChangeBaseUnits,
+  decimals = 6,
+  placeholder = "0.00",
+  disabled,
+  className,
+  prefix = "$",
+}: {
+  valueBaseUnits: string;
+  onChangeBaseUnits: (next: string) => void;
+  decimals?: number;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  prefix?: string;
+}) {
+  const [text, setText] = useState(() => baseUnitsToDollarText(valueBaseUnits, decimals));
+
+  useEffect(() => {
+    setText(baseUnitsToDollarText(valueBaseUnits, decimals));
+  }, [valueBaseUnits, decimals]);
+
+  const handleChange = (raw: string) => {
+    setText(raw);
+    const n = Number(raw);
+    if (!raw.trim() || Number.isNaN(n) || n < 0) {
+      onChangeBaseUnits("");
+      return;
+    }
+    onChangeBaseUnits(BigInt(Math.round(n * 10 ** decimals)).toString());
+  };
+
+  return (
+    <div className={clsx("currency-input", disabled && "is-disabled", className)}>
+      <span className="currency-input-prefix">{prefix}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={text}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => handleChange(event.target.value)}
+      />
+    </div>
+  );
+}
+

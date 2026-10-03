@@ -60,7 +60,7 @@ export const isUnifiedTarget = () => configuration.appTarget === "unified";
 
 export const networkLabel =
   runtimeProfile === "local"
-    ? "Local Monad"
+    ? "Local network"
     : runtimeProfile === "testnet"
-      ? "Monad Testnet"
-      : "Monad Mainnet";
+      ? "Testnet"
+      : "Mainnet";

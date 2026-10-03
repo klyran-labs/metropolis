@@ -204,7 +204,7 @@ function UndoToastItem({
       </div>
       <div className="undo-toast-body">
         <strong>
-          {action.title || (action.type === "trip" ? "Circuit Breaker Tripped" : action.type === "reset" ? "Circuit Breaker Reset" : "Notification")}
+          {action.title || (action.type === "trip" ? "Agent paused" : action.type === "reset" ? "Agent resumed" : "Notification")}
         </strong>
         {action.message ? (
           <div className="undo-toast-desc">{action.message}</div>
@@ -233,7 +233,7 @@ function UndoToastItem({
                 target="_blank"
                 rel="noreferrer"
                 className="undo-toast-explorer-link"
-                title="View in Monad Explorer"
+                title="View transaction"
               >
                 <ExternalLink size={11} />
               </a>

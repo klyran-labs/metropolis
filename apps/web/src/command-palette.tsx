@@ -94,7 +94,7 @@ export function CommandPalette({
         id: "nav-fleet",
         category: "Navigation",
         label: "Go to Fleet Operations",
-        detail: "Agent data grid, session keys, and circuit breakers",
+        detail: "Your agents, wallets, and pause controls",
         icon: Bot,
         action: () => {
           void navigate({ to: "/app/fleet" });
@@ -112,13 +112,13 @@ export function CommandPalette({
           void navigate({ to: "/app/policy" });
           onClose();
         },
-        keywords: "policy rules spending limits caps invariants abac pbac",
+        keywords: "policy rules spending limits caps abac pbac",
       },
       {
         id: "nav-simulator",
         category: "Navigation",
         label: "Go to Policy What-If Simulator",
-        detail: "Dry-run hypothetical spend requests against Monad storage slots",
+        detail: "Try a payment against your spending rules",
         icon: PlayCircle,
         action: () => {
           void navigate({ to: "/app/simulator" });
@@ -142,7 +142,7 @@ export function CommandPalette({
         id: "nav-merchants",
         category: "Navigation",
         label: "Go to Approved Merchant & Paywall Directory",
-        detail: "Curated registry of x402 and AP2 verified vendor paywalls",
+        detail: "Merchants your agents are allowed to pay",
         icon: Store,
         action: () => {
           void navigate({ to: "/app/merchants" });
@@ -153,8 +153,8 @@ export function CommandPalette({
       {
         id: "nav-quorum",
         category: "Navigation",
-        label: "Go to Dual-Control Quorum & Escalation Center",
-        detail: "Multi-operator consensus queue for high-value spend authorizations",
+        label: "Go to Approvals",
+        detail: "Transfers waiting for more than one signature",
         icon: UsersRound,
         action: () => {
           void navigate({ to: "/app/quorum" });
@@ -205,7 +205,7 @@ export function CommandPalette({
               id: "nav-admin-overview",
               category: "Platform Admin" as const,
               label: "Go to Platform Administration Overview",
-              detail: "Multi-tenant registry, global onchain ledger, and plan governance",
+              detail: "Organizations, payments, and plans",
               icon: Shield,
               action: () => {
                 void navigate({ to: "/admin/overview" });
@@ -273,7 +273,7 @@ export function CommandPalette({
         id: "action-provision-agent",
         category: "Fleet Actions",
         label: "Provision New Autonomous Agent",
-        detail: "Deploy sovereign keypair with Monad Parallel EVM policy guardrails",
+        detail: "Create a new agent with its own wallet and spending limits",
         icon: Sparkles,
         action: () => {
           void navigate({ to: "/app/fleet" });
@@ -434,7 +434,7 @@ export function CommandPalette({
           </div>
           <div className="command-palette-network-tag">
             <span className="status-dot status-dot-success" />
-            Monad Parallel EVM · 400ms block cadence
+            Live
           </div>
         </div>
       </div>

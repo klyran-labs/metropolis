@@ -1,6 +1,6 @@
 import { Outlet, createRootRoute, createRoute, createRouter, redirect, useNavigate } from "@tanstack/react-router";
 import { Layers, Radio, ShieldCheck, Wallet, Zap } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { configuration, isAdminTarget, isTenantTarget, networkLabel } from "./configuration";
 import { useIdentity } from "./identity";
 import { AdminNav, TenantNav } from "./navigation";
@@ -52,8 +52,7 @@ function Landing() {
             </span>
             <h1>Govern autonomous spend with clear authority.</h1>
             <p>
-              Private policy for your organization, verified onchain settlement, and chain-derived
-              evidence for every autonomous agent execution.
+              Set spending rules for your AI agents, pause them instantly, and keep a clear record of every payment.
             </p>
           </div>
 
@@ -63,8 +62,8 @@ function Landing() {
                 <ShieldCheck size={18} />
               </div>
               <div className="pillar-content">
-                <strong>Sub-Millisecond Policy Engine</strong>
-                <p>Disjoint storage slot partitioning on Monad Parallel EVM eliminates write-lock contention.</p>
+                <strong>Spending rules that always apply</strong>
+                <p>Every payment is checked against your limits before it goes through.</p>
               </div>
             </div>
 
@@ -73,8 +72,8 @@ function Landing() {
                 <Zap size={18} />
               </div>
               <div className="pillar-content">
-                <strong>O(1) Instant Kill-Switch</strong>
-                <p>Zero-allocation emergency circuit breaker halts compromised agents instantly.</p>
+                <strong>Pause any agent instantly</strong>
+                <p>Stop an agent in one click if something looks wrong.</p>
               </div>
             </div>
 
@@ -83,8 +82,8 @@ function Landing() {
                 <Wallet size={18} />
               </div>
               <div className="pillar-content">
-                <strong>Non-Custodial Enclave Settlement</strong>
-                <p>Autonomous agent keypairs sealed in sovereign vaults — private keys never leave local custody.</p>
+                <strong>You keep control of your keys</strong>
+                <p>Agent wallets are kept in secure storage, and your keys never leave your control.</p>
               </div>
             </div>
 
@@ -93,8 +92,8 @@ function Landing() {
                 <Layers size={18} />
               </div>
               <div className="pillar-content">
-                <strong>Cryptographic Evidence Trail</strong>
-                <p>Machine-readable onchain reason codes (ERR_NONE through ERR_SIGNATURE_INVALID) for all intents.</p>
+                <strong>A clear record of every payment</strong>
+                <p>See what was paid, what was blocked, and why.</p>
               </div>
             </div>
           </div>
@@ -105,22 +104,22 @@ function Landing() {
                 <span className="status-dot status-dot-success" />
                 <span className="telemetry-label">{networkLabel}</span>
               </div>
-              <span className="telemetry-sub">Chain ID 10143</span>
+              <span className="telemetry-sub">Connected</span>
             </div>
             <div className="landing-telemetry-divider" />
             <div className="landing-telemetry-item">
               <span className="telemetry-metric">400ms</span>
-              <span className="telemetry-sub">Block Finality</span>
+              <span className="telemetry-sub">Payment confirmation</span>
             </div>
             <div className="landing-telemetry-divider" />
             <div className="landing-telemetry-item">
-              <span className="telemetry-metric">O(1)</span>
-              <span className="telemetry-sub">Emergency Freeze</span>
+              <span className="telemetry-metric">1 click</span>
+              <span className="telemetry-sub">Pause an agent</span>
             </div>
             <div className="landing-telemetry-divider" />
             <div className="landing-telemetry-item">
-              <span className="telemetry-metric">EIP-712</span>
-              <span className="telemetry-sub">Intent Auth</span>
+              <span className="telemetry-metric">Signed</span>
+              <span className="telemetry-sub">Every request verified</span>
             </div>
           </div>
         </div>
@@ -243,24 +242,64 @@ function AppLayout() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
+  const pendingSequence = useRef<string | null>(null);
+  const sequenceTimer = useRef<number | null>(null);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((prev) => !prev);
         return;
       }
-      if (
-        event.key === "?" &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement)?.tagName)
-      ) {
+      const target = event.target as HTMLElement | null;
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName || "") || target?.isContentEditable;
+      if (isInput) return;
+
+      if (event.key === "?") {
         event.preventDefault();
         setShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (pendingSequence.current === "g") {
+        pendingSequence.current = null;
+        if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+        const routes: Record<string, string> = {
+          o: "/app/overview",
+          f: "/app/fleet",
+          p: "/app/policy",
+          s: "/app/simulator",
+          a: "/app/activity",
+          t: "/app/treasury",
+          m: "/app/merchants",
+          q: "/app/quorum",
+          r: "/app/treasury",
+          b: "/app/billing",
+          e: "/app/settings",
+        };
+        if (routes[key]) {
+          event.preventDefault();
+          void navigate({ to: routes[key] });
+          return;
+        }
+      }
+
+      if (key === "g") {
+        pendingSequence.current = "g";
+        if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+        sequenceTimer.current = window.setTimeout(() => {
+          pendingSequence.current = null;
+        }, 1200);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+    };
+  }, [navigate]);
 
   useEffect(() => {
     if (!identity.ready) return;
@@ -326,25 +365,61 @@ function AdminLayout() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const platformResolved = !identity.platformAccessLoading;
+  const pendingSequence = useRef<string | null>(null);
+  const sequenceTimer = useRef<number | null>(null);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((prev) => !prev);
         return;
       }
-      if (
-        event.key === "?" &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement)?.tagName)
-      ) {
+      const target = event.target as HTMLElement | null;
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName || "") || target?.isContentEditable;
+      if (isInput) return;
+
+      if (event.key === "?") {
         event.preventDefault();
         setShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (pendingSequence.current === "g") {
+        pendingSequence.current = null;
+        if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+        const routes: Record<string, string> = {
+          o: "/admin/overview",
+          t: "/admin/tenants",
+          p: "/admin/plans",
+          s: "/admin/subscriptions",
+          b: "/admin/billing",
+          c: "/admin/reconciliation",
+          r: "/admin/revenue",
+          a: "/admin/access",
+        };
+        if (routes[key]) {
+          event.preventDefault();
+          void navigate({ to: routes[key] });
+          return;
+        }
+      }
+
+      if (key === "g") {
+        pendingSequence.current = "g";
+        if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+        sequenceTimer.current = window.setTimeout(() => {
+          pendingSequence.current = null;
+        }, 1200);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      if (sequenceTimer.current) window.clearTimeout(sequenceTimer.current);
+    };
+  }, [navigate]);
 
   useEffect(() => {
     if (!identity.ready) return;

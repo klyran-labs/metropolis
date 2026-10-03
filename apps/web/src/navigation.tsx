@@ -39,7 +39,7 @@ export const tenantNavItems: NavItemDef[] = [
   { to: "/app/simulator", label: "Simulator", icon: <PlayCircle size={19} />, badge: "Dry-Run" },
   { to: "/app/activity", label: "Activity", icon: <Radio size={19} />, badge: "Live" },
   { to: "/app/merchants", label: "Merchants", icon: <Store size={19} /> },
-  { to: "/app/quorum", label: "Quorum", icon: <UsersRound size={19} /> },
+  { to: "/app/quorum", label: "Approvals", icon: <UsersRound size={19} /> },
   { to: "/app/treasury", label: "Treasury", icon: <Landmark size={19} /> },
   { to: "/app/billing", label: "Billing", icon: <CreditCard size={19} /> },
   { to: "/app/settings", label: "Settings", icon: <Settings2 size={19} /> },
@@ -143,7 +143,7 @@ export function SubheaderTabs({
       <div className="subheader-epoch-info">
         <span className="epoch-pill">
           <span className="epoch-dot" />
-          Monad Parallel EVM · Cancun Transient Storage
+          Live
         </span>
       </div>
     </nav>

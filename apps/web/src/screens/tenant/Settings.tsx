@@ -29,18 +29,22 @@ import {
   useUpsertPbacPolicy,
   toUserFacingError,
 } from "../../api";
-import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Select, Surface, TextField, roleLabel, truncateMiddle } from "../../design-system";
+import { AgentSelect, Badge, Button, Dialog, EmptyState, Mono, Select, Surface, Switch, TextField, roleLabel, truncateMiddle } from "../../design-system";
 import { useIdentity, type Identity } from "../../identity";
 
 const ASSIGNABLE_CAPABILITIES = [
-  { value: "fleet.read", label: "Read fleet" },
-  { value: "audit.read", label: "Read audit" },
-  { value: "telemetry.subscribe", label: "Subscribe telemetry" },
-  { value: "policy.write", label: "Author policy" },
-  { value: "circuit_breaker.trip", label: "Trip circuit breaker" },
+  { value: "fleet.read", label: "View agents" },
+  { value: "audit.read", label: "View activity history" },
+  { value: "telemetry.subscribe", label: "View live activity" },
+  { value: "policy.write", label: "Edit spending rules" },
+  { value: "circuit_breaker.trip", label: "Pause agents" },
   { value: "treasury.manage", label: "Manage treasury" },
-  { value: "settlement.dispatch", label: "Dispatch settlement" },
+  { value: "settlement.dispatch", label: "Send payments" },
 ] as const;
+
+function capabilityLabel(value: string): string {
+  return ASSIGNABLE_CAPABILITIES.find((c) => c.value === value)?.label ?? value;
+}
 
 function canManageSecurity(role: string | null | undefined): boolean {
   return role === "super_admin" || role === "sec_ops";
@@ -67,9 +71,8 @@ export function Settings() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Home / Settings</span>
           <h1>Settings</h1>
-          <p>Manage who's on your team, what they can do, how your agent wallets are secured, and AI provider rate cards.</p>
+          <p>Team permissions, credentials, policy parameters, and AI rate cards.</p>
         </div>
       </header>
       <div className="settings-tabs" role="tablist" aria-label="Settings sections">
@@ -102,10 +105,7 @@ function TeamTab({ identity }: { identity: Identity }) {
     <>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Team access</h2>
-            <p>Everyone with access to this organization, and what they're allowed to do.</p>
-          </div>
+          <h2>Team Access</h2>
           <Badge tone="info">{roleLabel(identity.role)}</Badge>
         </div>
         {operators.isError ? (
@@ -132,10 +132,7 @@ function TeamTab({ identity }: { identity: Identity }) {
       </Surface>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Agent wallets</h2>
-            <p>Wallets we generated and sealed on behalf of your agents. The private key never leaves our vault.</p>
-          </div>
+          <h2>Agent Wallets</h2>
           <Link to="/app/fleet" className="control control-text">
             Register an agent
             <ArrowRight size={14} />
@@ -149,7 +146,7 @@ function TeamTab({ identity }: { identity: Identity }) {
               <div className="entity-row" key={agent.address}>
                 <strong><Mono>{agent.address}</Mono></strong>
                 <Badge tone="neutral">{agent.environment}</Badge>
-                <Badge tone="success">Sealed</Badge>
+                <Badge tone="success">Secure</Badge>
               </div>
             ))}
           </div>
@@ -414,7 +411,8 @@ function PolicyTab({ identity }: { identity: Identity }) {
   const [pbacError, setPbacError] = useState("");
   const [effect, setEffect] = useState<"allow" | "deny">("allow");
   const [principals, setPrincipals] = useState("*");
-  const [actions, setActions] = useState("");
+  const [selectedActions, setSelectedActions] = useState<string[]>([]);
+  const [customActions, setCustomActions] = useState("");
   const [resources, setResources] = useState("*");
   const [maxAmount, setMaxAmount] = useState("");
   const [requiredSignatures, setRequiredSignatures] = useState("");
@@ -430,7 +428,8 @@ function PolicyTab({ identity }: { identity: Identity }) {
     setEditingPolicy(null);
     setEffect("allow");
     setPrincipals("*");
-    setActions("");
+    setSelectedActions([]);
+    setCustomActions("");
     setResources("*");
     setMaxAmount("");
     setRequiredSignatures("");
@@ -441,10 +440,12 @@ function PolicyTab({ identity }: { identity: Identity }) {
   const openReviseRule = (policy: PbacPolicy) => {
     setEditingPolicy(policy);
     setEffect(policy.effect);
-    setPrincipals(policy.principals.join(", "));
-    setActions(policy.actions.join(", "));
-    setResources(policy.resources.join(", "));
-    setMaxAmount(policy.conditions.maxAmount ?? "");
+    setPrincipals(policy.principals.join(", ") || "*");
+    const known = new Set<string>(ASSIGNABLE_CAPABILITIES.map((c) => c.value));
+    setSelectedActions(policy.actions.filter((a) => known.has(a)));
+    setCustomActions(policy.actions.filter((a) => !known.has(a)).join(", "));
+    setResources(policy.resources.join(", ") || "*");
+    setMaxAmount(policy.conditions.maxAmount ? (Number(policy.conditions.maxAmount) / 1_000_000).toString() : "");
     setRequiredSignatures(policy.conditions.requiredMultisigSignatures?.toString() ?? "");
     setRequireMfa(Boolean(policy.conditions.requireMfa));
     setPbacError("");
@@ -476,30 +477,41 @@ function PolicyTab({ identity }: { identity: Identity }) {
         <div className="section-heading">
           <div>
             <h2>Access rules</h2>
-            <p>Principal, action, and resource rules evaluated on every request. A deny always wins.</p>
+            <p>Control who can do what. If a rule blocks something, that always wins.</p>
           </div>
           <Button onClick={openCreateRule}>New rule</Button>
         </div>
         {policies.isError ? (
-          <EmptyState title="Access rules unavailable" detail="We couldn't load authorization policy right now." />
+          <EmptyState title="Access rules unavailable" detail="We couldn't load your access rules right now." />
         ) : policies.data?.length ? (
           <div className="entity-list">
-            {policies.data.map((policy) => (
-              <div className="entity-row" key={policy.id}>
-                <Badge tone={policy.effect === "deny" ? "critical" : "success"}>{policy.effect}</Badge>
-                <Mono>{policy.principals.join(", ") || "*"}</Mono>
-                <Mono>{policy.actions.join(", ") || "*"}</Mono>
-                <Mono>{policy.resources.join(", ") || "*"}</Mono>
-                <small>v{policy.version}</small>
-                <Button variant="text" onClick={() => openReviseRule(policy)}>Revise</Button>
-                <Button variant="text" onClick={() => deactivatePolicy.mutate(policy.id)} disabled={deactivatePolicy.isPending}>
-                  Retire
-                </Button>
-              </div>
-            ))}
+            {policies.data.map((policy) => {
+              const who = policy.principals.join(", ") || "*";
+              const what = policy.actions.length
+                ? policy.actions.map((a) => capabilityLabel(a)).join(", ")
+                : "everything";
+              const where = policy.resources.join(", ") || "*";
+              return (
+                <div className="entity-row" key={policy.id}>
+                  <Badge tone={policy.effect === "deny" ? "critical" : "success"}>
+                    {policy.effect === "deny" ? "Blocks" : "Allows"}
+                  </Badge>
+                  <span>
+                    <strong>{who === "*" ? "Everyone" : who}</strong> can {policy.effect === "deny" ? "not " : ""}
+                    {what}
+                    {where !== "*" && <> on <Mono>{where}</Mono></>}
+                  </span>
+                  <small>v{policy.version}</small>
+                  <Button variant="text" onClick={() => openReviseRule(policy)}>Revise</Button>
+                  <Button variant="text" onClick={() => deactivatePolicy.mutate(policy.id)} disabled={deactivatePolicy.isPending}>
+                    Retire
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <EmptyState title="No rules yet" detail="Author the first access rule for this organization above." />
+          <EmptyState title="No rules yet" detail="Create your first access rule above." />
         )}
       </Surface>
 
@@ -573,23 +585,24 @@ function PolicyTab({ identity }: { identity: Identity }) {
         open={pbacDialogOpen}
         onClose={() => setPbacDialogOpen(false)}
         title={editingPolicy ? "Revise access rule" : "New access rule"}
-        description="Principals, actions, and resources accept glob patterns, such as treasury.* or a bare * for any."
+        description="Choose who this applies to and what they're allowed — or blocked from — doing."
         footer={
           <>
             <Button variant="text" onClick={() => setPbacDialogOpen(false)}>Cancel</Button>
             <Button
               onClick={() => {
                 setPbacError("");
-                if (!actions.trim()) return setPbacError("Specify at least one action pattern.");
+                const actions = [...selectedActions, ...customActions.split(",").map((v) => v.trim()).filter(Boolean)];
+                if (actions.length === 0) return setPbacError("Choose at least one action.");
                 upsertPolicy.mutate(
                   {
                     id: editingPolicy?.id,
                     effect,
                     principals: principals.split(",").map((value) => value.trim()).filter(Boolean),
-                    actions: actions.split(",").map((value) => value.trim()).filter(Boolean),
+                    actions,
                     resources: resources.split(",").map((value) => value.trim()).filter(Boolean),
                     conditions: {
-                      maxAmount: maxAmount.trim() || null,
+                      maxAmount: maxAmount.trim() ? (isNaN(Number(maxAmount)) ? maxAmount.trim() : Math.round(parseFloat(maxAmount) * 1_000_000).toString()) : null,
                       requiredMultisigSignatures: requiredSignatures.trim() ? Number(requiredSignatures) : null,
                       requireMfa: requireMfa || null,
                       eligibleApproverRoles: [],
@@ -607,20 +620,73 @@ function PolicyTab({ identity }: { identity: Identity }) {
       >
         <div className="dialog-form-stack">
           <Select
-            label="Policy Effect"
+            label="This rule"
             value={effect}
             onChange={(val) => setEffect(val as "allow" | "deny")}
             options={[
-              { value: "allow", label: "Allow", detail: "Permit matching requests that pass limits" },
-              { value: "deny", label: "Deny", detail: "Explicitly block matching requests immediately" },
+              { value: "allow", label: "Allows", detail: "Let matching requests through" },
+              { value: "deny", label: "Blocks", detail: "Stop matching requests immediately" },
             ]}
           />
-          <TextField label="Principals (comma-separated, * for any)" value={principals} onChange={(event) => setPrincipals(event.target.value)} />
-          <TextField label="Actions (comma-separated, e.g. treasury.*)" value={actions} onChange={(event) => setActions(event.target.value)} />
-          <TextField label="Resources (comma-separated, * for any)" value={resources} onChange={(event) => setResources(event.target.value)} />
-          <TextField label="Max amount (base units, optional)" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} />
+
+          <div className="field-group-label">Who this applies to</div>
+          <Switch
+            checked={principals.trim() === "*" || principals.trim() === ""}
+            onChange={(on) => setPrincipals(on ? "*" : "")}
+            label="Everyone"
+            description="Turn off to name specific people"
+          />
+          {!(principals.trim() === "*" || principals.trim() === "") && (
+            <TextField
+              label="Operator names (comma-separated)"
+              value={principals}
+              onChange={(event) => setPrincipals(event.target.value)}
+            />
+          )}
+
+          <div className="field-group-label">What they can do</div>
+          <div className="capability-checkboxes">
+            {ASSIGNABLE_CAPABILITIES.map((capability) => (
+              <label key={capability.value}>
+                <input
+                  type="checkbox"
+                  checked={selectedActions.includes(capability.value)}
+                  onChange={(event) =>
+                    setSelectedActions((current) =>
+                      event.target.checked
+                        ? [...current, capability.value]
+                        : current.filter((value) => value !== capability.value),
+                    )
+                  }
+                />
+                {capability.label}
+              </label>
+            ))}
+          </div>
           <TextField
-            label="Required multisig signatures (optional)"
+            label="Other actions (advanced, comma-separated)"
+            value={customActions}
+            onChange={(event) => setCustomActions(event.target.value)}
+          />
+
+          <div className="field-group-label">Where it applies</div>
+          <Switch
+            checked={resources.trim() === "*" || resources.trim() === ""}
+            onChange={(on) => setResources(on ? "*" : "")}
+            label="Everywhere"
+            description="Turn off to name specific resources"
+          />
+          {!(resources.trim() === "*" || resources.trim() === "") && (
+            <TextField
+              label="Resource IDs (comma-separated)"
+              value={resources}
+              onChange={(event) => setResources(event.target.value)}
+            />
+          )}
+
+          <TextField label="Spending limit ($, optional)" placeholder="0.00" value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} />
+          <TextField
+            label="Approvals needed (optional)"
             type="number"
             min={1}
             value={requiredSignatures}
@@ -628,7 +694,7 @@ function PolicyTab({ identity }: { identity: Identity }) {
           />
           <label className="check-field">
             <input type="checkbox" checked={requireMfa} onChange={(event) => setRequireMfa(event.target.checked)} />
-            Require MFA
+            Require extra verification (MFA)
           </label>
           {pbacError && <p className="form-message">{pbacError}</p>}
         </div>
@@ -779,54 +845,53 @@ function PricingTab({ identity }: { identity: Identity }) {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>FinOps AI Provider Pricing & Rate Cards</h2>
-            <p>Configure institutional rate cards, volume discount brackets, or committed PTU quota reservations per ADR 0010.</p>
+            <h2>AI usage pricing</h2>
+            <p>Set how much this AI usage costs your organization.</p>
           </div>
-          <Badge tone="neutral">Dual-Denomination Engine</Badge>
         </div>
 
         {pricingQuery.isLoading ? (
-          <p className="subtle">Loading active organization rate card…</p>
+          <p className="subtle">Loading your pricing plan…</p>
         ) : (
           <div className="stack" style={{ gap: "var(--space-md)" }}>
             {/* Real-Time Status Metric Strip */}
             <div className="finops-stat-grid">
               <div className="finops-stat-card">
-                <span className="finops-stat-label">Monthly Metered Compute</span>
+                <span className="finops-stat-label">Tokens used this month</span>
                 <span className="finops-stat-value">
                   {(currentPricing?.monthlyTokensConsumed ?? 0).toLocaleString()} <small style={{ fontSize: "0.75rem", fontWeight: 400 }}>tokens</small>
                 </span>
-                <span className="finops-stat-sub">Cumulative tokens metered</span>
+                <span className="finops-stat-sub">Running total this month</span>
               </div>
               <div className="finops-stat-card">
-                <span className="finops-stat-label">Active Contract Model</span>
+                <span className="finops-stat-label">Pricing plan</span>
                 <div style={{ marginTop: "2px" }}>
                   <Badge tone="info">
                     {currentPricing ? currentPricing.modelType.replace(/_/g, " ").toUpperCase() : "FLAT DISCOUNT"}
                   </Badge>
                 </div>
-                <span className="finops-stat-sub">Active liability formula</span>
+                <span className="finops-stat-sub">Current plan type</span>
               </div>
               <div className="finops-stat-card">
-                <span className="finops-stat-label">Monthly Compute Token Quota Cap</span>
+                <span className="finops-stat-label">Monthly usage cap</span>
                 <span className="finops-stat-value">
                   {currentPricing?.tokenCapTokens != null && currentPricing.tokenCapTokens > 0
                     ? `${(currentPricing.tokenCapTokens / 1_000_000).toLocaleString()}M`
                     : "Unlimited"}
                 </span>
-                <span className="finops-stat-sub">Dual-denomination ceiling</span>
+                <span className="finops-stat-sub">Maximum tokens per month</span>
               </div>
               <div className="finops-stat-card">
-                <span className="finops-stat-label">Contract Rate Terms</span>
+                <span className="finops-stat-label">Current rate</span>
                 <span className="finops-stat-value" style={{ fontSize: "1rem" }}>
-                  {modelType === "flat_discount" && `${discountPercent}% Off List`}
-                  {modelType === "batch_discount" && `50% Batch + ${discountPercent}%`}
-                  {modelType === "committed_ptu" && `${ptuCapacityM}M Sunk PTUs`}
-                  {modelType === "per_unit_request" && `$${perCallFeeDollars} / Request`}
-                  {modelType === "hybrid_commit_volume" && `${ptuCapacityM}M PTU + Ladders`}
-                  {modelType === "tiered_volume" && `${volumeTiers.length} Volume Ladders`}
+                  {modelType === "flat_discount" && `${discountPercent}% off`}
+                  {modelType === "batch_discount" && `50% batch + ${discountPercent}%`}
+                  {modelType === "committed_ptu" && `${ptuCapacityM}M prepaid`}
+                  {modelType === "per_unit_request" && `$${perCallFeeDollars} / request`}
+                  {modelType === "hybrid_commit_volume" && `${ptuCapacityM}M prepaid + tiers`}
+                  {modelType === "tiered_volume" && `${volumeTiers.length} volume tiers`}
                 </span>
-                <span className="finops-stat-sub">Active contract terms</span>
+                <span className="finops-stat-sub">Summary</span>
               </div>
             </div>
 
@@ -836,17 +901,17 @@ function PricingTab({ identity }: { identity: Identity }) {
               <div className="finops-config-box">
                 <div className="finops-field-group">
                   <Select
-                    label="Contract Pricing Model"
+                    label="Pricing plan"
                     value={modelType}
                     disabled={!isEditable}
                     onChange={(val) => setModelType(val as PricingModelType)}
                     options={[
-                      { value: "flat_discount", label: "Flat Custom Discount", detail: "Rate Card Override" },
-                      { value: "tiered_volume", label: "Tiered Volume Ladders", detail: "Graduated Monthly Brackets" },
-                      { value: "committed_ptu", label: "Committed Capacity / PTUs", detail: "Sunk Reservation + Overage" },
-                      { value: "batch_discount", label: "Batch Inference Discount", detail: "50% Off-Peak SLA" },
-                      { value: "per_unit_request", label: "Per-Unit Request Toll", detail: "Base Invocations + Compute Pass-Through" },
-                      { value: "hybrid_commit_volume", label: "Hybrid PTU Reservation", detail: "Reservation + Tiered Volume Ladders" },
+                      { value: "flat_discount", label: "Flat discount", detail: "A fixed % off the standard price" },
+                      { value: "tiered_volume", label: "Volume discounts", detail: "Bigger discounts as usage grows" },
+                      { value: "committed_ptu", label: "Prepaid capacity", detail: "Pay upfront, then overage" },
+                      { value: "batch_discount", label: "Batch discount", detail: "50% off for non-urgent requests" },
+                      { value: "per_unit_request", label: "Per-request fee", detail: "A flat fee for every request" },
+                      { value: "hybrid_commit_volume", label: "Prepaid + volume discounts", detail: "Combines prepaid capacity with volume discounts" },
                     ]}
                   />
                 </div>
@@ -854,8 +919,8 @@ function PricingTab({ identity }: { identity: Identity }) {
                 {(modelType === "flat_discount" || modelType === "batch_discount") && (
                   <div className="finops-field-group">
                     <label className="finops-label" htmlFor="discount-input">
-                      <span>Negotiated Base Discount</span>
-                      <span className="finops-label-hint">Percentage off catalog list</span>
+                      <span>Discount</span>
+                      <span className="finops-label-hint">% off the standard price</span>
                     </label>
                     <div className="finops-input-wrapper">
                       <input
@@ -875,7 +940,7 @@ function PricingTab({ identity }: { identity: Identity }) {
                       <div style={{ display: "flex", gap: "8px", alignItems: "center", padding: "8px 12px", borderRadius: "8px", background: "var(--primary-soft)", border: "1px solid var(--primary)", marginTop: "4px" }}>
                         <Zap size={15} style={{ color: "var(--primary)", flexShrink: 0 }} />
                         <span style={{ fontSize: "0.75rem", color: "var(--on-surface)" }}>
-                          Guaranteed 50% discount automatically applies to all batch compute; this negotiated discount stacks additionally.
+                          Batch requests automatically get 50% off, on top of this discount.
                         </span>
                       </div>
                     )}
@@ -885,8 +950,8 @@ function PricingTab({ identity }: { identity: Identity }) {
                 {(modelType === "committed_ptu" || modelType === "hybrid_commit_volume") && (
                   <div className="finops-field-group">
                     <label className="finops-label" htmlFor="ptu-input">
-                      <span>Monthly Committed PTU Quota</span>
-                      <span className="finops-label-hint">Sunk reserve ($0 marginal)</span>
+                      <span>Prepaid monthly tokens</span>
+                      <span className="finops-label-hint">Paid upfront, no extra cost until you exceed it</span>
                     </label>
                     <div className="finops-input-wrapper">
                       <input
@@ -907,8 +972,8 @@ function PricingTab({ identity }: { identity: Identity }) {
                 {modelType === "per_unit_request" && (
                   <div className="finops-field-group">
                     <label className="finops-label" htmlFor="toll-input">
-                      <span>Fixed Per-Invocation Toll Fee</span>
-                      <span className="finops-label-hint">Billed per inference request</span>
+                      <span>Fee per request</span>
+                      <span className="finops-label-hint">Charged every time this is used</span>
                     </label>
                     <div className="finops-input-wrapper">
                       <span className="finops-input-prefix">$</span>
@@ -931,7 +996,7 @@ function PricingTab({ identity }: { identity: Identity }) {
               <div className="finops-config-box">
                 <div className="finops-field-group">
                   <label className="finops-label" htmlFor="token-cap-input">
-                    <span>Monthly Compute Token Quota Cap</span>
+                    <span>Monthly usage cap</span>
                     <span className="finops-label-hint">0 = Unlimited</span>
                   </label>
                   <div className="finops-input-wrapper">
@@ -948,7 +1013,7 @@ function PricingTab({ identity }: { identity: Identity }) {
                     <span className="finops-input-suffix">M Tokens</span>
                   </div>
                   <span className="finops-stat-sub" style={{ marginTop: "4px" }}>
-                    Dual-denomination hard token quota enforced in parallel with financial max spend limits across prompt, completion, and cache tokens.
+                    Usage stops counting toward billing once this cap is hit.
                   </span>
                 </div>
               </div>
@@ -959,9 +1024,9 @@ function PricingTab({ identity }: { identity: Identity }) {
               <div className="finops-config-box">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>Volume Discount Ladders</span>
+                    <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>Volume discount tiers</span>
                     <p className="subtle" style={{ margin: "2px 0 0", fontSize: "0.78rem" }}>
-                      Configure graduated monthly volume brackets applied dynamically as compute scales.
+                      Bigger discounts automatically apply as monthly usage grows.
                     </p>
                   </div>
                   {isEditable && (
@@ -969,19 +1034,19 @@ function PricingTab({ identity }: { identity: Identity }) {
                       variant="tonal"
                       onClick={() => setVolumeTiers([...volumeTiers, { minTokens: 10_000_000, discountBps: 1500 }])}
                     >
-                      + Add Tier
+                      + Add tier
                     </Button>
                   )}
                 </div>
 
                 {volumeTiers.length === 0 ? (
-                  <p className="subtle" style={{ fontSize: "0.82rem" }}>No tiered brackets configured. Base rate card applies to all usage.</p>
+                  <p className="subtle" style={{ fontSize: "0.82rem" }}>No tiers yet. The standard rate applies to all usage.</p>
                 ) : (
                   <div className="stack" style={{ gap: "8px" }}>
                     {volumeTiers.map((tier, idx) => (
                       <div key={idx} style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
                         <div style={{ flex: "1 1 180px" }}>
-                          <span className="finops-label" style={{ fontSize: "0.72rem", marginBottom: "4px" }}>Min Monthly Tokens</span>
+                          <span className="finops-label" style={{ fontSize: "0.72rem", marginBottom: "4px" }}>Starting at (tokens/month)</span>
                           <input
                             className="finops-input"
                             type="number"
@@ -1033,7 +1098,7 @@ function PricingTab({ identity }: { identity: Identity }) {
             {isEditable && (
               <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center", marginTop: "var(--space-xs)" }}>
                 <Button variant="filled" onClick={handleSave} disabled={updatePricing.isPending}>
-                  {updatePricing.isPending ? "Saving Rate Card…" : "Save Pricing Configuration"}
+                  {updatePricing.isPending ? "Saving…" : "Save pricing"}
                 </Button>
                 {saveSuccess && <span style={{ color: "var(--status-good)", fontSize: "0.85rem" }}>Pricing model updated successfully.</span>}
                 {saveError && <span style={{ color: "var(--error)", fontSize: "0.85rem" }}>{saveError}</span>}
@@ -1047,10 +1112,9 @@ function PricingTab({ identity }: { identity: Identity }) {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Official Foundation Model Catalog & Custom Overrides</h2>
-            <p>Official list rates per 1M tokens in micro-dollars (USDC base units). Enter custom negotiated overrides for input, output, cache read, or cache write if applicable.</p>
+            <h2>Model pricing</h2>
+            <p>Standard rates per 1M tokens. Add a custom rate if you've negotiated a different price.</p>
           </div>
-          <Badge tone="info">4-Dimension Matrix</Badge>
         </div>
 
         <div className="finops-table-container">
@@ -1163,10 +1227,9 @@ function PricingTab({ identity }: { identity: Identity }) {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Per-Operation Tool & Service Rate Cards (Non-Token APIs)</h2>
-            <p>Offchain agentic tools (Search, Web Scraping, Code Execution Sandboxes, Custom Webhooks) billed per call/unit rather than tokens (ADR 0010 Section 1).</p>
+            <h2>Tool & service pricing</h2>
+            <p>Tools billed per use instead of per token, like search or code execution.</p>
           </div>
-          <Badge tone="neutral">Per-Operation Pricing</Badge>
         </div>
 
         <div className="finops-table-container">
@@ -1225,10 +1288,9 @@ function PricingTab({ identity }: { identity: Identity }) {
       <Surface>
         <div className="section-heading">
           <div>
-            <h2>Live Spend Simulator & FinOps Sandbox</h2>
-            <p>Compute real-time dual-denomination spend under your current contract rules before running production inference workloads.</p>
+            <h2>Estimate your cost</h2>
+            <p>See what a request would cost under your current plan before you run it.</p>
           </div>
-          <Badge tone="info">Pre-Flight FinOps</Badge>
         </div>
 
         <div className="stack" style={{ gap: "var(--space-md)" }}>
@@ -1257,10 +1319,10 @@ function PricingTab({ identity }: { identity: Identity }) {
               />
               <div>
                 <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--on-surface)" }}>
-                  Async Batch API Mode (50% Off-Peak Compute Discount)
+                  Batch mode (50% off)
                 </div>
                 <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "2px" }}>
-                  Enables 50% discount across prompt, completion, and cache tokens with 24-hour asynchronous processing SLA.
+                  Get 50% off in exchange for results within 24 hours instead of instantly.
                 </div>
               </div>
             </label>
@@ -1269,11 +1331,11 @@ function PricingTab({ identity }: { identity: Identity }) {
           {/* 4-Dimensional Token Compute Inputs */}
           <div>
             <span style={{ fontWeight: 600, fontSize: "0.88rem", display: "block", marginBottom: "8px" }}>
-              Compute Token Dimensions
+              Usage
             </span>
             <div className="finops-sim-grid">
               <div className="finops-sim-box">
-                <label className="finops-label" htmlFor="sim-input">Prompt Input Tokens</label>
+                <label className="finops-label" htmlFor="sim-input">Input tokens</label>
                 <input
                   id="sim-input"
                   className="finops-input"
@@ -1282,10 +1344,10 @@ function PricingTab({ identity }: { identity: Identity }) {
                   value={simInputTokens}
                   onChange={(e) => setSimInputTokens(e.target.value)}
                 />
-                <span className="finops-stat-sub">User & system prompt tokens</span>
+                <span className="finops-stat-sub">What you send in</span>
               </div>
               <div className="finops-sim-box">
-                <label className="finops-label" htmlFor="sim-output">Completion Output Tokens</label>
+                <label className="finops-label" htmlFor="sim-output">Output tokens</label>
                 <input
                   id="sim-output"
                   className="finops-input"
@@ -1294,10 +1356,10 @@ function PricingTab({ identity }: { identity: Identity }) {
                   value={simOutputTokens}
                   onChange={(e) => setSimOutputTokens(e.target.value)}
                 />
-                <span className="finops-stat-sub">Generated output tokens</span>
+                <span className="finops-stat-sub">What comes back</span>
               </div>
               <div className="finops-sim-box">
-                <label className="finops-label" htmlFor="sim-cache-read">Cache Read Tokens</label>
+                <label className="finops-label" htmlFor="sim-cache-read">Cache read tokens</label>
                 <input
                   id="sim-cache-read"
                   className="finops-input"
@@ -1306,10 +1368,10 @@ function PricingTab({ identity }: { identity: Identity }) {
                   value={simCacheReadTokens}
                   onChange={(e) => setSimCacheReadTokens(e.target.value)}
                 />
-                <span className="finops-stat-sub" style={{ color: "var(--status-good)" }}>Prompt cache hit tokens</span>
+                <span className="finops-stat-sub" style={{ color: "var(--status-good)" }}>Reused from cache</span>
               </div>
               <div className="finops-sim-box">
-                <label className="finops-label" htmlFor="sim-cache-write">Cache Creation / Write Tokens</label>
+                <label className="finops-label" htmlFor="sim-cache-write">Cache write tokens</label>
                 <input
                   id="sim-cache-write"
                   className="finops-input"
@@ -1318,7 +1380,7 @@ function PricingTab({ identity }: { identity: Identity }) {
                   value={simCacheWriteTokens}
                   onChange={(e) => setSimCacheWriteTokens(e.target.value)}
                 />
-                <span className="finops-stat-sub">Cache creation tokens</span>
+                <span className="finops-stat-sub">Newly cached</span>
               </div>
             </div>
           </div>
@@ -1327,7 +1389,7 @@ function PricingTab({ identity }: { identity: Identity }) {
           {toolCatalog.length > 0 && (
             <div>
               <span style={{ fontWeight: 600, fontSize: "0.88rem", display: "block", marginBottom: "8px" }}>
-                Simulate Tool Invocations (Non-Token Add-ons)
+                Tool usage
               </span>
               <div className="finops-sim-grid">
                 {toolCatalog.map((tool) => (
@@ -1350,65 +1412,65 @@ function PricingTab({ identity }: { identity: Identity }) {
 
           <div style={{ display: "flex", gap: "var(--space-sm)", alignItems: "center" }}>
             <Button variant="filled" onClick={handleRunSimulation} disabled={calculateSpend.isPending}>
-              {calculateSpend.isPending ? "Evaluating Spend Matrix…" : "Calculate Spend"}
+              {calculateSpend.isPending ? "Calculating…" : "Calculate cost"}
             </Button>
           </div>
 
           {calculateSpend.data && (
             <div style={{ padding: "16px", border: "1px solid var(--outline-soft)", borderRadius: "12px", background: "var(--surface-container)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                <h3 style={{ fontSize: "0.95rem", margin: 0 }}>Simulated Spend Evaluation Result</h3>
+                <h3 style={{ fontSize: "0.95rem", margin: 0 }}>Estimated cost</h3>
                 <Badge tone={calculateSpend.data.effectiveDiscountBps > 0 ? "success" : "neutral"}>
-                  {(calculateSpend.data.effectiveDiscountBps / 100).toFixed(1)}% OFF
+                  {(calculateSpend.data.effectiveDiscountBps / 100).toFixed(1)}% off
                 </Badge>
               </div>
 
               <div className="finops-stat-grid" style={{ marginBottom: 0 }}>
                 <div className="finops-stat-card">
-                  <span className="finops-stat-label">Total Compute Tokens</span>
+                  <span className="finops-stat-label">Total tokens</span>
                   <span className="finops-stat-value">{calculateSpend.data.totalTokens.toLocaleString()}</span>
-                  <span className="finops-stat-sub">Prompt + Completion + Cache</span>
+                  <span className="finops-stat-sub">Input + output + cache</span>
                 </div>
                 <div className="finops-stat-card">
-                  <span className="finops-stat-label">Nominal List Price</span>
+                  <span className="finops-stat-label">Standard price</span>
                   <span className="finops-stat-value">${(calculateSpend.data.nominalListCostMicroDollars / 1_000_000).toFixed(4)}</span>
-                  <span className="finops-stat-sub">Standard catalog rate</span>
+                  <span className="finops-stat-sub">Before your discount</span>
                 </div>
                 <div className="finops-stat-card">
-                  <span className="finops-stat-label">Effective Compute Liability</span>
+                  <span className="finops-stat-label">Your price</span>
                   <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
                     ${(calculateSpend.data.effectiveCostMicroDollars / 1_000_000).toFixed(4)}
                   </span>
-                  <span className="finops-stat-sub">Under active contract terms</span>
+                  <span className="finops-stat-sub">With your discount</span>
                 </div>
                 {calculateSpend.data.toolCostMicroDollars != null && calculateSpend.data.toolCostMicroDollars > 0 && (
                   <div className="finops-stat-card">
-                    <span className="finops-stat-label">Tool Surcharge</span>
+                    <span className="finops-stat-label">Tool costs</span>
                     <span className="finops-stat-value">
                       ${(calculateSpend.data.toolCostMicroDollars / 1_000_000).toFixed(4)}
                     </span>
-                    <span className="finops-stat-sub">Non-token operations</span>
+                    <span className="finops-stat-sub">From tools used</span>
                   </div>
                 )}
                 {calculateSpend.data.toolCostMicroDollars != null && calculateSpend.data.toolCostMicroDollars > 0 && (
                   <div className="finops-stat-card">
-                    <span className="finops-stat-label">Total Gross Liability</span>
+                    <span className="finops-stat-label">Total</span>
                     <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
                       ${((calculateSpend.data.effectiveCostMicroDollars + calculateSpend.data.toolCostMicroDollars) / 1_000_000).toFixed(4)}
                     </span>
-                    <span className="finops-stat-sub">Compute + Tool total</span>
+                    <span className="finops-stat-sub">Tokens + tools</span>
                   </div>
                 )}
               </div>
 
               {calculateSpend.data.contractModel === "committed_ptu" && (
                 <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
-                  PTU Absorption: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> absorbed at $0 marginal cost.
+                  Prepaid tokens used: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> at no extra cost.
                 </div>
               )}
               {calculateSpend.data.contractModel === "hybrid_commit_volume" && (
                 <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
-                  Hybrid PTU Applied: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> absorbed before volume ladders.
+                  Prepaid tokens applied: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> before volume discounts.
                 </div>
               )}
             </div>

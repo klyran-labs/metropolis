@@ -44,9 +44,8 @@ export function AdminOverview() {
     <div className="dashboard-stack">
       <header className="dashboard-header">
         <div>
-          <span className="eyebrow">Admin</span>
-          <h1>Revenue and tenant health.</h1>
-          <p>Settlement and directory data across every tenant.</p>
+          <h1>Overview</h1>
+          <p>Tenants, revenue, and subscription health across the platform.</p>
         </div>
       </header>
 
@@ -85,7 +84,7 @@ export function AdminOverview() {
             data={dailyRevenue}
             seriesName="Net revenue"
             emptyTitle="No confirmed settlement yet"
-            emptyDetail="Revenue appears once tenant subscriptions settle onchain."
+            emptyDetail="Revenue appears once tenant subscriptions are paid."
             valueFormatter={(value) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
           />
         </Surface>
@@ -121,8 +120,8 @@ export function AdminOverview() {
         <Surface className="dashboard-card dashboard-card-large">
           <div className="card-heading">
             <div>
-              <span className="card-kicker">Ledger</span>
-              <h2>Recent billing activity</h2>
+              <span className="card-kicker">Activity</span>
+              <h2>Recent payments</h2>
             </div>
           </div>
           {recentLedger.length ? (
@@ -132,7 +131,7 @@ export function AdminOverview() {
                   <span className="activity-icon">•</span>
                   <div>
                     <strong>{entry.tenantName}</strong>
-                    <small>{entry.entryType}</small>
+                    <small>{entry.entryType === "refund" ? "Refund" : "Payment"}</small>
                   </div>
                   <time>{new Date(entry.createdAt).toLocaleDateString()}</time>
                 </div>
@@ -140,8 +139,8 @@ export function AdminOverview() {
             </div>
           ) : (
             <div className="card-empty">
-              <strong>The ledger is quiet.</strong>
-              <p>Confirmed subscription settlements will appear here.</p>
+              <strong>No recent activity.</strong>
+              <p>Confirmed payments will appear here.</p>
             </div>
           )}
         </Surface>

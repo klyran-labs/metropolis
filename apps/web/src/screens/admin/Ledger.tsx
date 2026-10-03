@@ -3,21 +3,30 @@ import { usePlatformLedger, type PlatformLedgerEntry } from "../../api";
 import { Badge, EmptyState, Mono, Surface, TokenAmount } from "../../design-system";
 import { useIdentity } from "../../identity";
 
+const entryTypeLabel: Record<string, string> = {
+  refund: "Refund",
+  charge: "Payment",
+  settlement: "Payment",
+};
+
 const ledgerFeatures = tableFeatures({});
 const columnHelper = createColumnHelper<typeof ledgerFeatures, PlatformLedgerEntry>();
 const columns = columnHelper.columns([
   columnHelper.accessor("tenantName", { header: "Tenant" }),
   columnHelper.accessor("entryType", {
-    header: "Entry",
-    cell: (info) => <Badge tone={info.getValue() === "refund" ? "warning" : "success"}>{info.getValue()}</Badge>,
+    header: "Type",
+    cell: (info) => (
+      <Badge tone={info.getValue() === "refund" ? "warning" : "success"}>
+        {entryTypeLabel[info.getValue()] ?? info.getValue()}
+      </Badge>
+    ),
   }),
   columnHelper.accessor("amountBaseUnits", {
     header: "Amount",
     cell: (info) => <TokenAmount baseUnits={info.getValue()} />,
   }),
-  columnHelper.accessor("chainId", { header: "Chain" }),
   columnHelper.accessor("transactionHash", {
-    header: "Transaction",
+    header: "Receipt",
     cell: (info) => (
       <Mono>
         {info.getValue().slice(0, 10)}…{info.getValue().slice(-8)}
@@ -25,7 +34,7 @@ const columns = columnHelper.columns([
     ),
   }),
   columnHelper.accessor("createdAt", {
-    header: "Recorded",
+    header: "Date",
     cell: (info) => new Date(info.getValue()).toLocaleString(),
   }),
 ]);
@@ -39,14 +48,13 @@ export function AdminLedger() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Billing ledger</span>
-          <h1>Billing ledger</h1>
-          <p>Only confirmed onchain settlement entries appear here.</p>
+          <h1>Payment history</h1>
+          <p>Confirmed payments and refunds, with receipts.</p>
         </div>
       </header>
       <Surface>
         {ledger.isError ? (
-          <EmptyState title="Billing ledger unavailable" detail="We couldn't load billing entries right now." />
+          <EmptyState title="Couldn't load payment history" detail="Try refreshing the page." />
         ) : rows.length ? (
           <div className="table-viewport">
             <table>
@@ -73,7 +81,7 @@ export function AdminLedger() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No confirmed billing entries" detail="Confirmed subscription settlements will appear here." />
+          <EmptyState title="No payments yet" detail="Confirmed payments will appear here." />
         )}
       </Surface>
     </div>

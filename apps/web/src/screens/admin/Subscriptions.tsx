@@ -6,6 +6,13 @@ import { useIdentity } from "../../identity";
 const statusTone = (status: string) =>
   status === "active" ? "success" : status === "past_due" ? "warning" : status === "cancelled" || status === "expired" ? "critical" : "neutral";
 
+const statusLabel: Record<string, string> = {
+  active: "Active",
+  past_due: "Past due",
+  cancelled: "Cancelled",
+  expired: "Expired",
+};
+
 const subscriptionFeatures = tableFeatures({});
 const columnHelper = createColumnHelper<typeof subscriptionFeatures, PlatformSubscription>();
 const columns = columnHelper.columns([
@@ -13,7 +20,7 @@ const columns = columnHelper.columns([
   columnHelper.accessor("planCode", { header: "Plan" }),
   columnHelper.accessor("status", {
     header: "Status",
-    cell: (info) => <Badge tone={statusTone(info.getValue())}>{info.getValue()}</Badge>,
+    cell: (info) => <Badge tone={statusTone(info.getValue())}>{statusLabel[info.getValue()] ?? info.getValue()}</Badge>,
   }),
   columnHelper.accessor("amountBaseUnits", {
     header: "Amount",
@@ -38,9 +45,8 @@ export function AdminSubscriptions() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Subscriptions</span>
           <h1>Subscriptions</h1>
-          <p>Lifecycle state for every tenant subscription on the platform.</p>
+          <p>Lifecycle state for tenant subscriptions across the platform.</p>
         </div>
       </header>
       <Surface>

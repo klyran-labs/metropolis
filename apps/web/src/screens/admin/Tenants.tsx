@@ -9,7 +9,7 @@ const tenantColumnHelper = createColumnHelper<typeof tenantFeatures, PlatformTen
 const tenantColumns = tenantColumnHelper.columns([
   tenantColumnHelper.accessor("displayName", { header: "Organization" }),
   tenantColumnHelper.accessor("enterpriseAddress", {
-    header: "Enterprise wallet",
+    header: "Payout wallet",
     cell: (info) => <Mono>{info.getValue()}</Mono>,
   }),
   tenantColumnHelper.accessor("status", {
@@ -42,32 +42,36 @@ export function AdminTenants() {
     <div className="stack">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Admin / Tenants</span>
           <h1>Tenants</h1>
           <p>Provision organizations and monitor lifecycle state.</p>
         </div>
       </header>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Create an organization</h2>
-            <p>Platform operators can provision a tenant for an invited owner.</p>
-          </div>
+          <h2>Add organization</h2>
         </div>
         <div className="admin-form-grid">
           {(["displayName", "enterpriseAddress", "ownerSubject"] as const).map((key) => (
-            <TextField
-              key={key}
-              value={tenantForm[key]}
-              onChange={(event) => setTenantForm({ ...tenantForm, [key]: event.target.value })}
-              label={
-                key === "enterpriseAddress"
-                  ? "Enterprise wallet address"
+            <div key={key} className="stack" style={{ gap: "4px" }}>
+              <TextField
+                value={tenantForm[key]}
+                onChange={(event) => setTenantForm({ ...tenantForm, [key]: event.target.value })}
+                label={
+                  key === "enterpriseAddress"
+                    ? "Payout wallet address"
+                    : key === "ownerSubject"
+                      ? "Owner account ID"
+                      : "Organization name"
+                }
+              />
+              <small className="subtle">
+                {key === "enterpriseAddress"
+                  ? "Where this tenant's settlements are sent"
                   : key === "ownerSubject"
-                    ? "Owner identity subject"
-                    : "Organization name"
-              }
-            />
+                    ? "The account that will own and administer this organization"
+                    : "Shown throughout the dashboard"}
+              </small>
+            </div>
           ))}
           <Button
             onClick={() => void createTenant()}
@@ -80,13 +84,10 @@ export function AdminTenants() {
       </Surface>
       <Surface>
         <div className="section-heading">
-          <div>
-            <h2>Tenant directory</h2>
-            <p>{tenants.data?.length ?? 0} organizations on the platform.</p>
-          </div>
+          <h2>Organizations ({tenants.data?.length ?? 0})</h2>
         </div>
         {tenants.isError ? (
-          <EmptyState title="Tenant directory unavailable" detail="We couldn't load the tenant directory right now." />
+          <EmptyState title="Couldn't load organizations" detail="Try refreshing the page." />
         ) : tenants.data?.length ? (
           <div className="table-viewport">
             <table>
@@ -113,7 +114,7 @@ export function AdminTenants() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No tenants registered" detail="The platform directory is empty." />
+          <EmptyState title="No organizations yet" detail="Add your first organization above." />
         )}
       </Surface>
     </div>

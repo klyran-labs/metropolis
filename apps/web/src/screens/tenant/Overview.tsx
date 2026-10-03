@@ -108,14 +108,14 @@ export function Overview() {
         active: true,
       });
       toast({
-        title: "Circuit Breaker Tripped",
-        message: `Agent ${truncateMiddle(target, 8, 4)} is frozen from spending onchain in O(1) time.`,
+        title: "Agent paused",
+        message: `Agent ${truncateMiddle(target, 8, 4)} is paused and can't spend.`,
         tone: "critical",
         onUndo: async () => {
           await tripKillSwitch.mutateAsync({ agentAddress: target, active: false });
           void agents.refetch();
           toast({
-            title: "Circuit Breaker Reset",
+            title: "Agent resumed",
             message: `Spending authority restored for ${truncateMiddle(target, 8, 4)}.`,
             tone: "success",
           });
@@ -125,8 +125,8 @@ export function Overview() {
       void agents.refetch();
     } catch (err) {
       toast({
-        title: "Kill-Switch Failed",
-        message: toUserFacingError(err, "Kill-switch transaction failed."),
+        title: "Couldn't pause agent",
+        message: toUserFacingError(err, "Try again in a moment."),
         tone: "critical",
       });
     }
@@ -145,7 +145,7 @@ export function Overview() {
     },
     {
       label: "Register your first agent",
-      detail: "Create a managed vault or link an existing wallet to your fleet.",
+      detail: "Create a secure wallet or link an existing one.",
       done: total > 0,
       to: "/app/fleet" as const,
     },
@@ -163,9 +163,8 @@ export function Overview() {
       {/* Top Header */}
       <header className="dashboard-header">
         <div>
-          <span className="eyebrow">Enterprise Control Plane</span>
-          <h1>Spend Governance & Overview</h1>
-          <p>Real-time autonomous spend evaluation, parallel EVM settlement, and telemetry.</p>
+          <h1>Overview</h1>
+          <p>Your agents, spending, and recent activity.</p>
         </div>
         <div className="dashboard-actions">
           <Button
@@ -175,12 +174,12 @@ export function Overview() {
               void wallets.refetch();
               void telemetry.refetch();
               toast({
-                title: "Overview Synchronized",
-                message: "Refreshed onchain agent records and real-time telemetry.",
+                title: "Synchronized",
+                message: "Everything is up to date.",
                 tone: "info",
               });
             }}
-            title="Refresh onchain state"
+            title="Refresh"
           >
             <RefreshCw size={14} className={agents.isFetching || telemetry.isFetching ? "spin" : ""} />
             <span>Refresh</span>
@@ -198,339 +197,60 @@ export function Overview() {
           <StatTile label="Fleet size" value={String(total)} icon={<Bot size={18} />} accent={0} />
         </Link>
         <Link to="/app/fleet" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Active agents in Fleet">
-          <StatTile label="Active & Guarded" value={String(active)} icon={<Activity size={18} />} accent={2} />
+          <StatTile label="Active" value={String(active)} icon={<Activity size={18} />} accent={2} />
         </Link>
         <Link to="/app/fleet" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Paused agents in Fleet">
-          <StatTile label="Circuit Paused" value={String(paused)} icon={<PauseCircle size={18} />} accent={1} />
+          <StatTile label="Paused" value={String(paused)} icon={<PauseCircle size={18} />} accent={1} />
         </Link>
-        <Link to="/app/activity" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View Verified Telemetry in Activity Waterfall">
-          <StatTile label="Verified Telemetry" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
+        <Link to="/app/activity" style={{ textDecoration: "none", color: "inherit", display: "block" }} title="View activity">
+          <StatTile label="Activity events" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
         </Link>
       </div>
 
       {showReadiness && (
-        <Surface className="readiness-card">
-          <div className="readiness-heading">
-            <div>
-              <span className="eyebrow">Workspace readiness</span>
-              <h2>Complete the operating path</h2>
-              <p>Use real organization and chain state to take the workspace from setup to governed execution.</p>
+        <div className="readiness-banner">
+          <div className="readiness-banner-left">
+            <div className="readiness-banner-title">
+              <Sparkles size={14} className="readiness-sparkle-icon" />
+              <span>Setup Checklist</span>
             </div>
-            <Badge tone="info">{readinessSteps.filter((step) => step.done).length}/{readinessSteps.length} complete</Badge>
+            <span className="readiness-progress-badge">
+              {readinessSteps.filter((s) => s.done).length}/{readinessSteps.length}
+            </span>
           </div>
-          <div className="readiness-steps">
-            {readinessSteps.map((step) => (
-              <Link to={step.to} className={`readiness-step ${step.done ? "is-complete" : ""}`} key={step.label}>
-                <span className="readiness-step-icon" aria-hidden="true">
-                  {step.done ? <Check size={14} /> : <span />}
+          <div className="readiness-banner-chips">
+            {readinessSteps.map((step, idx) => (
+              <Link
+                to={step.to}
+                key={step.label}
+                className={`readiness-pill ${step.done ? "is-done" : ""}`}
+                title={step.detail}
+              >
+                <span className="readiness-pill-icon">
+                  {step.done ? <Check size={10} strokeWidth={2.5} /> : idx + 1}
                 </span>
-                <span>
-                  <strong>{step.label}</strong>
-                  <small>{step.detail}</small>
-                </span>
-                <ArrowRight size={15} aria-hidden="true" />
+                <span className="readiness-pill-label">{step.label}</span>
+                {!step.done && <ArrowRight size={10} className="readiness-pill-arrow" />}
               </Link>
             ))}
           </div>
-        </Surface>
+        </div>
       )}
 
-      {/* Reference Image Style Upper Grid: Hero + Highlights */}
-      <div className="saas-reference-grid">
-        {/* Left Hero Card: Swift Setup / Spend Governance Posture */}
-        <Surface className="saas-hero-card">
-          <div className="saas-hero-content">
-            <div className="saas-hero-icon-badge">
-              <ShieldCheck size={28} />
-            </div>
-            <span className="saas-hero-kicker">High-Throughput Policy Engine</span>
-            <h2>Autonomous Spend Governance</h2>
-            <p>
-              Enhance agent formation and treasury management with sub-second Monad settlement,
-              private organizational spend invariants, and cryptographic auditability.
-            </p>
-            <div className="saas-hero-actions">
-              <Link to="/app/fleet" className="saas-hero-btn primary">
-                Register New Agent
-              </Link>
-              <Link to="/app/policy" className="saas-hero-btn secondary">
-                Author Policy Rule
-              </Link>
-            </div>
-          </div>
-        </Surface>
-
-        {/* Right Highlights Card: Stacked Progress Bar & Channel Breakdown */}
-        <Surface className="saas-highlights-card">
-          <div className="highlights-header">
-            <h3>Fleet Posture & Highlights</h3>
-            <span className="status-dot status-dot-success" title="Monad activity available" />
-          </div>
-
-          <div className="highlights-headline">
-            <small>Active Spend Governance Fleet</small>
-            <div className="headline-number-row">
-              <span className="headline-currency">{total} Registered Agents</span>
-              <span className="delta-badge positive">
-                <TrendingUp size={13} /> {active} Active
-              </span>
-            </div>
-          </div>
-
-          {/* Multi-Segment Stacked Allocation Bar Derived From Real Data */}
-          {total + (wallets.data?.length ?? 0) > 0 ? (
-            <>
-              <div className="stacked-allocation-bar">
-                {agents.data?.filter((a) => a.walletSource === "sovereign").length ? (
-                  <div
-                    className="allocation-segment seg-blue"
-                    style={{
-                      width: `${Math.round(
-                        ((agents.data.filter((a) => a.walletSource === "sovereign").length) /
-                          Math.max(1, total + (wallets.data?.length ?? 0))) *
-                          100,
-                      )}%`,
-                    }}
-                    title={`Managed Enclaves (${agents.data.filter((a) => a.walletSource === "sovereign").length})`}
-                  />
-                ) : null}
-                {agents.data?.filter((a) => a.walletSource !== "sovereign").length ? (
-                  <div
-                    className="allocation-segment seg-green"
-                    style={{
-                      width: `${Math.round(
-                        ((agents.data.filter((a) => a.walletSource !== "sovereign").length) /
-                          Math.max(1, total + (wallets.data?.length ?? 0))) *
-                          100,
-                      )}%`,
-                    }}
-                    title={`Connected Wallets (${agents.data.filter((a) => a.walletSource !== "sovereign").length})`}
-                  />
-                ) : null}
-                {wallets.data?.length ? (
-                  <div
-                    className="allocation-segment seg-amber"
-                    style={{
-                      width: `${Math.round(
-                        (wallets.data.length / Math.max(1, total + (wallets.data?.length ?? 0))) * 100,
-                      )}%`,
-                    }}
-                    title={`Treasury Pools (${wallets.data.length})`}
-                  />
-                ) : null}
-              </div>
-
-              <div className="stacked-legend">
-                <span><span className="legend-dot seg-blue" /> Managed Enclaves ({agents.data?.filter((a) => a.walletSource === "sovereign").length ?? 0})</span>
-                <span><span className="legend-dot seg-green" /> Connected Wallets ({agents.data?.filter((a) => a.walletSource !== "sovereign").length ?? 0})</span>
-                <span><span className="legend-dot seg-amber" /> Treasury ({wallets.data?.length ?? 0})</span>
-              </div>
-            </>
-          ) : (
-            <div className="stacked-allocation-empty">
-              <small>No agents or treasury wallets provisioned yet.</small>
-            </div>
-          )}
-
-          {/* Itemized Channel Rows Derived from Real Onchain Data */}
-          <div className="channel-list">
-            <div className="channel-row">
-              <div className="channel-info">
-                <Lock size={15} />
-                <span>Sovereign Enclave Vaults</span>
-              </div>
-              <div className="channel-metrics">
-                <strong>{agents.data?.filter((a) => a.walletSource === "sovereign").length ?? 0} active</strong>
-                <span className="channel-delta positive">
-                  <ShieldCheck size={12} /> Sovereign Vault
-                </span>
-              </div>
-            </div>
-
-            <div className="channel-row">
-              <div className="channel-info">
-                <Wallet size={15} />
-                <span>Connected Agent Wallets</span>
-              </div>
-              <div className="channel-metrics">
-                <strong>{agents.data?.filter((a) => a.walletSource !== "sovereign").length ?? 0} linked</strong>
-                <span className="channel-delta neutral">
-                  <Check size={12} /> Non-Custodial
-                </span>
-              </div>
-            </div>
-
-            <div className="channel-row">
-              <div className="channel-info">
-                <Building2 size={15} />
-                <span>Organization Treasury</span>
-              </div>
-              <div className="channel-metrics">
-                <strong>{wallets.data?.length ?? 0} vaults</strong>
-                <span className="channel-delta positive">
-                  <TrendingUp size={12} /> Onchain
-                </span>
-              </div>
-            </div>
-
-            <div className="channel-row">
-              <div className="channel-info">
-                <Zap size={15} />
-                <span>Parallel EVM Settlement</span>
-              </div>
-              <div className="channel-metrics">
-                <strong>{telemetry.data?.length ?? 0} events</strong>
-                <span className="channel-delta positive">
-                  <Radio size={12} /> Chain-derived
-                </span>
-              </div>
-            </div>
-          </div>
-        </Surface>
-      </div>
-
-      {/* Reference Image Style Lower Grid: Active Fleet Table + Circuit Breaker Block List */}
-      <div className="saas-lower-grid">
-        {/* Fleet Table Card */}
-        <Surface className="saas-table-card">
-          <div className="table-card-head">
-            <div className="table-card-title">
-              <h3>Fleet Roster</h3>
-              <small>{filteredAgents.length} agents under governance</small>
-            </div>
-            <div className="table-search-input">
-              <Search size={14} />
-              <input
-                type="text"
-                placeholder="Search agents, tiers, vaults..."
-                value={agentSearch}
-                onChange={(e) => setAgentSearch(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {filteredAgents.length ? (
-            <div className="dense-table-wrapper">
-              <table className="dense-table">
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th>Wallet Type</th>
-                    <th>Risk Tier</th>
-                    <th>State</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAgents.map((agent) => (
-                    <tr
-                      key={agent.address}
-                      className="clickable-row"
-                      onClick={() => setSelectedAgent(agent)}
-                    >
-                      <td>
-                        <div className="agent-ident-cell">
-                          <div className="agent-mini-icon">
-                            <Bot size={14} />
-                          </div>
-                          <Mono>{truncateMiddle(agent.address, 8, 4)}</Mono>
-                        </div>
-                      </td>
-                      <td>
-                        <Badge tone={agent.walletSource === "sovereign" ? "info" : "neutral"}>
-                          {agent.walletSource === "sovereign" ? "Managed Vault" : "Connected"}
-                        </Badge>
-                      </td>
-                      <td>{agent.riskTier}</td>
-                      <td>
-                        <span className={`status-pill ${agent.status === "active" ? "active" : "paused"}`}>
-                          <span className="status-dot-sm" />
-                          {agent.status}
-                        </span>
-                      </td>
-                      <td>
-                        <Button
-                          variant="text"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedAgent(agent);
-                          }}
-                        >
-                          Inspect
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="card-empty">
-              <strong>No matching agents found.</strong>
-              <p>Register your first agent in Fleet to activate spend control.</p>
-            </div>
-          )}
-        </Surface>
-
-        {/* Emergency Circuit Breaker (Block List) Card */}
-        <Surface className="saas-circuit-card">
-          <div className="circuit-card-head">
-            <div className="circuit-head-title">
-              <AlertOctagon size={18} className="circuit-icon" />
-              <h3>Circuit Breaker</h3>
-            </div>
-            <span className="fast-pill">O(1) Short-Circuit</span>
-          </div>
-
-          <p className="circuit-card-desc">
-            Emergency freeze halting unauthorized spend across the Monad parallel execution plane without computing sliding window arithmetic.
-          </p>
-
-          <div className="circuit-action-box">
-            <input
-              type="text"
-              className="circuit-input"
-              placeholder="0x... Agent address to freeze"
-              value={emergencyAddress}
-              onChange={(e) => setEmergencyAddress(e.target.value)}
-            />
-            <button
-              type="button"
-              className="circuit-submit-btn"
-              onClick={handleTripEmergency}
-              disabled={!emergencyAddress.trim()}
-            >
-              Freeze
-            </button>
-          </div>
-
-          <div className="circuit-stats-footer">
-            <div className="circuit-stat">
-              <small>Kill-Switch Invariant</small>
-              <strong>O(1) Evaluation</strong>
-            </div>
-            <div className="circuit-stat">
-              <small>Disjoint Partitions</small>
-              <strong>Zero Aborts</strong>
-            </div>
-          </div>
-        </Surface>
-      </div>
-
-      {/* Telemetry Charts Section */}
+      {/* Main Analytics Grid */}
       <div className="dashboard-grid">
         <Surface className="dashboard-card dashboard-card-wide">
           <div className="card-heading">
             <div>
-              <span className="card-kicker">Verified activity</span>
-              <h2>Telemetry volume</h2>
+              <span className="card-kicker">Activity</span>
+              <h2>Activity</h2>
             </div>
           </div>
           <TrendArea
             data={dailyVolume}
             seriesName="Events"
-            emptyTitle="No finalized activity yet"
-            emptyDetail="Verified policy and settlement events will appear here as they happen."
+            emptyTitle="No activity yet"
+            emptyDetail="Payments and rule checks appear here as they happen."
             valueFormatter={(value) => String(Math.round(value))}
           />
         </Surface>
@@ -538,31 +258,132 @@ export function Overview() {
         <Surface className="dashboard-card dashboard-card-medium">
           <div className="card-heading">
             <div>
-              <span className="card-kicker">Fleet posture</span>
+              <span className="card-kicker">Fleet</span>
               <h2>Active ratio</h2>
             </div>
           </div>
           <Gauge
             label="Active agents"
             value={total ? (active / total) * 100 : 0}
-            detail={`${active} of ${total} agents active`}
+            detail={`${active} of ${total} active`}
           />
         </Surface>
 
         <Surface className="dashboard-card dashboard-card-medium">
           <div className="card-heading">
             <div>
-              <span className="card-kicker">Event mix</span>
-              <h2>By type</h2>
+              <span className="card-kicker">Events</span>
+              <h2>Event mix</h2>
             </div>
           </div>
           <Breakdown
             data={eventBreakdown}
             emptyTitle="No events yet"
-            emptyDetail="Event types will appear once telemetry is observed."
+            emptyDetail="Event types appear once there is activity."
           />
         </Surface>
       </div>
+
+      {/* Active Fleet Table with Inline Emergency Freeze */}
+      <Surface className="saas-table-card">
+        <div className="table-card-head">
+          <div className="table-card-title">
+            <h3>Your agents</h3>
+            <small>{filteredAgents.length} agents</small>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div className="table-search-input">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder="Search agents, tiers..."
+                value={agentSearch}
+                onChange={(e) => setAgentSearch(e.target.value)}
+              />
+            </div>
+            <div className="circuit-quick-box">
+              <input
+                type="text"
+                className="circuit-input-inline"
+                placeholder="Agent address to pause"
+                value={emergencyAddress}
+                onChange={(e) => setEmergencyAddress(e.target.value)}
+              />
+              <Button
+                variant="tonal"
+                onClick={handleTripEmergency}
+                disabled={!emergencyAddress.trim()}
+                style={{ fontSize: "0.76rem", padding: "6px 12px", height: "32px" }}
+              >
+                <AlertOctagon size={13} style={{ marginRight: 4 }} />
+                <span>Pause</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {filteredAgents.length ? (
+          <div className="dense-table-wrapper">
+            <table className="dense-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Wallet</th>
+                  <th>Risk level</th>
+                  <th>State</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAgents.map((agent) => (
+                  <tr
+                    key={agent.address}
+                    className="clickable-row"
+                    onClick={() => setSelectedAgent(agent)}
+                  >
+                    <td>
+                      <div className="agent-ident-cell">
+                        <div className="agent-mini-icon">
+                          <Bot size={14} />
+                        </div>
+                        <Mono>{truncateMiddle(agent.address, 8, 4)}</Mono>
+                      </div>
+                    </td>
+                    <td>
+                      <Badge tone={agent.walletSource === "sovereign" ? "info" : "neutral"}>
+                        {agent.walletSource === "sovereign" ? "Secure wallet" : "Connected"}
+                      </Badge>
+                    </td>
+                    <td>{agent.riskTier}</td>
+                    <td>
+                      <span className={`status-pill ${agent.status === "active" ? "active" : "paused"}`}>
+                        <span className="status-dot-sm" />
+                        {agent.status}
+                      </span>
+                    </td>
+                    <td>
+                      <Button
+                        variant="text"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAgent(agent);
+                        }}
+                      >
+                        Inspect
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="card-empty">
+            <strong>No matching agents found.</strong>
+            <p>Register your first agent to activate spend control.</p>
+          </div>
+        )}
+      </Surface>
 
       {/* Slide-Over Agent Inspector Drawer */}
       {selectedAgent && (
@@ -573,15 +394,15 @@ export function Overview() {
             try {
               await tripKillSwitch.mutateAsync({ agentAddress: addr, active: trip });
               toast({
-                title: trip ? "Circuit Breaker Tripped" : "Circuit Breaker Reset",
-                message: `Agent ${truncateMiddle(addr, 8, 4)} is ${trip ? "frozen from spending onchain" : "active onchain"}.`,
+                title: trip ? "Agent paused" : "Agent resumed",
+                message: `Agent ${truncateMiddle(addr, 8, 4)} is ${trip ? "paused" : "active again"}.`,
                 tone: trip ? "critical" : "success",
               });
               void agents.refetch();
             } catch (err) {
               toast({
-                title: "Circuit Update Failed",
-                message: toUserFacingError(err, "Circuit update failed."),
+                title: "Couldn't update agent",
+                message: toUserFacingError(err, "Try again in a moment."),
                 tone: "critical",
               });
             }

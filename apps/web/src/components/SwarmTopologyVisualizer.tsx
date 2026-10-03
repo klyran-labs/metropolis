@@ -88,8 +88,8 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
 
     setGeneratedCertSnippet(JSON.stringify(certData, null, 2));
     toast({
-      title: "Ephemeral Certificate Generated",
-      message: `Signed EIP-7702 session created for ${sessionDurationMinutes}m with $${targetCapUsdc} USDC ceiling.`,
+      title: "Temporary access created",
+      message: `Temporary access created for ${sessionDurationMinutes} minutes with a $${targetCapUsdc} USDC limit.`,
       tone: "success",
     });
   };
@@ -140,7 +140,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
 
       return {
         agentAddress: agent.address,
-        label: agent.label || (role === "supervisor" ? `Root Orchestrator #${index + 1}` : `Worker Agent #${index + 1}`),
+        label: agent.label || (role === "supervisor" ? `Lead agent #${index + 1}` : `Helper agent #${index + 1}`),
         parentAddress,
         role,
         subBudgetCapUsdc,
@@ -163,16 +163,16 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
     try {
       await tripKillSwitch.mutateAsync({ agentAddress: node.agentAddress, active: nextActive });
       toast({
-        title: nextActive ? "Blast-Radius Contained" : "Execution Restored",
+        title: nextActive ? "Agent isolated" : "Agent restored",
         message: nextActive
-          ? `Quarantined agent ${truncateMiddle(node.agentAddress, 8, 4)}. Supervisor and sibling nodes remain operational with zero contagion.`
-          : `Restored execution for agent ${truncateMiddle(node.agentAddress, 8, 4)}.`,
+          ? `Isolated agent ${truncateMiddle(node.agentAddress, 8, 4)}. All other agents keep running.`
+          : `Agent ${truncateMiddle(node.agentAddress, 8, 4)} can spend again.`,
         tone: nextActive ? "critical" : "success",
       });
     } catch {
       toast({
-        title: "Action Failed",
-        message: "Failed to broadcast circuit-breaker transaction on Monad.",
+        title: "Couldn't update agent",
+        message: "Could not update this agent. Try again.",
         tone: "warning",
       });
     }
@@ -192,8 +192,8 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
     setDelegations(getStoredSwarmDelegations());
     setDelegationModalOpen(false);
     toast({
-      title: "Sub-Budget Delegated",
-      message: `Allocated $${targetCapUsdc} USDC sub-allowance to ${truncateMiddle(targetWorker, 8, 4)}.`,
+      title: "Budget assigned",
+      message: `Gave ${truncateMiddle(targetWorker, 8, 4)} a $${targetCapUsdc} USDC budget.`,
       tone: "success",
     });
   };
@@ -201,7 +201,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
   if (agents.length === 0) {
     return (
       <EmptyState
-        title="No agents available for swarm orchestration"
+        title="No agents to show yet"
         detail="Register agents in your fleet to author hierarchical swarm topologies with blast-radius containment."
       />
     );
@@ -212,9 +212,9 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
       {/* Topology Header Controls */}
       <div className="swarm-controls-bar">
         <div className="swarm-meta">
-          <Badge tone="info">Hierarchical Swarm Architecture</Badge>
+          <Badge tone="info">Team structure</Badge>
           <span className="swarm-summary">
-            {supervisors.length} Supervisor · {workers.length} Sub-Agents · O(1) Blast-Radius Containment
+            {supervisors.length} lead · {workers.length} helpers
           </span>
         </div>
         <div className="swarm-actions" style={{ display: "flex", gap: "8px" }}>
@@ -240,17 +240,17 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
             }}
           >
             <Zap size={14} style={{ marginRight: 6 }} />
-            <span>Issue Ephemeral Session (EIP-7702)</span>
+            <span>Create temporary access</span>
           </Button>
         </div>
       </div>
 
       {/* Interactive Swarm DAG Visualizer Canvas */}
-      <div className="swarm-dag-canvas" role="region" aria-label="Agent Swarm DAG Topology">
+      <div className="swarm-dag-canvas" role="region" aria-label="Agent team map">
         {/* Tier 1: Supervisors */}
         <div className="swarm-tier-label">
           <Network size={14} />
-          <span>Tier 0: Root Supervisors & Orchestration Enclaves</span>
+          <span>Lead agents</span>
         </div>
 
         <div className="swarm-tier-nodes supervisor-tier">
@@ -296,7 +296,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
               <div className="swarm-node-body">
                 <div className="swarm-budget-box">
                   <div className="swarm-budget-labels">
-                    <span className="muted-label">Fleet Spend Ceiling</span>
+                    <span className="muted-label">Spending limit</span>
                     <strong>${node.subBudgetCapUsdc} USDC</strong>
                   </div>
                   <div className="swarm-progress-track">
@@ -381,7 +381,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
         {/* Tier 2: Delegated Sub-Agents (Workers & Specialists) */}
         <div className="swarm-tier-label">
           <Cpu size={14} />
-          <span>Tier 1: Delegated Sub-Agents & Execution Enclaves</span>
+          <span>Helper agents</span>
         </div>
 
         <div className="swarm-tier-nodes workers-tier">
@@ -431,7 +431,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
               <div className="swarm-node-body">
                 <div className="swarm-budget-box">
                   <div className="swarm-budget-labels">
-                    <span className="muted-label">Sub-Budget Allowance</span>
+                    <span className="muted-label">Assigned budget</span>
                     <strong>${node.subBudgetCapUsdc} USDC</strong>
                   </div>
                   <div className="swarm-progress-track">
@@ -474,7 +474,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
                     }}
                     title={
                       node.isolatedStatus === "active"
-                        ? "Trip O(1) kill switch for this node only (Supervisor and peers unaffected)"
+                        ? "Pause this agent only. Other agents are unaffected."
                         : "Resume execution"
                     }
                   >
@@ -497,64 +497,60 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
         </div>
       </div>
 
-      {/* Multi-Region Distributed Edge Sequencer & Nonce Consensus Panel */}
-      <div style={{ marginTop: "24px" }}>
-        <Surface className="swarm-dag-panel">
-          <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
+      {/* Regional capacity */}
+      {(edgeTopologyQuery.data?.regions?.length ?? 0) > 0 && (
+        <div style={{ marginTop: "24px" }}>
+          <Surface className="swarm-dag-panel">
+            <div className="section-heading">
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Globe size={18} className="text-accent-blue" />
-                <h2>Multi-Region Distributed Edge Sequencer & Nonce Consensus</h2>
-                <Badge tone="success">{edgeTopologyQuery.data?.global_active_edges ?? 3} Active Edge Regions</Badge>
+                <h2>Regions</h2>
+                <Badge tone="success">{edgeTopologyQuery.data?.global_active_edges ?? 0} active</Badge>
               </div>
               <p style={{ marginTop: "4px", fontSize: "0.84rem", color: "var(--color-on-surface-variant)" }}>
-                Sub-allocates autonomous budget allowances across regional gateway edges with disjoint nonce sequences, eliminating cross-continental WAN blocking and achieving sub-millisecond p99 settlement.
+                How your agents' budgets are spread across regions.
               </p>
             </div>
-            <Badge tone="info">Sub-Millisecond p99 Consensus</Badge>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3" style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "12px" }}>
-            {(edgeTopologyQuery.data?.regions ?? [
-              { region_name: "us-east-1 (N. Virginia)", latency_p99_ms: 0.38, active_leases: 0, allocated_budget_usd: 0, consensus_health: "OPTIMAL_LEASE_SYNC" },
-              { region_name: "eu-central-1 (Frankfurt)", latency_p99_ms: 0.42, active_leases: 0, allocated_budget_usd: 0, consensus_health: "OPTIMAL_LEASE_SYNC" },
-              { region_name: "ap-southeast-1 (Singapore)", latency_p99_ms: 0.45, active_leases: 0, allocated_budget_usd: 0, consensus_health: "OPTIMAL_LEASE_SYNC" },
-            ]).map((reg) => (
-              <div key={reg.region_name} style={{ padding: "14px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>{reg.region_name}</span>
-                  <Badge tone="success">{reg.consensus_health}</Badge>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.78rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "var(--muted)" }}>Inbound Settlement Latency (p99):</span>
-                    <Mono style={{ color: "var(--status-good)", fontWeight: 700 }}>{reg.latency_p99_ms.toFixed(2)}ms</Mono>
+            <div style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "12px" }}>
+              {(edgeTopologyQuery.data?.regions ?? []).map((reg) => (
+                <div key={reg.region_name} style={{ padding: "14px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>{reg.region_name}</span>
+                    <Badge tone={reg.consensus_health === "OPTIMAL_LEASE_SYNC" ? "success" : "warning"}>
+                      {reg.consensus_health === "OPTIMAL_LEASE_SYNC" ? "Healthy" : "Needs attention"}
+                    </Badge>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "var(--muted)" }}>Active Edge Budget Leases:</span>
-                    <strong>{reg.active_leases} leases</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: "var(--muted)" }}>Allocated Edge Float:</span>
-                    <Mono>${reg.allocated_budget_usd.toFixed(2)} USDC</Mono>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.78rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "var(--muted)" }}>Response time:</span>
+                      <Mono style={{ color: "var(--status-good)", fontWeight: 700 }}>{reg.latency_p99_ms.toFixed(2)}ms</Mono>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "var(--muted)" }}>Active budgets:</span>
+                      <strong>{reg.active_leases}</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "var(--muted)" }}>Allocated:</span>
+                      <Mono>${reg.allocated_budget_usd.toFixed(2)} USDC</Mono>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Surface>
-      </div>
+              ))}
+            </div>
+          </Surface>
+        </div>
+      )}
 
       {/* Sub-Budget Delegation & Ephemeral Certificate Modal */}
       <Dialog
         open={delegationModalOpen}
         onClose={() => setDelegationModalOpen(false)}
-        title={modalTab === "allowance" ? "Delegate Hierarchical Sub-Budget" : "Issue Ephemeral Session Certificate (EIP-7702)"}
+        title={modalTab === "allowance" ? "Assign a budget" : "Create temporary access"}
         description={
           modalTab === "allowance"
-            ? "Assign a bounded sub-allowance from a root supervisor agent to an autonomous worker enclave. Invariant: Total delegated child budgets cannot exceed supervisor's window capacity."
-            : "Issue an offchain EIP-7702 / x402 session certificate granting a sub-agent worker autonomous signing authority with strict Merkle-scoped capabilities, sub-budget ceiling, and expiration."
+            ? "Give a helper agent its own spending budget from a lead agent. Total assigned budgets can't exceed the lead agent's limit."
+            : "Give a helper agent temporary permission to spend, with a budget limit and an expiry time."
         }
         footer={
           <>
@@ -584,13 +580,13 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
             variant={modalTab === "allowance" ? "tonal" : "text"}
             onClick={() => setModalTab("allowance")}
           >
-            Sub-Budget Allowance
+            Assigned budget
           </Button>
           <Button
             variant={modalTab === "certificate" ? "tonal" : "text"}
             onClick={() => setModalTab("certificate")}
           >
-            EIP-7702 Ephemeral Certificate
+            Temporary access
           </Button>
         </div>
 
@@ -611,7 +607,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
 
           <div>
             <label className="input-label" style={{ display: "block", marginBottom: "6px", fontSize: "0.82rem", fontWeight: 600 }}>
-              Target Sub-Agent Enclave
+              Helper agent
             </label>
             <Select
               value={targetWorker}
@@ -632,8 +628,8 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
                 value={targetRole}
                 onChange={(val) => setTargetRole(val as SwarmNodeRole)}
                 options={[
-                  { value: "worker", label: "Worker (Task Execution & LLM Inference)" },
-                  { value: "specialist", label: "Specialist (DeFi Rebalance & Cancun Settlement)" },
+                  { value: "worker", label: "Helper (everyday tasks)" },
+                  { value: "specialist", label: "Specialist (finance tasks)" },
                 ]}
               />
             </div>
@@ -656,7 +652,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
           )}
 
           <TextField
-            label="Sub-Budget Cap (USDC)"
+            label="Budget limit (USDC)"
             value={targetCapUsdc}
             onChange={(e) => setTargetCapUsdc(e.target.value)}
             placeholder="e.g. 50.00"
@@ -666,7 +662,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
             <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--on-surface)" }}>
-                  Issued Session Certificate (EIP-7702 / x402-session):
+                  Temporary access details:
                 </span>
                 <Button
                   variant="tonal"
@@ -701,7 +697,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
           )}
 
           <div className="delegation-notice" style={{ padding: "10px", borderRadius: "8px", background: "var(--surface-sunken)", border: "1px solid var(--outline-soft)", fontSize: "0.78rem", color: "var(--muted)" }}>
-            <span style={{ fontWeight: 600, color: "var(--on-surface)" }}>Blast-Radius Guarantees:</span> If this sub-agent experiences adversarial prompt injection or a runaway loop, the supervisor or security operator can isolate it with zero contagion to other nodes in the swarm.
+            <span style={{ fontWeight: 600, color: "var(--on-surface)" }}>Stays contained:</span> If a helper agent misbehaves, you can isolate it without affecting any other agent.
           </div>
         </div>
       </Dialog>
