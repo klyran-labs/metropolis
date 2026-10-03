@@ -133,7 +133,8 @@ export function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: ()
             <strong>Unload</strong>
           </div>
           {agent.walletSource !== "sovereign" ? (
-            <EmptyState kind="wallet"
+            <EmptyState
+              kind="wallet"
               title="Needs a managed wallet"
               detail="Only agents with a wallet we manage can send funds back to treasury. This one uses a connected wallet instead."
             />

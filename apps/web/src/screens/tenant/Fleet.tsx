@@ -440,7 +440,8 @@ export function Fleet() {
                 placeholder="Select a registered treasury wallet"
               />
             ) : (
-              <EmptyState kind="wallet"
+              <EmptyState
+                kind="wallet"
                 title="No treasury wallets yet"
                 detail="Register one in Treasury first, then come back to link it to this agent."
               />
@@ -719,7 +720,8 @@ export function Fleet() {
         {query.isError ? (
           <EmptyState kind="warning" title="Fleet unavailable" detail="We couldn't load your fleet right now." />
         ) : rows.length === 0 ? (
-          <EmptyState kind="agents"
+          <EmptyState
+            kind="agents"
             title="No agents registered"
             detail="Register your first agent to start enforcing spend policy."
             action={
@@ -730,7 +732,8 @@ export function Fleet() {
             }
           />
         ) : filteredRows.length === 0 ? (
-          <EmptyState kind="search"
+          <EmptyState
+            kind="search"
             title="No matching agents found"
             detail="No autonomous agents match your active search and filter parameters."
             action={

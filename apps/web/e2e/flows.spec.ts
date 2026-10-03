@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { defaultScenario, installGateway } from "./support/fixtures";
+import { defaultScenario, installGateway, manyPending } from "./support/fixtures";
 
 test.describe("navigation shell", () => {
   test("groups destinations and marks the current page", async ({ page }) => {
@@ -68,6 +68,26 @@ test.describe("approvals", () => {
     await buttons.nth(0).click();
     await expect(page.getByText("Approved.")).toBeVisible();
     await expect(page.getByRole("link", { name: /Approvals/ }).locator(".sidebar-link-count")).toHaveCount(0);
+  });
+});
+
+test.describe("approvals paging", () => {
+  test("loads more transfers on demand and keeps the badge on the org-wide total", async ({ page }, testInfo) => {
+    const scenario = defaultScenario();
+    scenario.pending = manyPending(30);
+    await installGateway(page, scenario);
+    await page.goto("/app/quorum");
+
+    await expect(page.getByRole("heading", { level: 1, name: "Approvals" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(25);
+    // The badge counts everything the operator can sign, not just the first page.
+    if (testInfo.project.name === "mobile") await page.getByRole("button", { name: "Open menu" }).click();
+    await expect(page.getByRole("link", { name: /Approvals/ }).locator(".sidebar-link-count")).toHaveText("30");
+    if (testInfo.project.name === "mobile") await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Show more (5 left)" }).click();
+    await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(30);
+    await expect(page.getByRole("button", { name: /Show more/ })).toHaveCount(0);
   });
 });
 

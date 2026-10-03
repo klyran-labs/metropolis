@@ -73,7 +73,8 @@ export function LivePolicyCard({ policy }: { policy: ReturnType<typeof useAgentP
             </div>
           </div>
         ) : (
-          <EmptyState kind="agents"
+          <EmptyState
+            kind="agents"
             title="No agent selected"
             detail="Choose an agent to view and update its spending limits."
           />

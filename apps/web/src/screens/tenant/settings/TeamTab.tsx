@@ -16,7 +16,8 @@ export function TeamTab({ identity }: { identity: Identity }) {
           <Badge tone="info">{roleLabel(identity.role)}</Badge>
         </div>
         {operators.isError ? (
-          <EmptyState kind="rules"
+          <EmptyState
+            kind="rules"
             title="Access list restricted"
             detail="Only organization administrators can see the full team list."
           />
@@ -31,7 +32,8 @@ export function TeamTab({ identity }: { identity: Identity }) {
             ))}
           </div>
         ) : (
-          <EmptyState kind="neutral"
+          <EmptyState
+            kind="neutral"
             title="No other teammates yet"
             detail="Ask an administrator to add more people to this organization."
           />
@@ -58,7 +60,8 @@ export function TeamTab({ identity }: { identity: Identity }) {
             ))}
           </div>
         ) : (
-          <EmptyState kind="wallet"
+          <EmptyState
+            kind="wallet"
             title="No managed wallets yet"
             detail="Register an agent with an auto-generated wallet in Fleet to see it here."
           />

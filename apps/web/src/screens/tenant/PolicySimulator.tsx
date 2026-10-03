@@ -426,7 +426,8 @@ export function PolicySimulator() {
 
       {agents.length === 0 ? (
         <Surface>
-          <EmptyState kind="agents"
+          <EmptyState
+            kind="agents"
             title="No agents registered yet"
             detail="Register your first agent in Fleet Overview to dry-run policy evaluations."
           />

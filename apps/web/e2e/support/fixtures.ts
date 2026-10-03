@@ -96,6 +96,67 @@ const pricing = {
   toolCatalog: [{ toolId: "web-search", displayName: "Web search", provider: "example", category: "search", costPerCallMicroDollars: 10000 }],
 };
 
+/** Mirrors the gateway: newest-first pages, SQL-style totals over the whole list, opaque cursor. */
+export const pendingResponse = (all: PendingApprovalFixture[], limit = 25, offset = 0) => {
+  const approvals = all.slice(offset, offset + limit);
+  const hasMore = offset + limit < all.length;
+  return {
+    count: approvals.length,
+    total: all.length,
+    approvableCount: all.filter((item) => item.canApprove).length,
+    hasMore,
+    nextCursor: hasMore ? String(offset + limit) : null,
+    approvals,
+  };
+};
+
+/** `count` distinct pending transfers the operator can sign. */
+export const manyPending = (count: number): PendingApprovalFixture[] =>
+  Array.from({ length: count }, (_, index) => ({
+    ...defaultScenario().pending[0],
+    transferId: `77777777-7777-7777-8777-${String(index).padStart(12, "0")}`,
+    walletLabel: `Treasury ${index + 1}`,
+  }));
+
+export const approveResponse = (transferId: string) => ({
+  transferId,
+  status: "pending_approval",
+  signatures: 2,
+  requiredSignatures: 2,
+});
+
+export const transfersResponse = () => ({
+  transfers: [
+    {
+      id: "66666666-6666-7666-8666-666666666666",
+      direction: "load",
+      amountBaseUnits: "10000000",
+      status: "confirmed",
+      transactionHash: "0xccc1000000000000000000000000000000000000000000000000000000000001",
+      failureReason: null,
+      initiatedBySubject: "did:privy:alice",
+      createdAt: NOW,
+      confirmedAt: NOW,
+      walletLabel: "Main treasury",
+      walletAddress: TREASURY,
+    },
+  ],
+});
+
+/**
+ * One sample response per contract endpoint (`METHOD /path` as published in
+ * docs/api/ui-contract.json). The route handler above serves these same samples, and the contract
+ * test validates each against the gateway-generated schema.
+ */
+export const contractSamples = (scenario: Scenario = defaultScenario()): Record<string, unknown> => ({
+  "GET /agents": agents,
+  "GET /organization/wallets": { wallets },
+  "GET /agents/{agent}/wallet-transfers": transfersResponse(),
+  "GET /telemetry/events": telemetry,
+  "GET /wallet-transfers/pending": pendingResponse(scenario.pending),
+  "POST /wallet-transfers/{id}/approve": approveResponse(scenario.pending[0]?.transferId ?? "00000000-0000-7000-8000-000000000000"),
+});
+
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -122,15 +183,17 @@ export async function installGateway(page: Page, scenario: Scenario = defaultSce
     if (path === "/policies/abac") return json(route, { allowedCidrs: [], requireMfa: false, maxAmount: null, maxGasPrice: null, tradingStartHourUtc: 0, tradingEndHourUtc: 24, allowedEnvironments: [], blockedRiskTiers: [] });
     if (path === "/tenant/pricing-model") return json(route, pricing);
     if (path === "/wallet-transfers/pending") {
-      const approvals = scenario.pending.filter((item) => !approved.has(item.transferId));
-      return json(route, { count: approvals.length, approvals });
+      const remaining = scenario.pending.filter((item) => !approved.has(item.transferId));
+      const limit = Number(url.searchParams.get("limit") ?? 25);
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      return json(route, pendingResponse(remaining, limit, offset));
     }
     const approve = path.match(/^\/wallet-transfers\/([^/]+)\/approve$/);
     if (approve && method === "POST") {
       approved.add(approve[1]);
-      return json(route, { transferId: approve[1], status: "pending_approval", signatures: 2, requiredSignatures: 2 });
+      return json(route, approveResponse(approve[1]));
     }
-    if (/^\/agents\/[^/]+\/wallet-transfers$/.test(path)) return json(route, { transfers: [] });
+    if (/^\/agents\/[^/]+\/wallet-transfers$/.test(path)) return json(route, transfersResponse());
     if (path === "/platform/tenants") return json(route, [{ id: ORG_ID, displayName: "Acme Robotics", enterpriseAddress: TREASURY, status: "active", createdAt: NOW }]);
     if (path === "/platform/subscriptions") return json(route, [{ id: "s1", tenantId: ORG_ID, tenantName: "Acme Robotics", status: "active", currentPeriodStart: NOW, currentPeriodEnd: "2026-11-03T12:00:00.000Z", planCode: "growth", amountBaseUnits: "99000000", interval: "monthly", updatedAt: NOW }]);
     if (path === "/platform/billing/ledger") return json(route, [{ id: "l1", tenantId: ORG_ID, tenantName: "Acme Robotics", entryType: "charge", amountBaseUnits: "99000000", chainId: 10143, transactionHash: "0xbbb1000000000000000000000000000000000000000000000000000000000001", createdAt: NOW }]);

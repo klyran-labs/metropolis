@@ -768,7 +768,8 @@ export function ActivityTrace() {
         </div>
 
         {telemetryQuery.isError ? (
-          <EmptyState kind="warning"
+          <EmptyState
+            kind="warning"
             title="Activity unavailable"
             detail="We couldn't load activity right now. Try again in a moment."
             action={
@@ -778,7 +779,8 @@ export function ActivityTrace() {
             }
           />
         ) : filteredEvents.length === 0 ? (
-          <EmptyState kind="neutral"
+          <EmptyState
+            kind="neutral"
             title="No activity yet"
             detail="Payments and rule changes will show up here as they happen."
             action={

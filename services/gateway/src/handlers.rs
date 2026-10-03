@@ -954,7 +954,7 @@ async fn provision_tenant(
 pub async fn list_agents_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
-) -> Result<Json<Vec<Value>>, ApiError> {
+) -> Result<Json<Vec<crate::ui_contract::AgentDto>>, ApiError> {
     let rows = sqlx::query(
         "SELECT a.agent_address, a.admin_address, a.environment, a.risk_tier, a.status, a.created_at, a.wallet_source, \
          COALESCE(NULLIF(a.label, ''), sw.label, ow.label, '') AS label \
@@ -969,16 +969,16 @@ pub async fn list_agents_handler(
     .map_err(|_| service_unavailable("The tenant fleet is temporarily unavailable."))?;
     rows.into_iter()
         .map(|row| {
-            Ok(serde_json::json!({
-                "address": row.try_get::<String, _>("agent_address")?,
-                "adminAddress": row.try_get::<String, _>("admin_address")?,
-                "environment": row.try_get::<String, _>("environment")?,
-                "riskTier": row.try_get::<String, _>("risk_tier")?,
-                "status": row.try_get::<String, _>("status")?,
-                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
-                "walletSource": row.try_get::<String, _>("wallet_source")?,
-                "label": row.try_get::<String, _>("label").unwrap_or_default(),
-            }))
+            Ok(crate::ui_contract::AgentDto {
+                address: row.try_get("agent_address")?,
+                admin_address: row.try_get("admin_address")?,
+                environment: row.try_get("environment")?,
+                risk_tier: row.try_get("risk_tier")?,
+                status: row.try_get("status")?,
+                created_at: row.try_get("created_at")?,
+                wallet_source: row.try_get("wallet_source")?,
+                label: row.try_get::<String, _>("label").unwrap_or_default(),
+            })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map(Json)
@@ -1381,7 +1381,7 @@ pub async fn register_organization_wallet_handler(
 pub async fn list_organization_wallets_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<crate::ui_contract::WalletsResponse>, ApiError> {
     let rows = sqlx::query(
         r#"SELECT ow.id, ow.address, ow.label, ow.kind, ow.approval_threshold, ow.status, ow.created_by_subject, ow.created_at,
                   (SELECT COUNT(*) FROM organization_wallet_access owa WHERE owa.wallet_id = ow.id) AS access_count,
@@ -1405,21 +1405,22 @@ pub async fn list_organization_wallets_handler(
             .token_balance(state.config.usdc_token_address, address)
             .await
             .ok();
-        wallets.push(serde_json::json!({
-            "id": row.try_get::<Uuid, _>("id").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "address": address_str,
-            "label": row.try_get::<String, _>("label").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "kind": row.try_get::<String, _>("kind").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "approvalThreshold": row.try_get::<i16, _>("approval_threshold").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "status": row.try_get::<String, _>("status").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "createdBySubject": row.try_get::<String, _>("created_by_subject").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "accessCount": row.try_get::<i64, _>("access_count").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "hasAccess": row.try_get::<bool, _>("has_access").map_err(|_| service_unavailable("A treasury wallet record is invalid."))?,
-            "balanceBaseUnits": balance.map(|value| value.to_string()),
-        }));
+        let invalid = || service_unavailable("A treasury wallet record is invalid.");
+        wallets.push(crate::ui_contract::OrganizationWalletDto {
+            id: row.try_get("id").map_err(|_| invalid())?,
+            address: address_str,
+            label: row.try_get("label").map_err(|_| invalid())?,
+            kind: row.try_get("kind").map_err(|_| invalid())?,
+            approval_threshold: row.try_get("approval_threshold").map_err(|_| invalid())?,
+            status: row.try_get("status").map_err(|_| invalid())?,
+            created_by_subject: row.try_get("created_by_subject").map_err(|_| invalid())?,
+            created_at: row.try_get("created_at").map_err(|_| invalid())?,
+            access_count: row.try_get("access_count").map_err(|_| invalid())?,
+            has_access: row.try_get("has_access").map_err(|_| invalid())?,
+            balance_base_units: balance.map(|value| value.to_string()),
+        });
     }
-    Ok(Json(serde_json::json!({ "wallets": wallets })))
+    Ok(Json(crate::ui_contract::WalletsResponse { wallets }))
 }
 
 async fn ensure_wallet_in_tenant(
@@ -2193,7 +2194,7 @@ pub async fn sign_approval_ticket_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
     Path(transfer_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<crate::ui_contract::ApproveResponse>, ApiError> {
     let row = sqlx::query(
         "SELECT organization_wallet_id, status, approval_ticket_id FROM wallet_transfers WHERE id = $1 AND org_id = $2",
     )
@@ -2236,13 +2237,14 @@ pub async fn sign_approval_ticket_handler(
         .await
         .map_err(|_| service_unavailable("The approval ticket is unavailable."))?
         {
-            return Ok(Json(serde_json::json!({
-                "transferId": transfer_id,
-                "status": status,
-                "signatures": collected,
-                "requiredSignatures": required,
-                "alreadySigned": true
-            })));
+            return Ok(Json(crate::ui_contract::ApproveResponse {
+                transfer_id,
+                status,
+                signatures: Some(collected),
+                required_signatures: Some(required),
+                already_signed: Some(true),
+                transaction_hash: None,
+            }));
         }
         return Err(invalid_request("This transfer is not awaiting approval."));
     }
@@ -2266,25 +2268,28 @@ pub async fn sign_approval_ticket_handler(
             collected,
             required,
         } => {
-            return Ok(Json(serde_json::json!({
-                "transferId": transfer_id,
-                "status": "pending_approval",
-                "signatures": collected,
-                "requiredSignatures": required,
-                "alreadySigned": true
-            })));
+            return Ok(Json(crate::ui_contract::ApproveResponse {
+                transfer_id,
+                status: "pending_approval".to_string(),
+                signatures: Some(collected),
+                required_signatures: Some(required),
+                already_signed: Some(true),
+                transaction_hash: None,
+            }));
         }
         crate::approvals::SignOutcome::Recorded {
             collected,
             required,
             reached: false,
         } => {
-            return Ok(Json(serde_json::json!({
-                "transferId": transfer_id,
-                "status": "pending_approval",
-                "signatures": collected,
-                "requiredSignatures": required
-            })));
+            return Ok(Json(crate::ui_contract::ApproveResponse {
+                transfer_id,
+                status: "pending_approval".to_string(),
+                signatures: Some(collected),
+                required_signatures: Some(required),
+                already_signed: None,
+                transaction_hash: None,
+            }));
         }
         crate::approvals::SignOutcome::Recorded { reached: true, .. } => {}
     }
@@ -2295,7 +2300,21 @@ pub async fn sign_approval_ticket_handler(
         .await
         .map_err(|_| service_unavailable("The transfer could not be advanced."))?;
     let result = execute_load(&state, &context.tenant.org_id, transfer_id).await?;
-    Ok(Json(result))
+    Ok(Json(crate::ui_contract::ApproveResponse {
+        transfer_id,
+        status: result
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("pending")
+            .to_string(),
+        signatures: None,
+        required_signatures: None,
+        already_signed: None,
+        transaction_hash: result
+            .get("transactionHash")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }))
 }
 
 pub async fn prepare_unload_handler(
@@ -2369,7 +2388,7 @@ pub async fn list_wallet_transfers_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
     Path(agent_address): Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<crate::ui_contract::WalletTransfersResponse>, ApiError> {
     let agent = Address::from_str(&agent_address)
         .map_err(|_| invalid_request("The agent address is invalid."))?;
     let rows = sqlx::query(
@@ -2386,23 +2405,25 @@ pub async fn list_wallet_transfers_handler(
     let transfers = rows
         .into_iter()
         .map(|row| {
-            Ok(serde_json::json!({
-                "id": row.try_get::<Uuid, _>("id")?,
-                "direction": row.try_get::<String, _>("direction")?,
-                "amountBaseUnits": row.try_get::<String, _>("amount_base_units")?,
-                "status": row.try_get::<String, _>("status")?,
-                "transactionHash": row.try_get::<Option<String>, _>("transaction_hash")?,
-                "failureReason": row.try_get::<Option<String>, _>("failure_reason")?,
-                "initiatedBySubject": row.try_get::<String, _>("initiated_by_subject")?,
-                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
-                "confirmedAt": row.try_get::<Option<chrono::DateTime<Utc>>, _>("confirmed_at")?,
-                "walletLabel": row.try_get::<String, _>("wallet_label")?,
-                "walletAddress": row.try_get::<String, _>("wallet_address")?,
-            }))
+            Ok(crate::ui_contract::WalletTransferDto {
+                id: row.try_get("id")?,
+                direction: row.try_get("direction")?,
+                amount_base_units: row.try_get("amount_base_units")?,
+                status: row.try_get("status")?,
+                transaction_hash: row.try_get("transaction_hash")?,
+                failure_reason: row.try_get("failure_reason")?,
+                initiated_by_subject: row.try_get("initiated_by_subject")?,
+                created_at: row.try_get("created_at")?,
+                confirmed_at: row.try_get("confirmed_at")?,
+                wallet_label: row.try_get("wallet_label")?,
+                wallet_address: row.try_get("wallet_address")?,
+            })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(|_| service_unavailable("The wallet transfer history returned invalid data."))?;
-    Ok(Json(serde_json::json!({ "transfers": transfers })))
+    Ok(Json(crate::ui_contract::WalletTransfersResponse {
+        transfers,
+    }))
 }
 
 /// Approval progress for one pending transfer from a given operator's point of view.
@@ -2469,7 +2490,7 @@ pub async fn list_pending_approvals_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
     axum::extract::Query(query): axum::extract::Query<PendingApprovalsQuery>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<crate::ui_contract::PendingApprovalsResponse>, ApiError> {
     let limit = query
         .limit
         .unwrap_or(PENDING_APPROVALS_DEFAULT_LIMIT)
@@ -2507,32 +2528,32 @@ pub async fn list_pending_approvals_handler(
                 &context.subject,
                 is_super_admin || row.has_access,
             );
-            serde_json::json!({
-                "transferId": row.id,
-                "direction": row.direction,
-                "amountBaseUnits": row.amount_base_units,
-                "agentAddress": row.agent_address,
-                "initiatedBySubject": row.initiated_by_subject,
-                "createdAt": row.created_at,
-                "expiresAt": row.expires_at,
-                "walletId": row.wallet_id,
-                "walletLabel": row.wallet_label,
-                "walletAddress": row.wallet_address,
-                "signatures": progress.signatures_collected,
-                "requiredSignatures": progress.signatures_required,
-                "alreadySigned": progress.already_signed,
-                "canApprove": progress.can_approve,
-            })
+            crate::ui_contract::PendingApprovalDto {
+                transfer_id: row.id,
+                direction: row.direction.clone(),
+                amount_base_units: row.amount_base_units.clone(),
+                agent_address: row.agent_address.clone(),
+                initiated_by_subject: row.initiated_by_subject.clone(),
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                wallet_id: row.wallet_id,
+                wallet_label: row.wallet_label.clone(),
+                wallet_address: row.wallet_address.clone(),
+                signatures: progress.signatures_collected,
+                required_signatures: progress.signatures_required,
+                already_signed: progress.already_signed,
+                can_approve: progress.can_approve,
+            }
         })
         .collect::<Vec<_>>();
-    Ok(Json(serde_json::json!({
-        "count": approvals.len(),
-        "total": page.total,
-        "approvableCount": page.approvable,
-        "hasMore": page.has_more,
-        "nextCursor": if page.has_more { next_cursor } else { None },
-        "approvals": approvals,
-    })))
+    Ok(Json(crate::ui_contract::PendingApprovalsResponse {
+        count: approvals.len(),
+        total: page.total,
+        approvable_count: page.approvable,
+        has_more: page.has_more,
+        next_cursor: if page.has_more { next_cursor } else { None },
+        approvals,
+    }))
 }
 
 pub async fn create_plan_handler(
@@ -3659,7 +3680,7 @@ pub async fn telemetry_stream(
 pub async fn list_telemetry_events_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
-) -> Result<Json<Vec<Value>>, ApiError> {
+) -> Result<Json<Vec<crate::ui_contract::TelemetryEventDto>>, ApiError> {
     let rows = sqlx::query(
         r#"SELECT event_name, agent_address, block_number, transaction_hash,
                   payload, observed_at
@@ -3674,14 +3695,14 @@ pub async fn list_telemetry_events_handler(
     .map_err(|_| service_unavailable("Finalized telemetry is temporarily unavailable."))?;
     rows.into_iter()
         .map(|row| {
-            Ok(serde_json::json!({
-                "eventName": row.try_get::<String, _>("event_name")?,
-                "agentAddress": row.try_get::<Option<String>, _>("agent_address")?,
-                "blockNumber": row.try_get::<i64, _>("block_number")? as u64,
-                "transactionHash": row.try_get::<String, _>("transaction_hash")?,
-                "payload": row.try_get::<Value, _>("payload")?,
-                "observedAt": row.try_get::<chrono::DateTime<Utc>, _>("observed_at")?
-            }))
+            Ok(crate::ui_contract::TelemetryEventDto {
+                event_name: row.try_get("event_name")?,
+                agent_address: row.try_get("agent_address")?,
+                block_number: row.try_get::<i64, _>("block_number")? as u64,
+                transaction_hash: row.try_get("transaction_hash")?,
+                payload: row.try_get("payload")?,
+                observed_at: row.try_get("observed_at")?,
+            })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map(Json)

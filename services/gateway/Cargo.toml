@@ -38,6 +38,8 @@ http = "1.3"
 # vs system malloc's global lock. No secure wipe needed for a gateway workload.
 mimalloc = { version = "0.1", default-features = false }
 dashmap = "6.1"
+# Derives the JSON Schema of UI-facing responses from the same types the handlers serialize.
+schemars = { version = "0.8", features = ["chrono", "uuid1"] }
 
 
 [profile.release]

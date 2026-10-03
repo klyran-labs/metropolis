@@ -204,7 +204,7 @@ function Sidebar({
   const workspaceName = area === "app" ? identity.tenantName || "Your workspace" : "Platform";
 
   const pending = usePendingApprovals(area === "app" && Boolean(identity.authenticated) && canViewDestination(identity.role, "/app/quorum"));
-  const pendingForMe = (pending.data?.approvals ?? []).filter((approval) => approval.canApprove).length;
+  const pendingForMe = pending.data?.approvableCount ?? 0;
 
   const visibleGroups = groups
     .map((group) => ({

@@ -363,7 +363,8 @@ export function MerchantDirectory() {
         </div>
       ) : (
         <Surface>
-          <EmptyState kind="agents"
+          <EmptyState
+            kind="agents"
             title="No merchants yet"
             detail="Add the first merchant your agents are allowed to pay."
           />

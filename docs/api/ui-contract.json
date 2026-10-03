@@ -1,0 +1,422 @@
+{
+  "description": "Response contract for the web console. Generated from gateway types; do not edit by hand. Regenerate with UPDATE_UI_CONTRACT=1 cargo test --test ui_contract.",
+  "endpoints": {
+    "GET /agents": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AgentDto": {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "adminAddress": {
+              "type": "string"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "riskTier": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "walletSource": {
+              "description": "`sovereign` (wallet hosted by AgentGuard) or `external`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "address",
+            "adminAddress",
+            "createdAt",
+            "environment",
+            "label",
+            "riskTier",
+            "status",
+            "walletSource"
+          ],
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/definitions/AgentDto"
+      },
+      "title": "Array_of_AgentDto",
+      "type": "array"
+    },
+    "GET /agents/{agent}/wallet-transfers": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "WalletTransferDto": {
+          "properties": {
+            "amountBaseUnits": {
+              "type": "string"
+            },
+            "confirmedAt": {
+              "format": "date-time",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "direction": {
+              "description": "`load` or `unload`.",
+              "type": "string"
+            },
+            "failureReason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "initiatedBySubject": {
+              "type": "string"
+            },
+            "status": {
+              "description": "`pending`, `pending_approval`, `confirmed` or `failed`.",
+              "type": "string"
+            },
+            "transactionHash": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "walletAddress": {
+              "type": "string"
+            },
+            "walletLabel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "amountBaseUnits",
+            "createdAt",
+            "direction",
+            "id",
+            "initiatedBySubject",
+            "status",
+            "walletAddress",
+            "walletLabel"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "transfers": {
+          "items": {
+            "$ref": "#/definitions/WalletTransferDto"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "transfers"
+      ],
+      "title": "WalletTransfersResponse",
+      "type": "object"
+    },
+    "GET /organization/wallets": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "OrganizationWalletDto": {
+          "properties": {
+            "accessCount": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "address": {
+              "type": "string"
+            },
+            "approvalThreshold": {
+              "format": "int16",
+              "type": "integer"
+            },
+            "balanceBaseUnits": {
+              "description": "USDC balance in base units; absent when the chain could not be read.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "createdBySubject": {
+              "type": "string"
+            },
+            "hasAccess": {
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "kind": {
+              "description": "`sovereign` or `external`.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessCount",
+            "address",
+            "approvalThreshold",
+            "createdAt",
+            "createdBySubject",
+            "hasAccess",
+            "id",
+            "kind",
+            "label",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "wallets": {
+          "items": {
+            "$ref": "#/definitions/OrganizationWalletDto"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "wallets"
+      ],
+      "title": "WalletsResponse",
+      "type": "object"
+    },
+    "GET /telemetry/events": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "TelemetryEventDto": {
+          "properties": {
+            "agentAddress": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "blockNumber": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "eventName": {
+              "type": "string"
+            },
+            "observedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "payload": true,
+            "transactionHash": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "blockNumber",
+            "eventName",
+            "observedAt",
+            "payload",
+            "transactionHash"
+          ],
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/definitions/TelemetryEventDto"
+      },
+      "title": "Array_of_TelemetryEventDto",
+      "type": "array"
+    },
+    "GET /wallet-transfers/pending": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "PendingApprovalDto": {
+          "properties": {
+            "agentAddress": {
+              "type": "string"
+            },
+            "alreadySigned": {
+              "type": "boolean"
+            },
+            "amountBaseUnits": {
+              "type": "string"
+            },
+            "canApprove": {
+              "type": "boolean"
+            },
+            "createdAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "direction": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "initiatedBySubject": {
+              "type": "string"
+            },
+            "requiredSignatures": {
+              "format": "int16",
+              "type": "integer"
+            },
+            "signatures": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "transferId": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "walletAddress": {
+              "type": "string"
+            },
+            "walletId": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "walletLabel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "agentAddress",
+            "alreadySigned",
+            "amountBaseUnits",
+            "canApprove",
+            "createdAt",
+            "direction",
+            "expiresAt",
+            "initiatedBySubject",
+            "requiredSignatures",
+            "signatures",
+            "transferId",
+            "walletAddress",
+            "walletId",
+            "walletLabel"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "approvableCount": {
+          "description": "How many of them the caller can sign right now.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "approvals": {
+          "items": {
+            "$ref": "#/definitions/PendingApprovalDto"
+          },
+          "type": "array"
+        },
+        "count": {
+          "description": "Rows in this page.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "description": "Pass back as `cursor` to fetch the next page; absent on the last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total": {
+          "description": "All transfers awaiting approval in the organization.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approvableCount",
+        "approvals",
+        "count",
+        "hasMore",
+        "total"
+      ],
+      "title": "PendingApprovalsResponse",
+      "type": "object"
+    },
+    "POST /wallet-transfers/{id}/approve": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "alreadySigned": {
+          "description": "Present and true when the caller had already signed (the request was a harmless retry).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "requiredSignatures": {
+          "format": "int16",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signatures": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "transactionHash": {
+          "description": "Present once the transfer has been executed on chain.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transferId": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "transferId"
+      ],
+      "title": "ApproveResponse",
+      "type": "object"
+    }
+  }
+}

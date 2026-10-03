@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { configuration } from "./configuration";
 import { POLL } from "./polling";
@@ -768,12 +768,39 @@ export type PendingApproval = {
   canApprove: boolean;
 };
 
-/** Org-wide transfers waiting on signatures. A 403 (role without settlement access) simply yields no data. */
+export type PendingApprovalsPage = {
+  count: number;
+  total: number;
+  approvableCount: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+  approvals: PendingApproval[];
+};
+
+const PENDING_APPROVALS_PAGE_SIZE = 25;
+
+/** First page plus org-wide totals. A 403 (role without settlement access) simply yields no data. */
 export const usePendingApprovals = (enabled: boolean) =>
   useQuery({
     queryKey: ["pending-approvals"],
     queryFn: ({ signal }) =>
-      request<{ count: number; approvals: PendingApproval[] }>("/wallet-transfers/pending", { signal }),
+      request<PendingApprovalsPage>(`/wallet-transfers/pending?limit=${PENDING_APPROVALS_PAGE_SIZE}`, { signal }),
+    enabled,
+    retry: false,
+    refetchInterval: POLL.attention,
+  });
+
+/** Every page, for the Approvals screen ("Show more" fetches the next cursor). */
+export const useInfinitePendingApprovals = (enabled: boolean) =>
+  useInfiniteQuery({
+    queryKey: ["pending-approvals", "pages"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam, signal }) => {
+      const params = new URLSearchParams({ limit: String(PENDING_APPROVALS_PAGE_SIZE) });
+      if (pageParam) params.set("cursor", pageParam);
+      return request<PendingApprovalsPage>(`/wallet-transfers/pending?${params}`, { signal });
+    },
+    getNextPageParam: (last) => (last.hasMore ? last.nextCursor : undefined),
     enabled,
     retry: false,
     refetchInterval: POLL.attention,

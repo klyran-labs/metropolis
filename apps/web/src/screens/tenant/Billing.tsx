@@ -177,7 +177,8 @@ export function Billing() {
             )}
           </div>
         ) : (
-          <EmptyState kind="billing"
+          <EmptyState
+            kind="billing"
             title="No plans available yet"
             detail="An administrator needs to publish a plan before you can subscribe."
           />
@@ -192,14 +193,16 @@ export function Billing() {
           )}
         </div>
         {subscription.isError ? (
-          <EmptyState kind="warning"
+          <EmptyState
+            kind="warning"
             title="Subscription unavailable"
             detail="We couldn't load your subscription right now."
           />
         ) : subscription.data?.subscription ? (
           <RecordSummary record={subscription.data.subscription} />
         ) : (
-          <EmptyState kind="billing"
+          <EmptyState
+            kind="billing"
             title="No subscription"
             detail="An administrator needs to publish a plan before you can subscribe."
           />

@@ -19,7 +19,7 @@ import {
 import {
   useOrganizationWallets,
   useApproveWalletTransfer,
-  usePendingApprovals,
+  useInfinitePendingApprovals,
   toUserFacingError,
   type PendingApproval,
 } from "../../api";
@@ -65,8 +65,9 @@ export function QuorumApprovals() {
   const identity = useIdentity();
   const walletsQuery = useOrganizationWallets(Boolean(identity.authenticated));
   const wallets = walletsQuery.data ?? [];
-  const pendingQuery = usePendingApprovals(Boolean(identity.authenticated));
-  const pendingApprovals = pendingQuery.data?.approvals ?? [];
+  const pendingQuery = useInfinitePendingApprovals(Boolean(identity.authenticated));
+  const pendingApprovals = pendingQuery.data?.pages.flatMap((page) => page.approvals) ?? [];
+  const pendingTotal = pendingQuery.data?.pages[0]?.total ?? 0;
 
   const [actionMessage, setActionMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -104,7 +105,7 @@ export function QuorumApprovals() {
             <span className="stat-label">Waiting for approval</span>
             <UsersRound size={18} className="accent-blue" />
           </div>
-          <strong className="stat-value">{pendingApprovals.length}</strong>
+          <strong className="stat-value">{pendingTotal}</strong>
           <small className="stat-sub">Need a signature</small>
         </Surface>
 
@@ -217,9 +218,19 @@ export function QuorumApprovals() {
                 </div>
               </div>
             ))}
+            {pendingQuery.hasNextPage && (
+              <Button
+                variant="tonal"
+                onClick={() => void pendingQuery.fetchNextPage()}
+                disabled={pendingQuery.isFetchingNextPage}
+              >
+                {pendingQuery.isFetchingNextPage ? "Loading…" : `Show more (${pendingTotal - pendingApprovals.length} left)`}
+              </Button>
+            )}
           </div>
         ) : (
-          <EmptyState kind="success"
+          <EmptyState
+            kind="success"
             title="Nothing needs approval"
             detail="Transfers that need more than one signature will show up here."
             action={
@@ -246,7 +257,8 @@ export function QuorumApprovals() {
             ))}
           </div>
         ) : (
-          <EmptyState kind="wallet"
+          <EmptyState
+            kind="wallet"
             title="No multi-approval wallets yet"
             detail="Require more than one signature for large transfers by setting this up on a treasury wallet."
             action={

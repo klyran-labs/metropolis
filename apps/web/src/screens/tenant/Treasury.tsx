@@ -816,7 +816,8 @@ export function Treasury() {
             ))}
           </div>
         ) : (
-          <EmptyState kind="wallet"
+          <EmptyState
+            kind="wallet"
             title="No treasury wallets configured"
             detail="Register a treasury vault or connected Web3 wallet above to manage fleet disbursements."
             action={

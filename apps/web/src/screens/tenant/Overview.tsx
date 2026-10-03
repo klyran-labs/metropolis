@@ -161,7 +161,7 @@ export function Overview() {
     },
   ];
   const showReadiness = readinessSteps.some((step) => !step.done);
-  const approvalsForMe = (pendingApprovals.data?.approvals ?? []).filter((approval) => approval.canApprove).length;
+  const approvalsForMe = pendingApprovals.data?.approvableCount ?? 0;
   const attentionItems = [
     approvalsForMe > 0 && {
       key: "approvals",

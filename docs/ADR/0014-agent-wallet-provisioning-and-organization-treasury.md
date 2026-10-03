@@ -124,3 +124,10 @@ Both modals and the treasury screen deliberately reuse existing primitives end-t
 ## Addendum: Org-wide pending approvals
 
 `GET /api/v1/wallet-transfers/pending` lists every transfer in the caller's organization whose approval ticket is open, newest first (capped at 100). Each row carries signature progress and two operator-specific flags computed server-side with the same rules as `POST /wallet-transfers/:id/approve`: `canApprove` requires wallet access (or `super_admin`) and no prior signature from the caller; `alreadySigned` is true when the caller's subject is already on the ticket. The query is served by the partial index `idx_wallet_transfers_org_pending_approval` (migration `0011`). The endpoint uses the same `DispatchSettlement` capability as the other transfer routes, so roles without it receive 403 and the UI shows no badge.
+
+### Addendum: signing is atomic and idempotent; the list is paginated
+
+`POST /wallet-transfers/:id/approve` records the signature in a transaction that locks the approval ticket row (`SELECT ... FOR UPDATE`), so concurrent approvers cannot overwrite each other's signature. A repeat by an operator who already signed returns 200 with `alreadySigned: true` (also after the transfer has advanced) instead of an error. Database-backed tests cover this, including a concurrency test that fails without the lock.
+
+`GET /wallet-transfers/pending` accepts `limit` (default 25, max 100) and an opaque `cursor`, orders by `(created_at, id)` descending, and returns `total` and `approvableCount` computed in SQL over the whole list so badges stay correct beyond the first page. Response shapes for this and the core list endpoints are published in `docs/api/ui-contract.json`.
+

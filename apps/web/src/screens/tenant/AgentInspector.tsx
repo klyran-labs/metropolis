@@ -609,7 +609,8 @@ export function AgentInspector({
                       </div>
                     </div>
                     {agent.walletSource !== "sovereign" ? (
-                      <EmptyState kind="wallet"
+                      <EmptyState
+                        kind="wallet"
                         title="Needs a secure wallet"
                         detail="Only agents with a secure, hosted wallet can send funds back to treasury."
                         tone="info"

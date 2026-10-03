@@ -69,7 +69,8 @@ export function CredentialsTab({ identity }: { identity: Identity }) {
   if (!canManage) {
     return (
       <Surface>
-        <EmptyState kind="rules"
+        <EmptyState
+          kind="rules"
           title="Access restricted"
           detail="Only security administrators can manage machine credentials."
         />

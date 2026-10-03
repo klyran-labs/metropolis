@@ -25,4 +25,5 @@ pub mod settlement;
 pub mod telemetry;
 pub mod tenant;
 pub mod types;
+pub mod ui_contract;
 pub mod zk;
