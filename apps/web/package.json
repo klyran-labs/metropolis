@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck",
     "preview": "vite preview --port 3110",
-    "test": "node --test test/frontend.test.mjs"
+    "test": "node --test test/frontend.test.mjs",
+    "test:ui": "playwright test",
+    "test:ui:install": "playwright install chromium"
   },
   "dependencies": {
     "@agentguard/shared-types": "^1.0.0",
@@ -35,6 +37,8 @@
     "vite": "^8.2.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.1",
     "@types/react": "^19.2.18",

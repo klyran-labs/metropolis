@@ -10,6 +10,7 @@
     "services/opensigner"
   ],
   "scripts": {
+    "dev": "npm run dev --workspace=@agentguard/web",
     "build": "npm run build --workspaces --if-present",
     "compile": "npm run compile:contracts && npm run build && npm run check:gateway",
     "compile:contracts": "node scripts/check-contracts.mjs --compile",
@@ -22,7 +23,7 @@
     "lint:ui": "node scripts/verify-ui-contract.mjs",
     "lint:zero-mock": "node scripts/verify-zero-mock.mjs",
     "lint:erc7730": "node scripts/validate-erc7730.mjs",
-    "lint": "npm run lint:zero-mock && npm run lint:theme && npm run lint:ui && npm run lint:erc7730 && npm run lint:contracts && npm run lint:ts && npm run lint:gateway",
+    "lint": "npm run lint:zero-mock && npm run lint:theme && npm run lint:css && npm run lint:ui && npm run lint:erc7730 && npm run lint:contracts && npm run lint:ts && npm run lint:gateway",
     "typecheck": "npm run typecheck --workspace=@agentguard/web",
     "test": "npm run typecheck && node --test contracts/test/agentguard-contracts.test.mjs contracts/test/circuit-vault.test.mjs apps/web/test/frontend.test.mjs packages/x402-middleware/test/middleware.test.mjs services/opensigner/test/opensigner.test.mjs packages/cli/test/cli.test.mjs packages/mcp-server/test/mcp.test.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
@@ -32,9 +33,12 @@
     "test:opensigner": "node --test services/opensigner/test/opensigner.test.mjs",
     "test:forge": "forge test --root contracts",
     "preflight": "npm run lint && npm run compile && npm test",
-    "check:all": "npm run lint && npm run build && npm test && npm run test:gateway && npm run test:forge",
+    "check:all": "npm run lint && npm run build && npm run lint:bundle && npm test && npm run test:ui && npm run test:gateway && npm run test:forge",
     "fund:local": "node scripts/fund-wallets.mjs",
-    "clean": "npm run clean --workspaces --if-present"
+    "clean": "npm run clean --workspaces --if-present",
+    "lint:bundle": "node scripts/verify-bundle-budget.mjs",
+    "lint:css": "node scripts/prune-dead-css.mjs --check 0",
+    "test:ui": "npm run test:ui --workspace=@agentguard/web"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

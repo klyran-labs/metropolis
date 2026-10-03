@@ -39,3 +39,8 @@ out/
 *.swo
 .vscode/
 .idea/
+
+# Playwright
+apps/web/dist-e2e
+apps/web/test-results
+apps/web/playwright-report

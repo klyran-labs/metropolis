@@ -77,6 +77,10 @@ export default defineConfig(({ mode }) => {
               if (moduleId.includes("/echarts/renderers") || moduleId.includes("/echarts/lib/renderer/")) return "charts-renderer";
               return "charts-core";
             }
+            // Stable vendor chunks: app code changes every deploy, these rarely do, so browsers
+            // keep them cached across releases.
+            if (/\/node_modules\/(react|react-dom|scheduler)\//.test(moduleId)) return "vendor-react";
+            if (moduleId.includes("/node_modules/@tanstack/")) return "vendor-tanstack";
             return undefined;
           },
         },
