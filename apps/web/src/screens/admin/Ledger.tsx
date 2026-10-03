@@ -54,7 +54,7 @@ export function AdminLedger() {
       </header>
       <Surface>
         {ledger.isError ? (
-          <EmptyState title="Couldn't load payment history" detail="Try refreshing the page." />
+          <EmptyState kind="warning" title="Couldn't load payment history" detail="Try refreshing the page." />
         ) : rows.length ? (
           <div className="table-viewport">
             <table>
@@ -81,7 +81,7 @@ export function AdminLedger() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No payments yet" detail="Confirmed payments will appear here." />
+          <EmptyState kind="billing" title="No payments yet" detail="Confirmed payments will appear here." />
         )}
       </Surface>
     </div>

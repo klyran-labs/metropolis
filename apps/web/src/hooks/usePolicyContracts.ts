@@ -11,6 +11,7 @@ import {
   type Address,
 } from "viem";
 import { configuration } from "../configuration";
+import { POLL } from "../polling";
 
 export const POLICY_ENGINE_ABI = parseAbi([
   "struct SpendRequest { address agent; address merchant; uint256 amount; bytes32 category; uint256 timestamp; uint256 deadline; uint256 nonce; }",
@@ -214,6 +215,47 @@ export async function evaluatePolicyOnchain(params: {
   };
 }
 
+export const REPUTATION_REGISTRY_ABI = parseAbi([
+  "struct ReputationMetrics { uint32 scoreBps; uint32 totalTransactions; uint32 settledCount; uint32 slashedCount; uint32 disputedCount; uint32 lastUpdatedTimestamp; }",
+  "function getMetrics(address agent) external view returns (ReputationMetrics memory)",
+]);
+
+export interface AgentReputation {
+  /** 0-100, derived from the registry's parts-per-million score. */
+  scorePercent: number;
+  totalTransactions: number;
+  settledCount: number;
+  slashedCount: number;
+  disputedCount: number;
+}
+
+/** Real reputation from the registry; `null` when the agent has no recorded history yet. */
+export function useAgentReputation(agentAddress: string, enabled = true) {
+  return useQuery({
+    queryKey: ["agent-reputation", agentAddress],
+    queryFn: async (): Promise<AgentReputation | null> => {
+      const registry = configuration.contracts.reputationRegistry;
+      if (!registry || !isAddress(registry) || !isAddress(agentAddress)) return null;
+      const metrics = await getPublicClient().readContract({
+        address: registry,
+        abi: REPUTATION_REGISTRY_ABI,
+        functionName: "getMetrics",
+        args: [agentAddress as Address],
+      });
+      if (metrics.totalTransactions === 0) return null;
+      return {
+        scorePercent: Math.round((metrics.scoreBps / 1_000_000) * 100),
+        totalTransactions: metrics.totalTransactions,
+        settledCount: metrics.settledCount,
+        slashedCount: metrics.slashedCount,
+        disputedCount: metrics.disputedCount,
+      };
+    },
+    enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress),
+    refetchInterval: POLL.slow,
+  });
+}
+
 export function useAgentRuntimeState(agentAddress: string, enabled = true) {
   return useQuery({
     queryKey: ["agent-runtime-state", agentAddress],
@@ -241,7 +283,7 @@ export function useAgentRuntimeState(agentAddress: string, enabled = true) {
       };
     },
     enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress),
-    refetchInterval: 4000,
+    refetchInterval: POLL.fast,
   });
 }
 
@@ -377,7 +419,7 @@ export function useIsCircuitBroken(agentAddress: string, enabled = true) {
       });
     },
     enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress),
-    refetchInterval: 4000,
+    refetchInterval: POLL.fast,
   });
 }
 
@@ -663,7 +705,7 @@ export function useLiveTokenBalance(accountAddress: string, enabled = true) {
       });
     },
     enabled: enabled && Boolean(accountAddress) && isAddress(accountAddress),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -676,7 +718,7 @@ export function useLiveNativeBalance(accountAddress: string, enabled = true) {
       return client.getBalance({ address: accountAddress as Address });
     },
     enabled: enabled && Boolean(accountAddress) && isAddress(accountAddress),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -725,7 +767,7 @@ export function usePaymasterEligibility(agentAddress?: string, maxCost = 1000000
       }
     },
     enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -749,7 +791,7 @@ export function usePaymasterTreasuryBalance(treasuryAddress?: string) {
       }
     },
     enabled: Boolean(treasuryAddress) && isAddress(treasuryAddress || ""),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -831,7 +873,7 @@ export function useAgentPassport(agentAddress?: string) {
       }
     },
     enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -872,7 +914,7 @@ export function useAgentTba(agentAddress?: string) {
       }
     },
     enabled: Boolean(agentAddress) && isAddress(agentAddress || ""),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 

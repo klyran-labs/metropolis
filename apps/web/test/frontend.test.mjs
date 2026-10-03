@@ -19,6 +19,23 @@ async function walk(directory) {
   return files;
 }
 
+
+// A screen may be split into a shell file plus a sibling folder of focused parts
+// (e.g. Settings.tsx + settings/*.tsx). Contract checks read them as one unit.
+async function readScreen(name) {
+  const base = new URL(`../src/screens/tenant/${name}.tsx`, import.meta.url);
+  const parts = [await readFile(base, "utf8")];
+  const dir = join(sourceRoot.pathname, "screens/tenant", name.toLowerCase());
+  try {
+    for (const entry of await readdir(dir)) {
+      if (/\.(tsx?)$/.test(entry)) parts.push(await readFile(join(dir, entry), "utf8"));
+    }
+  } catch {
+    // not split
+  }
+  return parts.join("\n");
+}
+
 async function combinedSource() {
   const files = await walk(sourceRoot.pathname);
   const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
@@ -137,7 +154,7 @@ test("Modern UI/UX invariants: canonical brand mark, zero-mock overview, and add
   const [navigation, overview, fleet, globalsCss] = await Promise.all([
     readFile(new URL("../src/navigation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/Overview.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readScreen("Fleet"),
     readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
   ]);
 
@@ -172,7 +189,7 @@ test("Modern UI/UX invariants: canonical brand mark, zero-mock overview, and add
 test("Phase 2 UI/UX Invariants: live policy data, Policy Studio presets, and merchant copying", async () => {
   const [inspector, policy, merchantDir, quorum, simulator] = await Promise.all([
     readFile(new URL("../src/screens/tenant/AgentInspector.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readScreen("Policy"),
     readFile(new URL("../src/screens/tenant/MerchantDirectory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/QuorumApprovals.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/PolicySimulator.tsx", import.meta.url), "utf8"),
@@ -334,7 +351,7 @@ test("Modern fintech theme invariants: typography, glassmorphism, radar telemetr
 
 test("finops dual-denomination rate cards and enterprise pricing models are integrated", async () => {
   const [settingsSrc, apiSrc] = await Promise.all([
-    readFile(new URL("../src/screens/tenant/Settings.tsx", import.meta.url), "utf8"),
+    readScreen("Settings"),
     readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
   ]);
 
@@ -373,7 +390,7 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
   const [copilotSrc, simulatorSrc, policySrc, apiSrc] = await Promise.all([
     readFile(new URL("../src/components/AICopilot.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/PolicySimulator.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readScreen("Policy"),
     readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
   ]);
 
@@ -411,7 +428,7 @@ test("ADR-0008: Alibaba Qwen 3.8 Max AI Copilot and Autonomous Circuit Breaker a
 test("ADR-0014: Agent Wallet Provisioning, Organization Treasury Wallets, and Load/Unload Flows are integrated", async () => {
   const [treasurySrc, fleetSrc, apiSrc] = await Promise.all([
     readFile(new URL("../src/screens/tenant/Treasury.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readScreen("Fleet"),
     readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
   ]);
 
@@ -445,7 +462,7 @@ test("Tier-1 Recommendations: ERC-4337 Paymaster sponsorship and ERC-6551 Token 
   const [configSrc, hooksSrc, fleetSrc] = await Promise.all([
     readFile(new URL("../src/configuration.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/usePolicyContracts.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readScreen("Fleet"),
   ]);
 
   // Contract coordinates in configuration
@@ -477,8 +494,8 @@ test("Tier-1 Recommendations: ERC-4337 Paymaster sponsorship and ERC-6551 Token 
 
 test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, Plain-Language Security Tab, 4-Scenario Testbench, and Compliance Manifest", async () => {
   const [fleetSrc, policySrc, inspectorSrc, simulatorSrc, activitySrc, globalsCss] = await Promise.all([
-    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readScreen("Fleet"),
+    readScreen("Policy"),
     readFile(new URL("../src/screens/tenant/AgentInspector.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/PolicySimulator.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/tenant/ActivityTrace.tsx", import.meta.url), "utf8"),
@@ -539,9 +556,9 @@ test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, Plain-Language Sec
 
 test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollback, and Predictive Threat Radar are integrated", async () => {
   const [fleetSrc, swarmSrc, policySrc, activitySrc, apiSrc, globalsCss] = await Promise.all([
-    readFile(new URL("../src/screens/tenant/Fleet.tsx", import.meta.url), "utf8"),
+    readScreen("Fleet"),
     readFile(new URL("../src/components/SwarmTopologyVisualizer.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/screens/tenant/Policy.tsx", import.meta.url), "utf8"),
+    readScreen("Policy"),
     readFile(new URL("../src/screens/tenant/ActivityTrace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
@@ -632,3 +649,61 @@ test("Navigation is a labeled, grouped sidebar with plain-language names and a m
   assert.doesNotMatch(topBar, /beacon-speed/);
 });
 
+
+test("role-aware navigation mirrors the gateway role matrix", async () => {
+  const { canViewDestination } = await import("../src/access.ts");
+
+  // Unknown role (still loading) never hides anything.
+  assert.equal(canViewDestination("", "/app/treasury"), true);
+  assert.equal(canViewDestination(null, "/app/billing"), true);
+
+  // Settlement-only destinations: super_admin and treasury.
+  for (const path of ["/app/billing", "/app/quorum"]) {
+    assert.equal(canViewDestination("super_admin", path), true);
+    assert.equal(canViewDestination("treasury", path), true);
+    for (const role of ["sec_ops", "fleet_devops", "agent_developer", "auditor"]) {
+      assert.equal(canViewDestination(role, path), false, `${role} should not see ${path}`);
+    }
+  }
+
+  // Treasury is visible read-only to security and audit, hidden from engineering roles.
+  assert.equal(canViewDestination("auditor", "/app/treasury"), true);
+  assert.equal(canViewDestination("sec_ops", "/app/treasury"), true);
+  assert.equal(canViewDestination("fleet_devops", "/app/treasury"), false);
+  assert.equal(canViewDestination("agent_developer", "/app/treasury"), false);
+
+  // Everything else is open to every role.
+  assert.equal(canViewDestination("fleet_devops", "/app/fleet"), true);
+  assert.equal(canViewDestination("auditor", "/app/activity"), true);
+});
+
+test("plain-language copy maps reason codes, events and trust scores", async () => {
+  const copy = await import("../src/copy.ts");
+
+  assert.equal(copy.reasonCodeLabel("ERR_NONE"), "Approved");
+  assert.equal(copy.reasonCodeLabel(null), "Approved");
+  assert.match(copy.reasonCodeLabel("ERR_KILL_SWITCH_ACTIVE"), /paused/);
+  assert.match(copy.reasonCodeLabel("ERR_SOMETHING_NEW"), /^Blocked/);
+  assert.equal(copy.isApprovedReasonCode("ERR_NONE"), true);
+  assert.equal(copy.isApprovedReasonCode("ERR_EXPIRED"), false);
+
+  assert.equal(copy.eventLabel("payment_cleared"), "Payment approved");
+  assert.equal(copy.eventLabel("circuit_tripped"), "Agent paused");
+  assert.equal(copy.eventLabel("someNewEvent"), "Some new event");
+
+  // Trust is only reported when there is a real score.
+  assert.equal(copy.trustScoreLabel(undefined), "Not yet scored");
+  assert.equal(copy.trustScoreLabel(null), "Not yet scored");
+  assert.equal(copy.trustScoreLabel(90), "High");
+  assert.equal(copy.trustScoreLabel(50), "Medium");
+  assert.equal(copy.trustScoreLabel(10), "Low");
+});
+
+test("no fabricated data paths remain in screens", async () => {
+  const { combined } = await combinedSource();
+  assert.doesNotMatch(combined, /5\.20% APY/);
+  assert.doesNotMatch(combined, /trustScoreForTier/);
+  assert.doesNotMatch(combined, /estimatedGas:\s*decision/);
+  assert.doesNotMatch(combined, /zScore:\s*[0-9]/);
+  assert.doesNotMatch(combined, /spendCapUsdc/);
+});

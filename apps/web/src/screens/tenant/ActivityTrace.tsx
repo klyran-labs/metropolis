@@ -297,7 +297,6 @@ export function ActivityTrace() {
             agentAddress: addr,
             anomalyType: "velocity_spike",
             severity: "critical",
-            zScore: 3.8,
             historicalCategory: "Policy Compliant",
             attemptedCategory: "Blocked by a spending rule",
             observedAt: ev.observedAt,
@@ -318,7 +317,6 @@ export function ActivityTrace() {
                 agentAddress: addr,
                 anomalyType: "category_drift",
                 severity: "medium",
-                zScore: 2.1,
                 historicalCategory: "Inference Escrow API",
                 attemptedCategory: "Unclassified External Contract",
                 observedAt: ev.observedAt,
@@ -337,7 +335,6 @@ export function ActivityTrace() {
             agentAddress: addr,
             anomalyType: "sub_threshold_probing",
             severity: "low",
-            zScore: 1.8,
             historicalCategory: "Normal Spend Distribution",
             attemptedCategory: "Micro-Targeted Ceiling Probing (98%)",
             observedAt: ev.observedAt,
@@ -716,9 +713,10 @@ export function ActivityTrace() {
             )}
           </div>
 
-          <div className="activity-type-chips segmented-filter-pills">
+          <div className="activity-type-chips segmented-filter-pills" role="group" aria-label="Filter activity">
             <button
               type="button"
+              aria-pressed={filterType === "all"}
               className={`activity-chip segmented-filter-pill ${filterType === "all" ? "active" : ""}`}
               onClick={() => setFilterType("all")}
             >
@@ -727,6 +725,7 @@ export function ActivityTrace() {
             </button>
             <button
               type="button"
+              aria-pressed={filterType === "payment_cleared"}
               className={`activity-chip segmented-filter-pill ${filterType === "payment_cleared" ? "active" : ""}`}
               onClick={() => setFilterType("payment_cleared")}
             >
@@ -735,6 +734,7 @@ export function ActivityTrace() {
             </button>
             <button
               type="button"
+              aria-pressed={filterType === "policy_evaluated"}
               className={`activity-chip segmented-filter-pill ${filterType === "policy_evaluated" ? "active" : ""}`}
               onClick={() => setFilterType("policy_evaluated")}
             >
@@ -743,6 +743,7 @@ export function ActivityTrace() {
             </button>
             <button
               type="button"
+              aria-pressed={filterType === "circuit_tripped"}
               className={`activity-chip segmented-filter-pill ${filterType === "circuit_tripped" ? "active" : ""}`}
               onClick={() => setFilterType("circuit_tripped")}
             >
@@ -767,7 +768,7 @@ export function ActivityTrace() {
         </div>
 
         {telemetryQuery.isError ? (
-          <EmptyState
+          <EmptyState kind="warning"
             title="Activity unavailable"
             detail="We couldn't load activity right now. Try again in a moment."
             action={
@@ -777,7 +778,7 @@ export function ActivityTrace() {
             }
           />
         ) : filteredEvents.length === 0 ? (
-          <EmptyState
+          <EmptyState kind="neutral"
             title="No activity yet"
             detail="Payments and rule changes will show up here as they happen."
             action={

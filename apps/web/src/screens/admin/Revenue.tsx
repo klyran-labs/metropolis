@@ -45,7 +45,7 @@ export function AdminRevenue() {
 
       {revenue.isError ? (
         <Surface>
-          <EmptyState title="Couldn't load revenue" detail="Try refreshing the page." />
+          <EmptyState kind="warning" title="Couldn't load revenue" detail="Try refreshing the page." />
         </Surface>
       ) : (
         <>

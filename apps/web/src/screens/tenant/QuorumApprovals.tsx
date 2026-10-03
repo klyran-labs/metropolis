@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ShieldAlert,
@@ -17,15 +17,13 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {
-  useAgents,
   useOrganizationWallets,
   useApproveWalletTransfer,
-  useSubmitWalletTransfer,
-  useWalletTransfers,
-  type WalletTransfer,
-  type Agent,
+  usePendingApprovals,
+  toUserFacingError,
+  type PendingApproval,
 } from "../../api";
-import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, Surface, TokenAmount, truncateMiddle } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 import type { OrganizationWallet } from "../../api";
@@ -56,20 +54,22 @@ function MultisigWalletRow({ wallet }: { wallet: OrganizationWallet }) {
   );
 }
 
+function approvalBlockReason(item: PendingApproval): string | null {
+  if (item.canApprove) return null;
+  return item.alreadySigned
+    ? "You've already signed this one. Waiting on other approvers."
+    : "You don't have access to this wallet, so someone else needs to approve.";
+}
+
 export function QuorumApprovals() {
   const identity = useIdentity();
-  const agentsQuery = useAgents(Boolean(identity.authenticated));
   const walletsQuery = useOrganizationWallets(Boolean(identity.authenticated));
-  const agents = agentsQuery.data ?? [];
   const wallets = walletsQuery.data ?? [];
-
-  const [selectedAgentAddress, setSelectedAgentAddress] = useState<string>(agents[0]?.address ?? "");
-  const transfersQuery = useWalletTransfers(
-    selectedAgentAddress || (agents[0]?.address ?? ""),
-    Boolean(identity.authenticated && (selectedAgentAddress || agents[0]?.address)),
-  );
+  const pendingQuery = usePendingApprovals(Boolean(identity.authenticated));
+  const pendingApprovals = pendingQuery.data?.approvals ?? [];
 
   const [actionMessage, setActionMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const handleCopy = (text: string) => {
@@ -78,28 +78,13 @@ export function QuorumApprovals() {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const refresh = () => {
-    void transfersQuery.refetch();
-    void walletsQuery.refetch();
-  };
-
   const approveMutation = useApproveWalletTransfer(() => {
     setActionMessage("Approved.");
-    refresh();
+    setErrorMessage("");
+    void pendingQuery.refetch();
+    void walletsQuery.refetch();
     setTimeout(() => setActionMessage(""), 5000);
   });
-
-  const submitMutation = useSubmitWalletTransfer(() => {
-    setActionMessage("Submitted.");
-    refresh();
-    setTimeout(() => setActionMessage(""), 5000);
-  });
-
-  const pendingTransfers = useMemo(() => {
-    return (transfersQuery.data ?? []).filter(
-      (t) => t.status === "pending_approval" || t.status === "pending",
-    );
-  }, [transfersQuery.data]);
 
   const multisigWallets = wallets.filter((w) => w.approvalThreshold > 1);
 
@@ -119,7 +104,7 @@ export function QuorumApprovals() {
             <span className="stat-label">Waiting for approval</span>
             <UsersRound size={18} className="accent-blue" />
           </div>
-          <strong className="stat-value">{pendingTransfers.length}</strong>
+          <strong className="stat-value">{pendingApprovals.length}</strong>
           <small className="stat-sub">Need a signature</small>
         </Surface>
 
@@ -142,6 +127,8 @@ export function QuorumApprovals() {
         </Surface>
       </div>
 
+      {errorMessage && <p className="form-message" role="alert">{errorMessage}</p>}
+
       {actionMessage && (
         <Surface className="transfer-message-banner">
           <CheckCircle2 size={16} />
@@ -153,28 +140,22 @@ export function QuorumApprovals() {
       <Surface>
         <div className="section-heading">
           <h2>Pending approvals</h2>
-          {agents.length > 0 && (
-            <div className="quorum-agent-filter-inline">
-              <AgentSelect
-                label="Filter by agent"
-                value={selectedAgentAddress || (agents[0]?.address ?? "")}
-                agents={agents}
-                onChange={(val) => setSelectedAgentAddress(val)}
-              />
-            </div>
-          )}
         </div>
 
-        {pendingTransfers.length > 0 ? (
+        {pendingQuery.isError ? (
+          <EmptyState kind="warning" title="Approvals unavailable" detail="You may not have access to approvals, or we couldn't load them. Try again shortly." tone="warning" />
+        ) : pendingApprovals.length > 0 ? (
           <div className="entity-list">
-            {pendingTransfers.map((item) => (
-              <div key={item.id} className="quorum-intent-card">
+            {pendingApprovals.map((item) => (
+              <div key={item.transferId} className="quorum-intent-card">
                 <div className="quorum-card-head">
                   <div className="quorum-type-badge">
                     <Bot size={15} />
                     <span>{item.direction === "load" ? "Add funds" : "Withdraw"}</span>
                   </div>
-                  <Badge tone="warning">Needs approval</Badge>
+                  <Badge tone="warning">
+                    {item.signatures} of {item.requiredSignatures} signatures
+                  </Badge>
                 </div>
 
                 <div className="quorum-card-body">
@@ -208,6 +189,11 @@ export function QuorumApprovals() {
                   </div>
 
                   <div className="quorum-field">
+                    <small>Agent</small>
+                    <Mono>{truncateMiddle(item.agentAddress, 8, 4)}</Mono>
+                  </div>
+
+                  <div className="quorum-field">
                     <small>Requested by</small>
                     <Mono>{truncateMiddle(item.initiatedBySubject, 10, 6)}</Mono>
                   </div>
@@ -216,18 +202,24 @@ export function QuorumApprovals() {
                 <div className="quorum-card-actions">
                   <Button
                     variant="filled"
-                    onClick={() => approveMutation.mutate(item.id)}
-                    disabled={approveMutation.isPending}
+                    onClick={() =>
+                      approveMutation.mutate(item.transferId, {
+                        onError: (error) =>
+                          setErrorMessage(toUserFacingError(error, "That approval could not be recorded.")),
+                      })
+                    }
+                    disabled={!item.canApprove || approveMutation.isPending}
                   >
                     <CheckCheck size={14} />
                     <span>{approveMutation.isPending ? "Approving…" : "Approve"}</span>
                   </Button>
+                  {approvalBlockReason(item) && <small className="subtle">{approvalBlockReason(item)}</small>}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <EmptyState
+          <EmptyState kind="success"
             title="Nothing needs approval"
             detail="Transfers that need more than one signature will show up here."
             action={
@@ -254,7 +246,7 @@ export function QuorumApprovals() {
             ))}
           </div>
         ) : (
-          <EmptyState
+          <EmptyState kind="wallet"
             title="No multi-approval wallets yet"
             detail="Require more than one signature for large transfers by setting this up on a treasury wallet."
             action={

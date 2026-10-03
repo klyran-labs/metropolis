@@ -200,7 +200,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
 
   if (agents.length === 0) {
     return (
-      <EmptyState
+      <EmptyState kind="agents"
         title="No agents to show yet"
         detail="Register agents in your fleet to author hierarchical swarm topologies with blast-radius containment."
       />

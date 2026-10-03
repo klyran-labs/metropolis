@@ -87,7 +87,7 @@ export function AdminTenants() {
           <h2>Organizations ({tenants.data?.length ?? 0})</h2>
         </div>
         {tenants.isError ? (
-          <EmptyState title="Couldn't load organizations" detail="Try refreshing the page." />
+          <EmptyState kind="warning" title="Couldn't load organizations" detail="Try refreshing the page." />
         ) : tenants.data?.length ? (
           <div className="table-viewport">
             <table>
@@ -114,7 +114,7 @@ export function AdminTenants() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No organizations yet" detail="Add your first organization above." />
+          <EmptyState kind="neutral" title="No organizations yet" detail="Add your first organization above." />
         )}
       </Surface>
     </div>

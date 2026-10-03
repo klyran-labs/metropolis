@@ -22,7 +22,6 @@ import { isAddress } from "viem";
 import { toUserFacingError, useAgents } from "../../api";
 import { AgentSelect, Badge, Button, EmptyState, Mono, Select, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
 import { useIdentity } from "../../identity";
-import { configuration } from "../../configuration";
 import { useSetMerchantWhitelist, useIsMerchantWhitelisted } from "../../hooks/usePolicyContracts";
 
 export interface MerchantEntry {
@@ -32,9 +31,6 @@ export interface MerchantEntry {
   address: string;
   endpointUrl: string;
   whitelisted: boolean;
-  spendCapUsdc: string;
-  protocolStandard: "x402" | "AP2" | "EIP-712";
-  reputationScore: number;
 }
 
 const STORAGE_KEY = "agentguard_merchant_registry_v1";
@@ -50,34 +46,7 @@ function loadStoredMerchants(): MerchantEntry[] {
     // ignore parsing errors
   }
 
-  const initial: MerchantEntry[] = [];
-  if (configuration.contracts.agentWalletGuard) {
-    initial.push({
-      id: "m-wallet-guard",
-      name: "AgentGuard Payment Escrow",
-      category: "defi",
-      address: configuration.contracts.agentWalletGuard,
-      endpointUrl: "Holds payments until they are confirmed",
-      whitelisted: true,
-      spendCapUsdc: "1000.00",
-      protocolStandard: "EIP-712",
-      reputationScore: 100,
-    });
-  }
-  if (configuration.contracts.settlementToken) {
-    initial.push({
-      id: "m-settlement-token",
-      name: "USDC Payments",
-      category: "defi",
-      address: configuration.contracts.settlementToken,
-      endpointUrl: "Processes USDC payments",
-      whitelisted: true,
-      spendCapUsdc: "500.00",
-      protocolStandard: "EIP-712",
-      reputationScore: 100,
-    });
-  }
-  return initial;
+  return [];
 }
 
 function saveStoredMerchants(merchants: MerchantEntry[]) {
@@ -145,16 +114,11 @@ function MerchantCard({
             )}
           </button>
         </div>
-        <span className="protocol-pill">{merchant.protocolStandard === "EIP-712" ? "Verified" : merchant.protocolStandard === "x402" ? "Pay-per-use" : "Agent payments"}</span>
       </div>
 
-      <p className="merchant-endpoint">{merchant.endpointUrl}</p>
+      {merchant.endpointUrl && <p className="merchant-endpoint">{merchant.endpointUrl}</p>}
 
       <div className="merchant-metrics">
-        <div className="merchant-metric-cell">
-          <small>Spending limit</small>
-          <strong>{merchant.spendCapUsdc} USDC</strong>
-        </div>
         <div className="merchant-metric-cell">
           <small>Status</small>
           <strong className="reputation-green">
@@ -195,7 +159,6 @@ export function MerchantDirectory() {
   const [newAddress, setNewAddress] = useState("");
   const [newEndpoint, setNewEndpoint] = useState("");
   const [newCategory, setNewCategory] = useState<"inference" | "compute" | "rpc" | "defi">("inference");
-  const [newSpendCap, setNewSpendCap] = useState("100.00");
   const [formMessage, setFormMessage] = useState("");
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
@@ -270,11 +233,8 @@ export function MerchantDirectory() {
       name: newName.trim(),
       category: newCategory,
       address: newAddress.trim(),
-      endpointUrl: newEndpoint.trim() || "Pay-per-use service",
+      endpointUrl: newEndpoint.trim(),
       whitelisted: true,
-      spendCapUsdc: newSpendCap.trim() || "100.00",
-      protocolStandard: "x402",
-      reputationScore: 100,
     };
 
     const nextList = [newEntry, ...merchants];
@@ -403,7 +363,7 @@ export function MerchantDirectory() {
         </div>
       ) : (
         <Surface>
-          <EmptyState
+          <EmptyState kind="agents"
             title="No merchants yet"
             detail="Add the first merchant your agents are allowed to pay."
           />
@@ -464,12 +424,6 @@ export function MerchantDirectory() {
                   { value: "rpc", label: "RPC Nodes & Oracles" },
                   { value: "defi", label: "DeFi & DEX Execution" },
                 ]}
-              />
-
-              <TextField
-                label="Spending limit (USDC)"
-                value={newSpendCap}
-                onChange={(e) => setNewSpendCap(e.target.value)}
               />
 
               {formMessage && <p className="form-message">{formMessage}</p>}

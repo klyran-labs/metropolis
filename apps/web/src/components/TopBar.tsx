@@ -149,7 +149,7 @@ export function TopBar({
       {/* Right: Actions, Global Search, Copilot, Monad Beacon, Profile */}
       <div className="top-bar-right">
         {!isPlatformAdmin && (
-          <Link to="/app/fleet" className="top-bar-primary-btn">
+          <Link to="/app/fleet" className="top-bar-primary-btn" aria-label="New agent">
             <Plus size={15} />
             <span>New agent</span>
           </Link>

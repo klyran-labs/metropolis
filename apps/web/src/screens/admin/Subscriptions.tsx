@@ -51,7 +51,7 @@ export function AdminSubscriptions() {
       </header>
       <Surface>
         {subscriptions.isError ? (
-          <EmptyState title="Subscription directory unavailable" detail="We couldn't load subscriptions right now." />
+          <EmptyState kind="warning" title="Subscription directory unavailable" detail="We couldn't load subscriptions right now." />
         ) : rows.length ? (
           <div className="table-viewport">
             <table>
@@ -78,7 +78,7 @@ export function AdminSubscriptions() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No subscriptions yet" detail="Subscriptions will appear once a tenant checks out a plan." />
+          <EmptyState kind="billing" title="No subscriptions yet" detail="Subscriptions will appear once a tenant checks out a plan." />
         )}
       </Surface>
     </div>

@@ -24,6 +24,8 @@ import {
   X,
 } from "lucide-react";
 import { configuration } from "./configuration";
+import { canViewDestination } from "./access";
+import { usePendingApprovals } from "./api";
 import { useIdentity } from "./identity";
 
 export type NavItemDef = {
@@ -31,6 +33,8 @@ export type NavItemDef = {
   label: string;
   icon: ReactNode;
   hint?: string;
+  /** Count shown as a small badge (e.g. items waiting on you). */
+  count?: number;
 };
 
 export type NavGroupDef = {
@@ -146,6 +150,11 @@ function NavLink({
     >
       <span className="sidebar-link-icon">{item.icon}</span>
       <span className="sidebar-link-label">{item.label}</span>
+      {item.count ? (
+        <span className="sidebar-link-count" aria-label={`${item.count} waiting`}>
+          {item.count > 99 ? "99+" : item.count}
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -194,6 +203,19 @@ function Sidebar({
 
   const workspaceName = area === "app" ? identity.tenantName || "Your workspace" : "Platform";
 
+  const pending = usePendingApprovals(area === "app" && Boolean(identity.authenticated) && canViewDestination(identity.role, "/app/quorum"));
+  const pendingForMe = (pending.data?.approvals ?? []).filter((approval) => approval.canApprove).length;
+
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => canViewDestination(identity.role, item.to))
+        .map((item) => (item.to === "/app/quorum" ? { ...item, count: pendingForMe } : item)),
+    }))
+    .filter((group) => group.items.length > 0);
+  const visibleFooter = footerItems.filter((item) => canViewDestination(identity.role, item.to));
+
   return (
     <>
       {drawerOpen && <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
@@ -226,7 +248,7 @@ function Sidebar({
         </div>
 
         <nav className="sidebar-nav" aria-label={contextLabel}>
-          {groups.map((group, index) => (
+          {visibleGroups.map((group, index) => (
             <div className="sidebar-group" key={group.label ?? `group-${index}`}>
               {group.label && <div className="sidebar-group-label">{group.label}</div>}
               {group.items.map((item) => (
@@ -237,7 +259,7 @@ function Sidebar({
         </nav>
 
         <div className="sidebar-footer">
-          {footerItems.map((item) => (
+          {visibleFooter.map((item) => (
             <NavLink key={item.to} item={item} collapsed={collapsed} onNavigate={() => setDrawerOpen(false)} />
           ))}
           <button

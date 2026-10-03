@@ -1,6 +1,7 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { configuration } from "./configuration";
+import { POLL } from "./polling";
 
 export type Agent = {
   address: string;
@@ -159,7 +160,7 @@ export type ThreatAnomaly = {
   agentAddress: string;
   anomalyType: ThreatAnomalyType;
   severity: ThreatSeverity;
-  zScore: number;
+  zScore?: number;
   historicalCategory: string;
   attemptedCategory: string;
   observedAt: string;
@@ -750,15 +751,48 @@ export const useSubmitWalletTransfer = (onSuccess: () => void) =>
     onSuccess,
   });
 
-export const useApproveWalletTransfer = (onSuccess: () => void) =>
-  useMutation({
+export type PendingApproval = {
+  transferId: string;
+  direction: "load" | "unload";
+  amountBaseUnits: string;
+  agentAddress: string;
+  initiatedBySubject: string;
+  createdAt: string;
+  expiresAt: string;
+  walletId: string;
+  walletLabel: string;
+  walletAddress: string;
+  signatures: number;
+  requiredSignatures: number;
+  alreadySigned: boolean;
+  canApprove: boolean;
+};
+
+/** Org-wide transfers waiting on signatures. A 403 (role without settlement access) simply yields no data. */
+export const usePendingApprovals = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["pending-approvals"],
+    queryFn: ({ signal }) =>
+      request<{ count: number; approvals: PendingApproval[] }>("/wallet-transfers/pending", { signal }),
+    enabled,
+    retry: false,
+    refetchInterval: POLL.attention,
+  });
+
+export const useApproveWalletTransfer = (onSuccess: () => void) => {
+  const queryClient = useQueryClient();
+  return useMutation({
     mutationFn: (transferId: string) =>
       request<WalletTransferResult>(
         `/wallet-transfers/${encodeURIComponent(transferId)}/approve`,
         { method: "POST" },
       ),
-    onSuccess,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      onSuccess();
+    },
   });
+};
 
 export type ApiKey = {
   id: string;
@@ -1017,7 +1051,7 @@ export function useSettlementOutbox(statusFilter?: string, enabled = true) {
       return request<SettlementOutboxResponse>(`/v1/settlement/outbox${query}`);
     },
     enabled,
-    refetchInterval: 3000,
+    refetchInterval: POLL.live,
   });
 }
 
@@ -1076,7 +1110,7 @@ export function useRelayerPoolStats(enabled = true) {
     queryKey: ["settlement-relayers"],
     queryFn: () => request<RelayerPoolStats>("/v1/settlement/relayers"),
     enabled,
-    refetchInterval: 3000,
+    refetchInterval: POLL.live,
   });
 }
 
@@ -1094,7 +1128,7 @@ export function useMevRelayStats(enabled = true) {
     queryKey: ["settlement-mev-stats"],
     queryFn: () => request<MevRelayStats>("/v1/settlement/mev-stats"),
     enabled,
-    refetchInterval: 3000,
+    refetchInterval: POLL.live,
   });
 }
 
@@ -1141,7 +1175,7 @@ export function useAgentLiveness(agent: string, enabled = true) {
     queryKey: ["agent-liveness", agent],
     queryFn: () => request<AgentLivenessStatus>(`/v1/agent/${agent}/heartbeat`),
     enabled: Boolean(agent && enabled),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -1174,7 +1208,7 @@ export function useEdgeTopology(enabled = true) {
     queryKey: ["edge-topology"],
     queryFn: () => request<EdgeTopologyResponse>("/v1/edge/topology"),
     enabled,
-    refetchInterval: 4000,
+    refetchInterval: POLL.fast,
   });
 }
 

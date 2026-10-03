@@ -70,7 +70,7 @@ export function AdminAccess() {
           <h2>Team ({operators.data?.length ?? 0})</h2>
         </div>
         {operators.isError ? (
-          <EmptyState title="Couldn't load team" detail="Try refreshing the page." />
+          <EmptyState kind="warning" title="Couldn't load team" detail="Try refreshing the page." />
         ) : operators.data?.length ? (
           <div className="entity-list">
             {operators.data.map((operator) => (
@@ -82,7 +82,7 @@ export function AdminAccess() {
             ))}
           </div>
         ) : (
-          <EmptyState title="No team members yet" detail="Add your first team member above." />
+          <EmptyState kind="neutral" title="No team members yet" detail="Add your first team member above." />
         )}
       </Surface>
     </div>

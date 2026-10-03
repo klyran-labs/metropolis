@@ -13,7 +13,6 @@ import {
   SendHorizontal,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
   UsersRound,
   Wallet,
 } from "lucide-react";
@@ -114,7 +113,7 @@ function WalletAccessPanel({ wallet }: { wallet: OrganizationWallet }) {
           ))}
         </div>
       ) : (
-        <EmptyState title="No access grants yet" detail="Grant access to operators who should be able to load or unload this wallet." />
+        <EmptyState kind="credentials" title="No access grants yet" detail="Grant access to operators who should be able to load or unload this wallet." />
       )}
       <div className="inline-form">
         <TextField
@@ -382,8 +381,6 @@ export function Treasury() {
 
   // Paymaster Gas Sponsorship Float state
   const primaryTreasury = rows[0]?.address || connectedWallets[0]?.address || "";
-  const livePrimaryUsdc = useLiveTokenBalance(primaryTreasury, Boolean(primaryTreasury));
-  const primaryUsdcBalance = livePrimaryUsdc.data !== null && livePrimaryUsdc.data !== undefined ? Number(livePrimaryUsdc.data) / 1e6 : 0;
   const paymasterBalanceQuery = usePaymasterTreasuryBalance(primaryTreasury);
   const paymasterFloatMon = Number(paymasterBalanceQuery.data || 0n) / 1e18;
   const [paymasterModalOpen, setPaymasterModalOpen] = useState(false);
@@ -610,9 +607,10 @@ export function Treasury() {
         <div className="section-heading">
           <h2>Add treasury wallet</h2>
         </div>
-        <div className="wallet-kind-toggle" role="tablist" aria-label="Wallet source">
+        <div className="wallet-kind-toggle" role="group" aria-label="Wallet source">
           <button
             type="button"
+            aria-pressed={kind === "sovereign"}
             className={kind === "sovereign" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => handleSelectKind("sovereign")}
           >
@@ -620,6 +618,7 @@ export function Treasury() {
           </button>
           <button
             type="button"
+            aria-pressed={kind === "external"}
             className={kind === "external" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => handleSelectKind("external")}
           >
@@ -803,7 +802,7 @@ export function Treasury() {
           </div>
         </div>
         {wallets.isError ? (
-          <EmptyState title="Wallets unavailable" detail="We couldn't load your treasury wallets right now." />
+          <EmptyState kind="warning" title="Wallets unavailable" detail="We couldn't load your treasury wallets right now." />
         ) : rows.length ? (
           <div className="entity-list">
             {rows.map((wallet) => (
@@ -817,7 +816,7 @@ export function Treasury() {
             ))}
           </div>
         ) : (
-          <EmptyState
+          <EmptyState kind="wallet"
             title="No treasury wallets configured"
             detail="Register a treasury vault or connected Web3 wallet above to manage fleet disbursements."
             action={
@@ -835,67 +834,6 @@ export function Treasury() {
           />
         )}
       </Surface>
-
-      {/* Autonomous Yield Float Sweeper & Liquid Staking Optimizer */}
-      <div style={{ marginTop: "20px" }}>
-        <Surface className="treasury-section-panel">
-          <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <TrendingUp className="h-5 w-5 text-accent-blue" />
-              <h2>Grow idle balances</h2>
-              <Badge tone="success">5.20% APY</Badge>
-            </div>
-            <Button
-              variant="tonal"
-              onClick={() => {
-                toast({
-                  title: "Balances rebalanced",
-                  message: "Moved idle funds into yield, keeping 20% available for instant use.",
-                  tone: "success",
-                });
-              }}
-            >
-              <Sparkles size={14} style={{ marginRight: 6 }} />
-              <span>Rebalance now</span>
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3" style={{ marginTop: "16px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
-            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Total balance</span>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", fontFamily: "var(--font-mono)" }}>
-                {primaryUsdcBalance.toFixed(2)} USDC
-              </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>Held in your treasury</span>
-            </div>
-
-            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Available instantly</span>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--color-primary)", fontFamily: "var(--font-mono)" }}>
-                {(primaryUsdcBalance * 0.2).toFixed(2)} USDC
-              </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>20% kept liquid for immediate use</span>
-            </div>
-
-            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Earning yield</span>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--status-good)", fontFamily: "var(--font-mono)" }}>
-                {(primaryUsdcBalance * 0.8).toFixed(2)} USDC
-              </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--status-good)" }}>80% earning yield</span>
-            </div>
-
-            <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)" }}>
-              <span style={{ fontSize: "0.76rem", color: "var(--color-on-surface-variant)" }}>Instant withdrawal</span>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "4px", color: "var(--accent-blue)" }}>
-                Active
-              </div>
-              <span style={{ fontSize: "0.72rem", color: "var(--color-on-surface-variant)" }}>No wait time to access funds</span>
-            </div>
-          </div>
-        </Surface>
-      </div>
-
 
       <Dialog
         open={transferModalOpen}

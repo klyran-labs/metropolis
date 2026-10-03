@@ -1,177 +1,18 @@
 import { useWallets } from "@privy-io/react-auth";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  PlayCircle,
-  ShieldCheck,
-  ShieldAlert,
-  Sliders,
-  Sparkles,
-  Clock,
-  ArrowRight,
-  CheckCircle2,
-  AlertTriangle,
-  Bot,
-  AlertOctagon,
-  Copy,
-  Calculator,
-  Scale,
-  Gauge,
-  RotateCcw,
-  TrendingUp,
-  Code2,
-  ChevronDown,
-  SlidersHorizontal,
-} from "lucide-react";
-import {
-  clearStoredCanaryDeployment,
-  getStoredCanaryDeployments,
-  inspectCalldata,
-  request,
-  saveStoredCanaryDeployment,
-  toUserFacingError,
-  useAgentPolicy,
-  useAgents,
-  type CalldataInspectionResponse,
-  type CanaryDeployment,
-  type CanaryStage,
-  type PolicyUpdate,
-} from "../../api";
+import { PlayCircle, ShieldCheck, Sparkles, CheckCircle2, AlertTriangle, AlertOctagon, Copy, Scale, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { clearStoredCanaryDeployment, getStoredCanaryDeployments, inspectCalldata, request, saveStoredCanaryDeployment, toUserFacingError, useAgentPolicy, useAgents, type CalldataInspectionResponse, type CanaryDeployment, type CanaryStage, type PolicyUpdate } from "../../api";
 import { useToast } from "../../components/UndoToast";
-import {
-  AgentSelect,
-  Badge,
-  Button,
-  Dialog,
-  EmptyState,
-  formatTokenAmount,
-  Mono,
-  RecordSummary,
-  Select,
-  Surface,
-  TextField,
-  TransactionStatus,
-  truncateMiddle,
-  formatRiskTier,
-  type TransactionPhase,
-} from "../../design-system";
+import { AgentSelect, Badge, Button, Dialog, Mono, Select, Surface, TextField, TransactionStatus, truncateMiddle, formatRiskTier, type TransactionPhase } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
-import { reasonCodeLabel } from "../../copy";
-
-async function waitForReceipt(
-  provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> },
-  transactionHash: string,
-) {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const receipt = (await provider.request({
-      method: "eth_getTransactionReceipt",
-      params: [transactionHash],
-    })) as { status?: string } | null;
-    if (receipt) {
-      if (receipt.status === "0x0") {
-        throw new Error("The settlement approval was rejected by the network.");
-      }
-      return;
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 750));
-  }
-  throw new Error("The settlement approval did not reach finality in time.");
-}
-
-const policyLabels: Record<string, string> = {
-  maxPerTx: "Maximum per transaction",
-  maxPerWindow: "Maximum per window",
-  windowSeconds: "Window duration (seconds)",
-  maxVelocity: "Velocity limit",
-  killSwitch: "Paused",
-  whitelistEnabled: "Approved merchants required",
-};
-
-interface PolicyPreset {
-  label: string;
-  description: string;
-  maxPerTx: string;
-  maxPerWindow: string;
-  windowSeconds: number;
-  maxVelocity: number;
-}
-
-const POLICY_PRESETS: PolicyPreset[] = [
-  {
-    label: "Micro Inference",
-    description: "LLM completions & embeddings ($10/tx, $100/hr)",
-    maxPerTx: "10",
-    maxPerWindow: "100",
-    windowSeconds: 3600,
-    maxVelocity: 50,
-  },
-  {
-    label: "Standard Autonomous",
-    description: "Autonomous task execution ($50/tx, $500/hr)",
-    maxPerTx: "50",
-    maxPerWindow: "500",
-    windowSeconds: 3600,
-    maxVelocity: 20,
-  },
-  {
-    label: "High-Volume Trader",
-    description: "DeFi rebalancing & high-cadence bots ($250/tx, $2k/hr)",
-    maxPerTx: "250",
-    maxPerWindow: "2000",
-    windowSeconds: 3600,
-    maxVelocity: 100,
-  },
-  {
-    label: "Low-Cost AI Agent",
-    description: "Small, frequent AI calls ($0.10/tx, $1.50/hr, 10 tx/hr)",
-    maxPerTx: "0.10",
-    maxPerWindow: "1.50",
-    windowSeconds: 3600,
-    maxVelocity: 10,
-  },
-];
-
-function parseBaseUnits(amountStr: string | number, decimals = 6): bigint {
-  const str = String(amountStr ?? "0").trim();
-  if (!str) return 0n;
-  const [whole = "0", fraction = ""] = str.split(".");
-  const padded = fraction.slice(0, decimals).padEnd(decimals, "0");
-  return BigInt(whole || "0") * (10n ** BigInt(decimals)) + BigInt(padded);
-}
-
-function baseUnitsToDollars(val: string | number | bigint | null | undefined, decimals = 6): string {
-  if (val === null || val === undefined || val === "") return "0";
-  const str = String(val).trim();
-  if (str.includes(".")) return str;
-  const num = Number(str);
-  if (isNaN(num) || num === 0) return "0";
-  const float = num / (10 ** decimals);
-  return Number(float.toFixed(decimals)).toString();
-}
-
-function formatUsdcAmount(amount: string | number): string {
-  const float = typeof amount === "number" ? amount : parseFloat(amount || "0");
-  if (isNaN(float) || float <= 0) return "$0.00 USDC";
-  if (float < 0.01) {
-    return `$${float.toFixed(6)} USDC`;
-  }
-  return `$${float.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
-}
-
-function formatWindowEpoch(seconds: number): string {
-  if (seconds === 900) return "15 minutes";
-  if (seconds === 3600) return "1 hour";
-  if (seconds === 21600) return "6 hours";
-  if (seconds === 86400) return "24 hours";
-  if (seconds === 604800) return "7 days";
-  if (seconds < 60) return `${seconds}s`;
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
-  if (hours > 0) return `${hours} hour${hours > 1 ? "s" : ""}`;
-  return `${mins} minute${mins > 1 ? "s" : ""}`;
-}
+import { waitForReceipt, policyLabels, POLICY_PRESETS, parseBaseUnits, baseUnitsToDollars, formatUsdcAmount, formatWindowEpoch, type PolicyPreset } from "./policy/utils";
+import { PolicyDiffTable } from "./policy/PolicyDiffTable";
+import { DryRunPanel } from "./policy/DryRunPanel";
+import { CanaryPanel } from "./policy/CanaryPanel";
+import { TransactionInspector } from "./policy/TransactionInspector";
+import { LivePolicyCard } from "./policy/LivePolicyCard";
 
 export function Policy() {
   const identity = useIdentity();
@@ -759,6 +600,7 @@ export function Policy() {
                 <div className="policy-clone-wrap">
                   <select
                     className="clone-policy-select"
+                    aria-label="Copy limits from another agent"
                     value={cloneSourceAgent}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -957,6 +799,7 @@ export function Policy() {
                 <label className="modern-switch">
                   <input
                     type="checkbox"
+                    aria-label="Pause this agent"
                     checked={draft.killSwitch}
                     onChange={(event) => setDraft({ ...draft, killSwitch: event.target.checked })}
                   />
@@ -982,6 +825,7 @@ export function Policy() {
                 <label className="modern-switch">
                   <input
                     type="checkbox"
+                    aria-label="Require approved merchants"
                     checked={draft.whitelistEnabled}
                     onChange={(event) => setDraft({ ...draft, whitelistEnabled: event.target.checked })}
                   />
@@ -1059,389 +903,40 @@ export function Policy() {
                 <ChevronDown size={16} className="policy-advanced-chevron" />
               </summary>
               <div className="policy-advanced-content">
-                {/* Visual Policy Delta / Diff Analysis */}
-            {policyDiff.length > 0 && (
-              <div className="policy-diff-section">
-                <div className="policy-dryrun-header">
-                  <Scale size={18} />
-                  <span>What's changing</span>
-                  <Badge tone="info">{policyDiff.length} {policyDiff.length === 1 ? "change" : "changes"}</Badge>
-                </div>
-                <table className="policy-diff-table">
-                  <thead>
-                    <tr>
-                      <th>Setting</th>
-                      <th>Current</th>
-                      <th>New</th>
-                      <th>Change</th>
-                      <th>Risk</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {policyDiff.map((d) => (
-                      <tr key={d.param}>
-                        <td><strong>{d.param}</strong></td>
-                        <td><Mono>{d.current}</Mono></td>
-                        <td><Mono>{d.draftVal}</Mono></td>
-                        <td>
-                          <Badge tone={d.deltaText.startsWith("+") ? "warning" : "neutral"}>
-                            {d.deltaText}
-                          </Badge>
-                        </td>
-                        <td>
-                          <Badge tone={d.risk === "high" ? "critical" : d.risk === "medium" ? "warning" : "success"}>
-                            {d.risk.toUpperCase()}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                <PolicyDiffTable diffs={policyDiff} />
 
-            {/* Interactive Live Pre-Flight Dry-Run Sandbox */}
-            <div className="policy-dryrun-section">
-              <div className="policy-dryrun-header">
-                <Calculator size={18} />
-                <span>Test before you publish</span>
-                <Badge tone={dryRunVerdict.allowed ? "success" : "critical"}>
-                  {dryRunVerdict.allowed ? "Would go through" : "Would be blocked"}
-                </Badge>
-              </div>
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
-                Try a sample payment against these settings before you publish them.
-              </p>
-              <div className="policy-dryrun-inputs">
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <TextField
-                    label="Amount (USDC)"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={dryRunAmount}
-                    onChange={(e) => setDryRunAmount(e.target.value)}
-                    placeholder="15.00"
-                  />
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <Select
-                    label="Recipient"
-                    value={dryRunMerchant}
-                    onChange={(val) => setDryRunMerchant(val)}
-                    options={[
-                      { value: "whitelisted", label: "Approved merchant" },
-                      { value: "unwhitelisted", label: "Unapproved address" },
-                    ]}
-                  />
-                </div>
-              </div>
+            <DryRunPanel
+              verdict={dryRunVerdict}
+              amount={dryRunAmount}
+              onAmountChange={setDryRunAmount}
+              merchant={dryRunMerchant}
+              onMerchantChange={setDryRunMerchant}
+            />
 
-              <div className={`policy-verdict-banner ${dryRunVerdict.allowed ? "verdict-allowed" : "verdict-denied"}`}>
-                {dryRunVerdict.allowed ? (
-                  <ShieldCheck size={20} color="var(--status-success, #2ed573)" style={{ flexShrink: 0, marginTop: 2 }} />
-                ) : (
-                  <AlertOctagon size={20} color="var(--status-critical, #ff4757)" style={{ flexShrink: 0, marginTop: 2 }} />
-                )}
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <strong style={{ fontSize: "0.88rem" }}>
-                      {reasonCodeLabel(dryRunVerdict.title)}
-                    </strong>
-                  </div>
-                  <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--on-surface-secondary)" }}>
-                    {dryRunVerdict.description}
-                  </p>
-                  <small style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
-                    {dryRunVerdict.remediation}
-                  </small>
-                </div>
-              </div>
-            </div>
+            <CanaryPanel
+              deployment={canaryDeployment}
+              isPublishing={isPublishing}
+              canStage={Boolean(agent) && changedFields.length > 0}
+              onInit={handleInitCanary}
+              onAdvance={handleAdvanceCanary}
+              onRollback={handleEmergencyRollback}
+              onCancel={handleCancelCanary}
+            />
 
-            {/* Canary Policy Deployment & Automated Rollback Guard */}
-            <div className="policy-canary-section">
-              <div className="policy-canary-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Gauge size={18} />
-                  <span style={{ fontWeight: 700, fontSize: "0.92rem" }}>Gradual rollout</span>
-                </div>
-                {canaryDeployment ? (
-                  <Badge tone={canaryDeployment.stage === "rolled_back" ? "critical" : canaryDeployment.stage === "promoted_100" ? "success" : "warning"}>
-                    {canaryDeployment.trafficPct}% of traffic
-                  </Badge>
-                ) : (
-                  <Badge tone="neutral">Not started</Badge>
-                )}
-              </div>
-
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
-                Roll out this change to a small share of traffic first, then expand once you're confident it's safe. If something looks wrong, roll back instantly.
-              </p>
-
-              {canaryDeployment ? (
-                <div className="canary-active-card">
-                  {/* 5-Stage Visual Stepper */}
-                  <div className="canary-stepper" role="group" aria-label="Canary Rollout Stages">
-                    {[
-                      { key: "staged", label: "0% Staged", pct: 0 },
-                      { key: "canary_10", label: "10% Pilot", pct: 10 },
-                      { key: "canary_25", label: "25% Scale", pct: 25 },
-                      { key: "canary_50", label: "50% Trial", pct: 50 },
-                      { key: "promoted_100", label: "100% Consensus", pct: 100 },
-                    ].map((step, idx) => {
-                      const isPassed = canaryDeployment.trafficPct >= step.pct;
-                      const isCurrent = canaryDeployment.stage === step.key;
-                      return (
-                        <div
-                          key={step.key}
-                          className={`canary-step-pill ${isPassed ? "step-passed" : ""} ${isCurrent ? "step-current" : ""}`}
-                        >
-                          <div className="step-badge">{idx}</div>
-                          <div className="step-text">
-                            <strong>{step.label}</strong>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Live Breaker Telemetry */}
-                  <div className="canary-metrics-row">
-                    <div className="canary-metric-box">
-                      <small className="muted-label">Problem rate</small>
-                      <strong style={{ color: canaryDeployment.observedBreachRatePct > canaryDeployment.anomalyThresholdPct ? "var(--error)" : "var(--status-good)" }}>
-                        {canaryDeployment.observedBreachRatePct.toFixed(1)}%
-                      </strong>
-                    </div>
-                    <div className="canary-metric-box">
-                      <small className="muted-label">Safety threshold</small>
-                      <strong>{canaryDeployment.anomalyThresholdPct.toFixed(1)}%</strong>
-                    </div>
-                    <div className="canary-metric-box">
-                      <small className="muted-label">Traffic on new rules</small>
-                      <strong>{canaryDeployment.trafficPct}%</strong>
-                    </div>
-                  </div>
-
-                  {/* Safety Alert if Breached */}
-                  {canaryDeployment.observedBreachRatePct > canaryDeployment.anomalyThresholdPct && (
-                    <div className="canary-breach-alert">
-                      <AlertOctagon size={18} />
-                      <div>
-                        <strong>Unusual activity detected</strong>
-                        <p style={{ margin: 0, fontSize: "0.78rem" }}>
-                          The problem rate ({canaryDeployment.observedBreachRatePct}%) is above the safety threshold ({canaryDeployment.anomalyThresholdPct}%). Rolling back is recommended.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Canary Action Bar */}
-                  <div className="canary-actions-bar">
-                    {canaryDeployment.stage !== "promoted_100" && canaryDeployment.stage !== "rolled_back" && (
-                      <Button
-                        variant="filled"
-                        onClick={handleAdvanceCanary}
-                        disabled={isPublishing}
-                      >
-                        <TrendingUp size={14} style={{ marginRight: 6 }} />
-                        <span>
-                          {canaryDeployment.stage === "staged"
-                            ? "Start with 10% of traffic"
-                            : canaryDeployment.stage === "canary_10"
-                              ? "Move to 25%"
-                              : canaryDeployment.stage === "canary_25"
-                                ? "Move to 50%"
-                                : "Roll out to everyone"}
-                        </span>
-                      </Button>
-                    )}
-
-                    <Button
-                      variant="filled"
-                      className="control-critical"
-                      onClick={handleEmergencyRollback}
-                      disabled={isPublishing}
-                      title="Instantly restore the previous settings"
-                    >
-                      <RotateCcw size={14} style={{ marginRight: 6 }} />
-                      <span>{isPublishing ? "Rolling back…" : "Roll back now"}</span>
-                    </Button>
-
-                    <Button
-                      variant="tonal"
-                      onClick={handleCancelCanary}
-                      disabled={isPublishing}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="canary-idle-banner">
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-                    <span style={{ fontSize: "0.82rem", color: "var(--on-surface-secondary)" }}>
-                      Roll this change out gradually instead of publishing it to everyone at once.
-                    </span>
-                    <Button
-                      variant="tonal"
-                      onClick={handleInitCanary}
-                      disabled={!agent || changedFields.length === 0}
-                    >
-                      <Gauge size={14} style={{ marginRight: 6 }} />
-                      <span>Start gradual rollout (10%)</span>
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Transaction details inspector */}
-            <div className="policy-canary-section" style={{ marginTop: "16px" }}>
-              <div className="policy-canary-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Code2 size={18} />
-                  <span style={{ fontWeight: 700, fontSize: "0.92rem" }}>Transaction details</span>
-                </div>
-              </div>
-
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
-                Paste a transaction's raw data to see what it actually does before approving it.
-              </p>
-
-              <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                <div>
-                  <label style={{ fontSize: "0.76rem", color: "var(--muted)", marginBottom: "4px", display: "block" }}>
-                    Transaction data
-                  </label>
-                  <TextField
-                    label=""
-                    value={calldataInput}
-                    onChange={(e) => setCalldataInput(e.target.value)}
-                    placeholder="0xa9059cbb..."
-                  />
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <Button
-                    type="button"
-                    variant="tonal"
-                    onClick={handleInspectCalldata}
-                    disabled={isInspectingCalldata || !calldataInput.trim()}
-                  >
-                    <ShieldCheck size={14} style={{ marginRight: 6 }} />
-                    <span>{isInspectingCalldata ? "Checking…" : "Check this transaction"}</span>
-                  </Button>
-                </div>
-
-                {calldataResult && (
-                  <div style={{ padding: "12px", borderRadius: "8px", background: "var(--surface-3)", border: "1px solid var(--border)", marginTop: "8px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <span style={{ fontSize: "0.82rem", color: "var(--muted)" }}>{calldataResult.function_name}</span>
-                      <Badge tone={calldataResult.risk_level === "critical" ? "critical" : calldataResult.risk_level === "elevated" ? "warning" : "success"}>
-                        {calldataResult.risk_level === "critical" ? "High risk" : calldataResult.risk_level === "elevated" ? "Some risk" : "Low risk"}
-                      </Badge>
-                    </div>
-
-                    <div style={{ fontSize: "0.82rem", padding: "8px", borderRadius: "6px", background: "var(--surface-sunken)", marginBottom: "8px" }}>
-                      <span>{calldataResult.clear_signing_summary}</span>
-                    </div>
-
-                    {calldataResult.fields.length > 0 && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.76rem" }}>
-                        {calldataResult.fields.map((f, i) => (
-                          <div key={i} style={{ display: "flex", justifyContent: "space-between", borderBottom: i < calldataResult.fields.length - 1 ? "1px solid var(--outline-soft)" : "none", padding: "4px 0" }}>
-                            <span style={{ color: "var(--muted)" }}>{f.name}</span>
-                            <Mono style={{ fontSize: "0.72rem" }}>{f.value}</Mono>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+            <TransactionInspector
+              value={calldataInput}
+              onChange={setCalldataInput}
+              onInspect={handleInspectCalldata}
+              isInspecting={isInspectingCalldata}
+              result={calldataResult}
+            />
           </div>
         </details>
       </div>
     </Surface>
 
         {/* Right Column: Live Onchain State & Verification */}
-        <div className="policy-state-column">
-          <Surface className="policy-preview-card">
-            <div className="preview-card-header">
-              <div>
-                <h3>Current spending rules</h3>
-                <p>What's live right now</p>
-              </div>
-              <span className="live-status-pill">
-                <span className="status-dot dot-success" />
-                Live
-              </span>
-            </div>
-
-            {policy.isError ? (
-              <EmptyState title="Policy unavailable" detail="We couldn't load this agent's spending rules." />
-            ) : policy.data ? (
-              <div className="policy-live-summary">
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Per transaction</span>
-                  <Mono className="summary-row-val">
-                    {(Number(policy.data.maxPerTx ?? 0) / 1_000_000).toFixed(2)} USDC
-                  </Mono>
-                </div>
-
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Per period</span>
-                  <Mono className="summary-row-val">
-                    {(Number(policy.data.maxPerWindow ?? 0) / 1_000_000).toFixed(2)} USDC
-                  </Mono>
-                </div>
-
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Period length</span>
-                  <Mono className="summary-row-val">
-                    {formatWindowEpoch(Number(policy.data.windowSeconds ?? 3600))}
-                  </Mono>
-                </div>
-
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Max payments per period</span>
-                  <Mono className="summary-row-val">{String(policy.data.maxVelocity ?? 1)} txs</Mono>
-                </div>
-
-                <div className="live-summary-divider" />
-
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Spending</span>
-                  <Badge tone={policy.data.killSwitch ? "critical" : "success"}>
-                    {policy.data.killSwitch ? "Paused" : "Active"}
-                  </Badge>
-                </div>
-
-                <div className="live-summary-row">
-                  <span className="summary-row-label">Approved merchants</span>
-                  <Badge tone={policy.data.whitelistEnabled ? "info" : "neutral"}>
-                    {policy.data.whitelistEnabled ? "Required" : "Not required"}
-                  </Badge>
-                </div>
-
-                <div className="live-summary-footer">
-                  <Link to="/app/simulator" className="live-summary-sim-link">
-                    <span>Test limits in Simulator</span>
-                    <ArrowRight size={13} />
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <EmptyState
-                title="No agent selected"
-                detail="Choose an agent to view and update its spending limits."
-              />
-            )}
-          </Surface>
-        </div>
+        <LivePolicyCard policy={policy} />
       </div>
 
       <TransactionStatus

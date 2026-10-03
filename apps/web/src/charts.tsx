@@ -163,7 +163,7 @@ export function TrendArea({
       }
     : null;
   const ref = useChart(option, [JSON.stringify(data), theme]);
-  if (!data.length) return <EmptyState title={emptyTitle} detail={emptyDetail} />;
+  if (!data.length) return <EmptyState kind="neutral" title={emptyTitle} detail={emptyDetail} />;
   return <div ref={ref} style={{ height, width: "100%" }} />;
 }
 
@@ -225,7 +225,7 @@ export function Bars({
       }
     : null;
   const ref = useChart(option, [JSON.stringify(data), theme]);
-  if (!data.length) return <EmptyState title={emptyTitle} detail={emptyDetail} />;
+  if (!data.length) return <EmptyState kind="neutral" title={emptyTitle} detail={emptyDetail} />;
   return <div ref={ref} style={{ height, width: "100%" }} />;
 }
 
@@ -334,7 +334,7 @@ export function Breakdown({
   const theme = useResolvedTheme();
   const palette = chartPalette[theme];
   const total = data.reduce((sum, row) => sum + row.value, 0);
-  if (!data.length || total === 0) return <EmptyState title={emptyTitle} detail={emptyDetail} />;
+  if (!data.length || total === 0) return <EmptyState kind="neutral" title={emptyTitle} detail={emptyDetail} />;
   return (
     <div className="breakdown">
       <div className="breakdown-track" role="img" aria-label={`Distribution across ${data.length} categories`}>

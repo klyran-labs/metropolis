@@ -27,6 +27,7 @@ import {
   useSubscription,
   useTelemetryEvents,
   useOrganizationWallets,
+  usePendingApprovals,
   toUserFacingError,
   type Subscription,
   type Agent,
@@ -34,6 +35,7 @@ import {
 import { Badge, Button, Mono, Surface, TokenAmount, truncateMiddle } from "../../design-system";
 import { eventLabel } from "../../copy";
 import { Breakdown, Gauge, StatTile, TrendArea } from "../../charts";
+import { canViewDestination } from "../../access";
 import { useIdentity } from "../../identity";
 import { AgentInspector } from "./AgentInspector";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
@@ -53,6 +55,7 @@ export function Overview() {
   const wallets = useOrganizationWallets(Boolean(identity.authenticated));
   const subscription = useSubscription(Boolean(identity.authenticated));
   const telemetry = useTelemetryEvents(Boolean(identity.authenticated));
+  const pendingApprovals = usePendingApprovals(Boolean(identity.authenticated) && canViewDestination(identity.role, "/app/quorum"));
 
   const [agentSearch, setAgentSearch] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -158,6 +161,21 @@ export function Overview() {
     },
   ];
   const showReadiness = readinessSteps.some((step) => !step.done);
+  const approvalsForMe = (pendingApprovals.data?.approvals ?? []).filter((approval) => approval.canApprove).length;
+  const attentionItems = [
+    approvalsForMe > 0 && {
+      key: "approvals",
+      to: "/app/quorum" as const,
+      title: `${approvalsForMe} ${approvalsForMe === 1 ? "transfer needs" : "transfers need"} your approval`,
+      detail: "Review and sign to keep funds moving.",
+    },
+    paused > 0 && {
+      key: "paused",
+      to: "/app/fleet" as const,
+      title: `${paused} ${paused === 1 ? "agent is" : "agents are"} paused`,
+      detail: "Paused agents can't spend until you resume them.",
+    },
+  ].filter(Boolean) as Array<{ key: string; to: "/app/quorum" | "/app/fleet"; title: string; detail: string }>;
 
   return (
     <div className="dashboard-stack">
@@ -207,6 +225,25 @@ export function Overview() {
           <StatTile label="Activity events" value={String(telemetry.data?.length ?? 0)} icon={<Radio size={18} />} accent={5} />
         </Link>
       </div>
+
+      {attentionItems.length > 0 && (
+        <section className="attention-card" aria-label="Needs your attention">
+          <h2>Needs your attention</h2>
+          <ul>
+            {attentionItems.map((item) => (
+              <li key={item.key}>
+                <Link to={item.to} className="attention-item">
+                  <div>
+                    <strong>{item.title}</strong>
+                    <small>{item.detail}</small>
+                  </div>
+                  <ArrowRight size={16} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {showReadiness && (
         <section className="setup-card" aria-label="Get started">

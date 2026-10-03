@@ -489,9 +489,36 @@ export function TransactionStatus({
 
 export type EmptyStateTone = "neutral" | "success" | "warning" | "info";
 
+export type EmptyStateKind =
+  | "neutral"
+  | "success"
+  | "warning"
+  | "agents"
+  | "wallet"
+  | "credentials"
+  | "rules"
+  | "merchants"
+  | "search"
+  | "billing";
+
+const EMPTY_STATE_KINDS: Record<EmptyStateKind, { icon: ReactNode; tone: EmptyStateTone }> = {
+  neutral: { icon: <Inbox size={22} />, tone: "neutral" },
+  success: { icon: <ShieldCheck size={22} />, tone: "success" },
+  warning: { icon: <AlertCircle size={22} />, tone: "warning" },
+  agents: { icon: <Bot size={22} />, tone: "info" },
+  wallet: { icon: <Wallet size={22} />, tone: "info" },
+  credentials: { icon: <Key size={22} />, tone: "info" },
+  rules: { icon: <Shield size={22} />, tone: "neutral" },
+  merchants: { icon: <Store size={22} />, tone: "info" },
+  search: { icon: <Search size={22} />, tone: "neutral" },
+  billing: { icon: <FileText size={22} />, tone: "neutral" },
+};
+
 export interface EmptyStateProps {
   title: string;
   detail: string;
+  /** Picks the icon and default tone. Defaults to a neutral inbox. */
+  kind?: EmptyStateKind;
   icon?: ReactNode;
   tone?: EmptyStateTone;
   action?: ReactNode;
@@ -499,112 +526,19 @@ export interface EmptyStateProps {
   className?: string;
 }
 
-function getEmptyStateMeta(title: string, detail: string): { icon: ReactNode; tone: EmptyStateTone } {
-  const combined = `${title} ${detail}`.toLowerCase();
-
-  if (
-    combined.includes("clear") ||
-    combined.includes("within automated policy") ||
-    combined.includes("synced") ||
-    combined.includes("healthy") ||
-    combined.includes("all clear") ||
-    combined.includes("passed") ||
-    combined.includes("active")
-  ) {
-    return { icon: <ShieldCheck size={22} />, tone: "success" };
-  }
-
-  if (
-    combined.includes("unavailable") ||
-    combined.includes("error") ||
-    combined.includes("failed") ||
-    combined.includes("couldn't load") ||
-    combined.includes("offline") ||
-    combined.includes("requires")
-  ) {
-    return { icon: <AlertCircle size={22} />, tone: "warning" };
-  }
-
-  if (
-    combined.includes("wallet") ||
-    combined.includes("treasury") ||
-    combined.includes("transfer") ||
-    combined.includes("deposit") ||
-    combined.includes("fund") ||
-    combined.includes("float")
-  ) {
-    return { icon: <Wallet size={22} />, tone: "info" };
-  }
-
-  if (
-    combined.includes("agent") ||
-    combined.includes("fleet") ||
-    combined.includes("bot")
-  ) {
-    return { icon: <Bot size={22} />, tone: "info" };
-  }
-
-  if (
-    combined.includes("credential") ||
-    combined.includes("secret") ||
-    combined.includes("api key") ||
-    combined.includes("token")
-  ) {
-    return { icon: <Key size={22} />, tone: "info" };
-  }
-
-  if (
-    combined.includes("rule") ||
-    combined.includes("policy") ||
-    combined.includes("access") ||
-    combined.includes("permission")
-  ) {
-    return { icon: <Shield size={22} />, tone: "neutral" };
-  }
-
-  if (
-    combined.includes("merchant") ||
-    combined.includes("store") ||
-    combined.includes("whitelist")
-  ) {
-    return { icon: <Store size={22} />, tone: "info" };
-  }
-
-  if (
-    combined.includes("search") ||
-    combined.includes("filter") ||
-    combined.includes("matching") ||
-    combined.includes("found")
-  ) {
-    return { icon: <Search size={22} />, tone: "neutral" };
-  }
-
-  if (
-    combined.includes("plan") ||
-    combined.includes("billing") ||
-    combined.includes("invoice") ||
-    combined.includes("subscription") ||
-    combined.includes("ledger") ||
-    combined.includes("reconciliation")
-  ) {
-    return { icon: <FileText size={22} />, tone: "neutral" };
-  }
-
-  return { icon: <Inbox size={22} />, tone: "neutral" };
-}
-
 export function EmptyState({
   title,
   detail,
+  kind = "neutral",
   icon,
   tone,
   action,
   compact = false,
   className = "",
 }: EmptyStateProps) {
-  const inferred = getEmptyStateMeta(title, detail);
-  const activeTone = tone || inferred.tone;
-  const activeIcon = icon !== undefined ? icon : inferred.icon;
+  const preset = EMPTY_STATE_KINDS[kind];
+  const activeTone = tone ?? preset.tone;
+  const activeIcon = icon !== undefined ? icon : preset.icon;
 
   return (
     <div
@@ -626,6 +560,67 @@ export function EmptyState({
         <p className="empty-state-detail">{detail}</p>
       </div>
       {action && <div className="empty-state-action">{action}</div>}
+    </div>
+  );
+}
+
+/** Failure state with a consistent shape and an optional retry. */
+export function ErrorState({
+  title = "Something went wrong",
+  detail = "We couldn't load this. Check your connection and try again.",
+  onRetry,
+  compact,
+}: {
+  title?: string;
+  detail?: string;
+  onRetry?: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={clsx("empty-state", "empty-state-warning", compact && "empty-state-compact")} role="alert">
+      <div className="empty-state-icon-badge tone-warning">
+        <AlertCircle size={22} />
+      </div>
+      <div className="empty-state-body">
+        <strong className="empty-state-title">{title}</strong>
+        <p className="empty-state-detail">{detail}</p>
+      </div>
+      {onRetry && (
+        <div className="empty-state-action">
+          <Button variant="tonal" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Loading placeholder that reserves layout space so content doesn't jump when it arrives. */
+export function Skeleton({
+  width,
+  height = 14,
+  className,
+}: {
+  width?: number | string;
+  height?: number | string;
+  className?: string;
+}) {
+  return <span className={clsx("skeleton", className)} style={{ width, height }} aria-hidden="true" />;
+}
+
+export function SkeletonRows({ rows = 4, label = "Loading" }: { rows?: number; label?: string }) {
+  return (
+    <div className="skeleton-rows" role="status" aria-live="polite" aria-label={label}>
+      {Array.from({ length: rows }, (_, index) => (
+        <div className="skeleton-row" key={index}>
+          <Skeleton width={28} height={28} className="skeleton-avatar" />
+          <div className="skeleton-lines">
+            <Skeleton width={`${70 - index * 6}%`} />
+            <Skeleton width={`${45 - index * 4}%`} height={10} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -819,32 +814,87 @@ export interface TabItem {
   icon?: ReactNode;
 }
 
+/** Props for the panel a tab controls; spread onto the element that holds that tab's content. */
+export function tabPanelProps(idPrefix: string, key: string, active: string) {
+  return {
+    role: "tabpanel" as const,
+    id: `${idPrefix}-panel-${key}`,
+    "aria-labelledby": `${idPrefix}-tab-${key}`,
+    tabIndex: 0,
+    hidden: active !== key,
+  };
+}
+
+/**
+ * Accessible tablist: roving tabindex (only the active tab is in the tab order), Left/Right/Home/End
+ * move and activate, and each tab points at its panel via `tabPanelProps`.
+ */
 export function Tabs({
   items,
   active,
   onChange,
   className,
+  idPrefix,
+  label,
 }: {
   items: TabItem[];
   active: string;
   onChange: (key: string) => void;
   className?: string;
+  idPrefix?: string;
+  label?: string;
 }) {
+  const generated = useId();
+  const prefix = idPrefix ?? generated;
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const move = (from: number, delta: number | "start" | "end") => {
+    const next =
+      delta === "start" ? 0 : delta === "end" ? items.length - 1 : (from + delta + items.length) % items.length;
+    const key = items[next].key;
+    onChange(key);
+    refs.current[key]?.focus();
+  };
+
   return (
-    <div className={clsx("tabs", className)} role="tablist">
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          role="tab"
-          aria-selected={active === item.key}
-          className={clsx("tabs-tab", active === item.key && "is-active")}
-          onClick={() => onChange(item.key)}
-        >
-          {item.icon}
-          <span>{item.label}</span>
-        </button>
-      ))}
+    <div className={clsx("tabs", className)} role="tablist" aria-label={label}>
+      {items.map((item, index) => {
+        const selected = active === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            ref={(node) => {
+              refs.current[item.key] = node;
+            }}
+            id={`${prefix}-tab-${item.key}`}
+            aria-selected={selected}
+            aria-controls={selected ? `${prefix}-panel-${item.key}` : undefined}
+            tabIndex={selected ? 0 : -1}
+            className={clsx("tabs-tab", selected && "is-active")}
+            onClick={() => onChange(item.key)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight") {
+                event.preventDefault();
+                move(index, 1);
+              } else if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                move(index, -1);
+              } else if (event.key === "Home") {
+                event.preventDefault();
+                move(index, "start");
+              } else if (event.key === "End") {
+                event.preventDefault();
+                move(index, "end");
+              }
+            }}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

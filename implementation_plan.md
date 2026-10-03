@@ -867,3 +867,35 @@ All 4 phases of the Usability, Ergonomics & Operator Clarity rollout have been i
 - **Top bar:** breadcrumbs with plain section names, contextual "New agent" (tenant only), "Search or jump to…", "Assistant", account menu; raw chain timing removed; mobile menu button and compact layout.
 - **Home:** "Get started" card with progress and a Start action per step replaces the pill checklist.
 - **Activity:** event names shown as plain labels (`eventLabel` in `copy.ts`).
+
+---
+
+## 20. Tier-1 ERP/FinTech UI Hardening (Seven Workstreams)
+
+Authorization: explicit user directive (`/goal`) to implement all seven items below. Constraints from AGENTS.md apply throughout: zero-mock, plain-language UI, end-to-end integration (gateway, web, tests, docs), and the merge gates (`lint:zero-mock`, `lint:theme`, `lint:ui`, `npm test`, `build`, gateway `cargo test`).
+
+| # | Workstream | Design |
+| :-: | :--- | :--- |
+| 1 | **Verifiable screens** | Playwright suite in `apps/web/e2e`. A local-only test session (`VITE_E2E_SESSION=1`, honored only when `import.meta.env.DEV` and profile `local`; rejected by `vite.config.ts` for testnet/mainnet builds) replaces Privy sign-in. API responses are fixtures served by `page.route` inside the test directory only, never shipped. Flows cover every tenant and admin screen at desktop and mobile widths in light and dark themes, plus axe accessibility scans. |
+| 2 | **Remove fabricated data** | Delete the yield panel (fixed 5.20% APY, 20/80 split, no backend), the hard-coded 3.8 anomaly score, the tier-derived trust score, seeded merchants with invented limits and reputation, and the invented gas estimate. Each is replaced by real data or an honest empty state. |
+| 3 | **Pending approvals + attention** | Gateway `GET /api/v1/wallet-transfers/pending` (org-scoped, same `DispatchSettlement` capability as the other transfer routes, index-backed query, capped at 100). Web `usePendingApprovals` drives a count badge on Approvals and a "Needs attention" card on Home. Role-aware navigation hides destinations a role cannot use (server remains authoritative). |
+| 4 | **CSS debt** | Script-assisted removal of selectors whose classes never appear in source (dynamic prefixes treated as used). Screens migrate off inline styles onto tokens and shared components where touched. |
+| 5 | **File decomposition** | Settings split into one file per tab; Policy and Fleet split into pure utilities plus focused panels. Behavior unchanged. |
+| 6 | **Accessibility and consistency** | `Tabs` with roving tabindex, arrow keys and tabpanel linking; `Skeleton` and `ErrorState` primitives; `EmptyState` takes an explicit `kind` instead of guessing from text; visible focus styles; axe scans in item 1. |
+| 7 | **Low latency** | `defaultPreload: "intent"` so route chunks load on hover; named polling intervals in one module; vendor chunk splitting for cache stability; a bundle-budget gate (`lint:bundle`) that fails the build when the entry chunk grows past its budget. |
+
+**Verification:** typecheck, repo lint gates, web tests, `build:all`, `cargo test` for the gateway, Playwright run, bundle budget.
+
+### 20.1 Delivery record
+
+| # | Delivered |
+| :-: | :--- |
+| 1 | `apps/web/e2e` Playwright suite: 18 screens x light/dark x desktop/mobile with axe (WCAG 2 A/AA, serious+critical blocking), plus flows for navigation, role-aware nav, approvals, keyboard tabs, honest-data checks, and the inspector drawer and a dialog. Sign-in is replaced only by a test alias (`vite.e2e.config.ts` -> `e2e/support/privy-stub.tsx`); fixtures live in `e2e/support/fixtures.ts`. The suite served from a production build (`vite build` + `preview`). Real defects it found and fixed: AA contrast on muted/status/primary tokens in both themes, unlabeled switches/selects/sliders, toggle groups mis-marked as tablists, hover-only row actions unreachable on touch, an icon-only link with no name, unfocusable scroll regions. CI job `ui-tests` runs it. |
+| 2 | Removed the yield panel (the only yield contract is bookkeeping with a constant APY and is not deployed), invented anomaly scores, the tier-derived trust score and derived "Agent ID", seeded merchants and their unenforced limits, the invented gas estimate and SLA tile, and health defaults that showed "Healthy/72h" before data loaded. Trust score now reads `ReputationRegistry.getMetrics` (`useAgentReputation`). |
+| 3 | Gateway `GET /api/v1/wallet-transfers/pending` (+ migration `0011` partial index, unit test, README and ADR 0014 addendum). SQL and index usage verified against PostgreSQL 18. Web: `usePendingApprovals`, sidebar badge, Home "Needs your attention", Approvals page now org-wide with signature progress and honest "why you can't approve" text. Role-aware navigation (`src/access.ts`) mirrors the gateway role matrix. |
+| 4 | `scripts/prune-dead-css.mjs` removed 184 unused rules (1,100 lines); `lint:css` and CI keep it at zero. Inline-style ratchet in `verify-ui-contract.mjs` (baseline in `scripts/inline-style-baseline.json`) blocks new inline styles. |
+| 5 | Settings is a shell plus `settings/{Team,Credentials,Policy,Pricing}Tab` and `shared.ts`; Policy extracted `policy/{utils,PolicyDiffTable,DryRunPanel,CanaryPanel,TransactionInspector,LivePolicyCard}`; Fleet extracted `fleet/{CopyAddressButton,AgentWalletPanel}` and dropped a dead column definition. Contract tests read a screen and its folder as one unit. |
+| 6 | `Tabs` with roving tabindex, arrow/Home/End keys and tabpanel linkage (`tabPanelProps`); `Skeleton`, `SkeletonRows`, `ErrorState`; `EmptyState` takes an explicit `kind` (text-guessing removed, every call site migrated); global `:focus-visible`; Settings and the inspector use the shared Tabs. |
+| 7 | `defaultPreload: "intent"`; named polling intervals (`src/polling.ts`) replacing 17 literals; stable `vendor-react` and `vendor-tanstack` chunks; `lint:bundle` budget gate (initial JS 920 KiB gzip, CSS 30 KiB, chunk 550 KiB raw; currently 860 / 27 / 526) and CI step. |
+
+Known remaining items: `rustfmt` already reported 62 diffs in the gateway before this work (not reformatted here to avoid a large unrelated diff); about 325 inline styles remain and are now capped by the ratchet; on-chain reads are not covered by the UI suite (they fail fast to empty states).

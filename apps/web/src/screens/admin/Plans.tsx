@@ -99,7 +99,7 @@ export function AdminPlans() {
           <h2>Plans</h2>
         </div>
         {plans.isError || !identity.platformAccess ? (
-          <EmptyState title="Couldn't load plans" detail="A platform role is required to view plans." />
+          <EmptyState kind="warning" title="Couldn't load plans" detail="A platform role is required to view plans." />
         ) : plans.data?.length ? (
           <div className="pricing-cards">
             {plans.data.map((plan) => (
@@ -118,7 +118,7 @@ export function AdminPlans() {
             ))}
           </div>
         ) : (
-          <EmptyState title="No plans yet" detail="Create your first plan above." />
+          <EmptyState kind="billing" title="No plans yet" detail="Create your first plan above." />
         )}
       </Surface>
     </div>

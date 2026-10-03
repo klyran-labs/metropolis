@@ -76,7 +76,7 @@ export function AdminReconciliation() {
       )}
       <Surface>
         {report.isError ? (
-          <EmptyState title="Couldn't load payment checks" detail="Try refreshing the page." />
+          <EmptyState kind="warning" title="Couldn't load payment checks" detail="Try refreshing the page." />
         ) : rows.length ? (
           <div className="table-viewport">
             <table>
@@ -103,7 +103,7 @@ export function AdminReconciliation() {
             </table>
           </div>
         ) : (
-          <EmptyState title="No payment attempts yet" detail="Rows appear here once a tenant attempts checkout." />
+          <EmptyState kind="neutral" title="No payment attempts yet" detail="Rows appear here once a tenant attempts checkout." />
         )}
       </Surface>
     </div>

@@ -38,6 +38,7 @@ import {
   Mono,
   Select,
   Tabs,
+  tabPanelProps,
   TextField,
   Tooltip,
   TokenAmount,
@@ -47,15 +48,8 @@ import {
 } from "../../design-system";
 import { walletSourceLabel, trustScoreLabel } from "../../copy";
 import { useIdentity } from "../../identity";
-import { useAgentRuntimeState, useTripKillSwitch, useLiveTokenBalance } from "../../hooks/usePolicyContracts";
+import { useAgentReputation, useAgentRuntimeState, useTripKillSwitch, useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 import { useToast } from "../../components/UndoToast";
-
-/** Deterministic, product-decided trust bucket for a risk tier — not a live score. */
-function trustScoreForTier(riskTier: string): number {
-  if (riskTier.includes("1") || riskTier.includes("critical")) return 92;
-  if (riskTier.includes("2") || riskTier.includes("standard")) return 70;
-  return 45;
-}
 
 type InspectorTab = "overview" | "wallet" | "security" | "health" | "integrate";
 
@@ -97,6 +91,7 @@ export function AgentInspector({
     liveBalance.data !== null && liveBalance.data !== undefined
       ? (Number(liveBalance.data) / 1e6).toFixed(2)
       : "0.00";
+  const reputation = useAgentReputation(agent.address, Boolean(identity.authenticated));
   const tripKillSwitch = useTripKillSwitch();
   const guardAddress = configuration.contracts.agentWalletGuard;
   const rpcUrl = configuration.rpcUrl;
@@ -242,7 +237,6 @@ export function AgentInspector({
     }
   };
 
-  const trustScore = trustScoreForTier(agent.riskTier);
   const createdOn = new Date(agent.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -352,13 +346,19 @@ export function AgentInspector({
 
         {/* Tab Navigation */}
         <div className="inspector-tabs-wrap">
-          <Tabs items={TAB_ITEMS} active={activeTab} onChange={(key) => setActiveTab(key as InspectorTab)} />
+          <Tabs
+            items={TAB_ITEMS}
+            active={activeTab}
+            idPrefix="inspector"
+            label="Agent details"
+            onChange={(key) => setActiveTab(key as InspectorTab)}
+          />
         </div>
 
         {/* Tab Content */}
         <div className="inspector-body">
           {activeTab === "overview" && (
-            <div className="inspector-overview-panel">
+            <div className="inspector-overview-panel" {...tabPanelProps("inspector", "overview", activeTab)}>
               {/* Pause / resume */}
               <div className={`inspector-action-card ${isTripped ? "card-tripped" : "card-secure"}`}>
                 <div className="action-card-header">
@@ -491,7 +491,7 @@ export function AgentInspector({
           )}
 
           {activeTab === "wallet" && (
-            <div className="inspector-transfers-panel">
+            <div className="inspector-transfers-panel" {...tabPanelProps("inspector", "wallet", activeTab)}>
               {/* Balance Banner */}
               <div className="transfer-summary-card">
                 <div className="transfer-summary-left">
@@ -592,7 +592,7 @@ export function AgentInspector({
                         </Button>
                       </div>
                     ) : (
-                      <EmptyState title="No treasury wallets yet" detail="Add a treasury wallet first." tone="info" />
+                      <EmptyState kind="wallet" title="No treasury wallets yet" detail="Add a treasury wallet first." tone="info" />
                     )}
                   </div>
                 ) : (
@@ -609,7 +609,7 @@ export function AgentInspector({
                       </div>
                     </div>
                     {agent.walletSource !== "sovereign" ? (
-                      <EmptyState
+                      <EmptyState kind="wallet"
                         title="Needs a secure wallet"
                         detail="Only agents with a secure, hosted wallet can send funds back to treasury."
                         tone="info"
@@ -664,7 +664,7 @@ export function AgentInspector({
                         </Button>
                       </div>
                     ) : (
-                      <EmptyState title="No treasury wallets yet" detail="Add a treasury wallet first." tone="info" />
+                      <EmptyState kind="wallet" title="No treasury wallets yet" detail="Add a treasury wallet first." tone="info" />
                     )}
                   </div>
                 )}
@@ -737,7 +737,7 @@ export function AgentInspector({
           )}
 
           {activeTab === "security" && (
-            <div className="inspector-overview-panel">
+            <div className="inspector-overview-panel" {...tabPanelProps("inspector", "security", activeTab)}>
               <div className="inspector-action-card card-secure">
                 <div className="action-card-header">
                   <div className="action-card-icon">
@@ -782,8 +782,8 @@ export function AgentInspector({
                 </div>
                 <div className="metric-grid-4" style={{ marginTop: "var(--space-16)" }}>
                   <div className="metric-cell">
-                    <small>Agent ID</small>
-                    <strong>#{(parseInt(agent.address.slice(2, 6), 16) % 10000) + 1}</strong>
+                    <small>Wallet</small>
+                    <Mono>{truncateMiddle(agent.address, 8, 4)}</Mono>
                   </div>
                   <div className="metric-cell">
                     <small>Created</small>
@@ -791,15 +791,24 @@ export function AgentInspector({
                   </div>
                   <div className="metric-cell">
                     <small>Trust score</small>
-                    <strong>{trustScoreLabel(trustScore)}</strong>
+                    <strong>{trustScoreLabel(reputation.data?.scorePercent)}</strong>
                   </div>
+                  {reputation.data && (
+                    <div className="metric-cell">
+                      <small>Payment history</small>
+                      <strong>
+                        {reputation.data.settledCount} settled
+                        {reputation.data.disputedCount > 0 ? ` · ${reputation.data.disputedCount} disputed` : ""}
+                      </strong>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === "health" && (
-            <div className="inspector-overview-panel">
+            <div className="inspector-overview-panel" {...tabPanelProps("inspector", "health", activeTab)}>
               <div className="inspector-action-card card-secure">
                 <div className="action-card-header">
                   <div className="action-card-icon">
@@ -808,8 +817,8 @@ export function AgentInspector({
                   <div className="action-card-text">
                     <div className="action-card-headline">
                       <strong>Health check</strong>
-                      <Badge tone={livenessQuery.data?.status === "HEALTHY" ? "success" : livenessQuery.data?.status === "WARNING_INACTIVE" ? "warning" : "critical"}>
-                        {livenessQuery.data?.status === "HEALTHY" || !livenessQuery.data ? "Healthy" : "Needs attention"}
+                      <Badge tone={!livenessQuery.data ? "neutral" : livenessQuery.data.status === "HEALTHY" ? "success" : livenessQuery.data.status === "WARNING_INACTIVE" ? "warning" : "critical"}>
+                        {!livenessQuery.data ? "Checking…" : livenessQuery.data.status === "HEALTHY" ? "Healthy" : "Needs attention"}
                       </Badge>
                     </div>
                     <small>
@@ -821,14 +830,14 @@ export function AgentInspector({
                 <div className="metric-grid-4" style={{ marginTop: "var(--space-16)" }}>
                   <div className="metric-cell">
                     <small>Auto-pause after</small>
-                    <strong>{livenessQuery.data ? `${(livenessQuery.data.grace_period_seconds / 3600).toFixed(0)}h` : "72h"} of inactivity</strong>
+                    <strong>{livenessQuery.data ? `${(livenessQuery.data.grace_period_seconds / 3600).toFixed(0)}h of inactivity` : "—"}</strong>
                   </div>
                   <div className="metric-cell">
                     <small>Last seen</small>
                     <strong>
                       {livenessQuery.data?.seconds_since_last_heartbeat !== undefined
                         ? `${livenessQuery.data.seconds_since_last_heartbeat}s ago`
-                        : "Active now"}
+                        : "—"}
                     </strong>
                   </div>
                   {livenessQuery.data?.fallback_treasury && (
@@ -875,7 +884,7 @@ export function AgentInspector({
           )}
 
           {activeTab === "integrate" && (
-            <div className="inspector-sdk-panel">
+            <div className="inspector-sdk-panel" {...tabPanelProps("inspector", "integrate", activeTab)}>
               <div className="sdk-header-row">
                 <div>
                   <span className="card-kicker">Developers</span>
@@ -934,7 +943,7 @@ export function AgentInspector({
                     <span>{copiedSnippet ? "Copied" : "Copy"}</span>
                   </button>
                 </div>
-                <pre className="code-snippet-pre">
+                <pre className="code-snippet-pre" tabIndex={0} aria-label="Code sample">
                   {sdkLang === "python" && (
 `from agentguard import AgentGuardClient
 

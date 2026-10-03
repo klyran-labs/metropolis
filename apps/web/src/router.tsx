@@ -5,6 +5,7 @@ import { configuration, isAdminTarget, isTenantTarget, networkLabel } from "./co
 import { useIdentity } from "./identity";
 import { AdminNav, TenantNav } from "./navigation";
 import { TopBar } from "./components/TopBar";
+import { SkeletonRows } from "./design-system";
 import { CommandPalette } from "./command-palette";
 import { AICopilot } from "./components/AICopilot";
 import { ToastProvider } from "./components/UndoToast";
@@ -177,7 +178,11 @@ function WorkspaceStatus({
       </div>
     );
   }
-  return <div className="app-loading">{waitingLabel}</div>;
+  return (
+    <div className="app-loading">
+      <SkeletonRows rows={3} label={waitingLabel} />
+    </div>
+  );
 }
 
 function IndexScreen() {
@@ -327,8 +332,8 @@ function AppLayout() {
             onOpenCopilot={() => setCopilotOpen(true)}
             onOpenShortcuts={() => setShortcutsOpen(true)}
           />
-          <main className="content">
-            <Suspense fallback={<div className="app-loading">Loading workspace…</div>}>
+          <main className="content" tabIndex={0} aria-label="Page content">
+            <Suspense fallback={<SkeletonRows rows={5} label="Loading page" />}>
               <Outlet />
             </Suspense>
           </main>
@@ -462,7 +467,7 @@ function AdminLayout() {
             onOpenCopilot={() => setCopilotOpen(true)}
             onOpenShortcuts={() => setShortcutsOpen(true)}
           />
-          <main className="content">
+          <main className="content" tabIndex={0} aria-label="Page content">
             <Suspense fallback={<div className="app-loading">Loading administration…</div>}>
               <Outlet />
             </Suspense>
@@ -612,4 +617,6 @@ const routeTree = isTenantTarget()
         adminLayoutRoute.addChildren(adminRoutes),
       ]);
 
-export const router = createRouter({ routeTree });
+// Preload a route's code (and its loaders) when the pointer or keyboard focus signals intent,
+// so the click that follows is served from memory instead of the network.
+export const router = createRouter({ routeTree, defaultPreload: "intent", defaultPreloadDelay: 50 });

@@ -2,363 +2,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Link } from "@tanstack/react-router";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Bot, Check, Copy, Download, Filter, Layers, Network, PauseCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, Sparkles, Wallet, X } from "lucide-react";
+import { Activity, Bot, Download, Filter, Layers, Network, PauseCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, Sparkles, Wallet, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import {
-  request,
-  toUserFacingError,
-  useAgents,
-  useLoadAgentWallet,
-  useOrganizationWallets,
-  useSubmitWalletTransfer,
-  useUnloadAgentWallet,
-  useWalletTransfers,
-  type Agent,
-} from "../../api";
-import { Badge, Button, Dialog, EmptyState, Mono, Select, Surface, TextField, TokenAmount, truncateMiddle, formatRiskTier } from "../../design-system";
+import { request, toUserFacingError, useAgents, useOrganizationWallets, type Agent } from "../../api";
+import { Badge, Button, EmptyState, Select, Surface, TextField, truncateMiddle, formatRiskTier } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
-import { useAgentTba, usePaymasterEligibility, useTripKillSwitch } from "../../hooks/usePolicyContracts";
+import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
 import { AgentInspector } from "./AgentInspector";
 import { AgentOnboardingModal } from "../../components/AgentOnboardingModal";
 import { SwarmTopologyVisualizer } from "../../components/SwarmTopologyVisualizer";
 import { useToast } from "../../components/UndoToast";
-
-function CopyAddressButton({ address }: { address: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    void navigator.clipboard?.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
-  };
-  return (
-    <div className="agent-cell-wrapper">
-      <Mono>{truncateMiddle(address, 10, 6)}</Mono>
-      <button
-        type="button"
-        className={`table-copy-btn ${copied ? "copied-active" : ""}`}
-        onClick={copy}
-        title={copied ? "Copied!" : "Copy address to clipboard"}
-        aria-label="Copy address"
-      >
-        {copied ? (
-          <span className="copied-pill-text">
-            <Check size={11} className="copy-success" />
-            <span>Copied</span>
-          </span>
-        ) : (
-          <Copy size={13} />
-        )}
-      </button>
-    </div>
-  );
-}
+import { CopyAddressButton } from "./fleet/CopyAddressButton";
+import { AgentWalletPanel } from "./fleet/AgentWalletPanel";
 
 const fleetFeatures = tableFeatures({});
 const fleetColumnHelper = createColumnHelper<typeof fleetFeatures, Agent>();
-const fleetColumns = fleetColumnHelper.columns([
-  fleetColumnHelper.accessor("address", {
-    header: "Agent",
-    cell: (info) => {
-      const agent = info.row.original;
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {agent.label ? (
-            <strong style={{ fontSize: "0.85rem", color: "var(--on-surface)" }}>{agent.label}</strong>
-          ) : null}
-          <CopyAddressButton address={info.getValue()} />
-        </div>
-      );
-    },
-  }),
-  fleetColumnHelper.accessor("walletSource", {
-    header: "Wallet",
-    cell: (info) => (
-      <Badge tone={info.getValue() === "sovereign" ? "info" : "neutral"}>
-        {info.getValue() === "sovereign" ? "Secure wallet" : "Connected wallet"}
-      </Badge>
-    ),
-  }),
-  fleetColumnHelper.accessor("environment", { header: "Environment" }),
-  fleetColumnHelper.accessor("riskTier", {
-    header: "Risk tier",
-    cell: (info) => (
-      <Badge tone={info.getValue() === "tier1_critical" ? "critical" : info.getValue() === "tier2_standard" ? "info" : "neutral"}>
-        {formatRiskTier(info.getValue())}
-      </Badge>
-    ),
-  }),
-  fleetColumnHelper.accessor("status", {
-    header: "State",
-    cell: (info) => (
-      <div className="agent-state-pill">
-        <span
-          className={`status-dot ${info.getValue() === "active" ? "status-dot-success" : "status-dot-warning"}`}
-        />
-        <span>{info.getValue()}</span>
-      </div>
-    ),
-  }),
-]);
-
-function AgentWalletPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
-  const identity = useIdentity();
-  const { toast } = useToast();
-  const wallets = useOrganizationWallets(Boolean(identity.authenticated));
-  const transfers = useWalletTransfers(agent.address, Boolean(identity.authenticated));
-  const [loadWalletId, setLoadWalletId] = useState("");
-  const [loadAmount, setLoadAmount] = useState("");
-  const [unloadWalletId, setUnloadWalletId] = useState("");
-  const [unloadAmount, setUnloadAmount] = useState("");
-  const [confirmTransferId, setConfirmTransferId] = useState<string | null>(null);
-  const [txHashInput, setTxHashInput] = useState("");
-
-  const refresh = () => {
-    void transfers.refetch();
-    void wallets.refetch();
-  };
-
-  const submitTransfer = useSubmitWalletTransfer(refresh);
-
-  const load = useLoadAgentWallet(agent.address, (result) => {
-    if (result.status === "awaiting_signature" && result.intent) {
-      toast({
-        title: "Signature Required",
-        message: "Sign the transfer in your treasury wallet to finish loading funds.",
-        tone: "warning",
-      });
-    } else if (result.status === "pending_approval") {
-      toast({
-        title: "Awaiting Quorum Approval",
-        message: `${result.signatures}/${result.requiredSignatures} operator signatures collected.`,
-        tone: "info",
-      });
-    } else {
-      toast({
-        title: "Funds Loaded",
-        message: "The agent's wallet has been topped up.",
-        tone: "success",
-      });
-    }
-    setLoadAmount("");
-    refresh();
-  });
-
-  const unload = useUnloadAgentWallet(agent.address, (result) => {
-    toast({
-      title: result.status === "confirmed" ? "Funds Unloaded" : "Unload Submitted",
-      message: result.status === "confirmed" ? "Sent back to your treasury." : "Withdrawal submitted.",
-      tone: "success",
-    });
-    setUnloadAmount("");
-    refresh();
-  });
-
-  const tba = useAgentTba(agent.address);
-  const paymaster = usePaymasterEligibility(agent.address);
-
-  const treasuryWallets = wallets.data ?? [];
-  const treasurySelectOptions = treasuryWallets
-    .filter((w) => w.hasAccess)
-    .map((w) => ({
-      value: w.id,
-      label: w.label,
-      detail: `${w.kind === "sovereign" ? "Secure" : "Connected"} · ${truncateMiddle(w.address, 8, 4)}`,
-      badge: <Badge tone="info">{w.kind === "sovereign" ? "Secure" : "Connected"}</Badge>,
-    }));
-
-  return (
-    <Surface className="wallet-panel">
-      <div className="section-heading">
-        <div>
-          <h2>
-            <Mono>{agent.address}</Mono>
-          </h2>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.35rem", marginBottom: "0.35rem", flexWrap: "wrap", alignItems: "center" }}>
-            <Badge tone={paymaster.data?.eligible ? "success" : "neutral"}>
-              {paymaster.data?.eligible ? "AgentGuard covers network fees" : "Agent pays its own network fees"}
-            </Badge>
-            {tba.data?.tbaAddress && (
-              <Badge tone="info">
-                Identity wallet: <Mono>{truncateMiddle(tba.data.tbaAddress, 8, 4)}</Mono>
-              </Badge>
-            )}
-          </div>
-          <p>Send funds to this agent, or send its balance back to a treasury wallet.</p>
-        </div>
-        <Button variant="text" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-      <div className="wallet-action-grid">
-        <div className="wallet-action-card">
-          <div className="wallet-action-head">
-            <ArrowDownToLine size={16} />
-            <strong>Load</strong>
-          </div>
-          {treasuryWallets.length ? (
-            <>
-              <Select
-                value={loadWalletId}
-                onChange={setLoadWalletId}
-                options={treasurySelectOptions}
-                placeholder="Select a source treasury wallet"
-              />
-              <TextField
-                label="Amount (USDC)"
-                value={loadAmount}
-                onChange={(event) => setLoadAmount(event.target.value)}
-              />
-              <Button
-                onClick={() =>
-                  load.mutate({ organizationWalletId: loadWalletId, amountBaseUnits: loadAmount })
-                }
-                disabled={!loadWalletId || !loadAmount || load.isPending}
-              >
-                {load.isPending ? "Loading…" : "Load agent wallet"}
-              </Button>
-            </>
-          ) : (
-            <EmptyState title="No treasury wallets" detail="Register a treasury wallet first." />
-          )}
-        </div>
-        <div className="wallet-action-card">
-          <div className="wallet-action-head">
-            <ArrowUpFromLine size={16} />
-            <strong>Unload</strong>
-          </div>
-          {agent.walletSource !== "sovereign" ? (
-            <EmptyState
-              title="Needs a managed wallet"
-              detail="Only agents with a wallet we manage can send funds back to treasury. This one uses a connected wallet instead."
-            />
-          ) : treasuryWallets.length ? (
-            <>
-              <Select
-                value={unloadWalletId}
-                onChange={setUnloadWalletId}
-                options={treasurySelectOptions}
-                placeholder="Select a destination treasury wallet"
-              />
-              <TextField
-                label="Amount (USDC)"
-                value={unloadAmount}
-                onChange={(event) => setUnloadAmount(event.target.value)}
-              />
-              <Button
-                variant="tonal"
-                onClick={() =>
-                  unload.mutate({ organizationWalletId: unloadWalletId, amountBaseUnits: unloadAmount })
-                }
-                disabled={!unloadWalletId || !unloadAmount || unload.isPending}
-              >
-                {unload.isPending ? "Unloading…" : "Unload to treasury"}
-              </Button>
-            </>
-          ) : (
-            <EmptyState title="No treasury wallets" detail="Register a treasury wallet first." />
-          )}
-        </div>
-      </div>
-      <div className="section-heading">
-        <div>
-          <h2>Wallet activity</h2>
-          <p>{transfers.data?.length ?? 0} real, chain-verified transfers for this agent.</p>
-        </div>
-      </div>
-      {transfers.isError ? (
-        <EmptyState title="Activity unavailable" detail="The wallet transfer history could not be loaded." />
-      ) : transfers.data?.length ? (
-        <div className="entity-list">
-          {transfers.data.map((transfer) => (
-            <div className="entity-row" key={transfer.id}>
-              <strong>
-                {transfer.direction === "load" ? "Load" : "Unload"} · {transfer.walletLabel}
-              </strong>
-              <TokenAmount baseUnits={transfer.amountBaseUnits} />
-              <Badge
-                tone={
-                  transfer.status === "confirmed"
-                    ? "success"
-                    : transfer.status === "failed"
-                      ? "critical"
-                      : "warning"
-                }
-              >
-                {transfer.status}
-              </Badge>
-              {transfer.transactionHash && (
-                <small>
-                  <Mono>{transfer.transactionHash}</Mono>
-                </small>
-              )}
-              {transfer.status === "pending" && transfer.direction === "load" && (
-                <Button
-                  variant="text"
-                  onClick={() => {
-                    setConfirmTransferId(transfer.id);
-                    setTxHashInput("");
-                  }}
-                >
-                  I've sent this
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState title="No wallet activity yet" detail="Load this agent's wallet to begin." />
-      )}
-
-      <Dialog
-        open={Boolean(confirmTransferId)}
-        onClose={() => {
-          setConfirmTransferId(null);
-          setTxHashInput("");
-        }}
-        title="Confirm Transfer Broadcast"
-        description="Provide the transaction hash from your wallet once the transfer has completed."
-        footer={
-          <>
-            <Button
-              variant="text"
-              onClick={() => {
-                setConfirmTransferId(null);
-                setTxHashInput("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (confirmTransferId && txHashInput.trim()) {
-                  submitTransfer.mutate({
-                    transferId: confirmTransferId,
-                    transactionHash: txHashInput.trim(),
-                  });
-                  setConfirmTransferId(null);
-                  setTxHashInput("");
-                }
-              }}
-              disabled={!txHashInput.trim() || submitTransfer.isPending}
-            >
-              Confirm submission
-            </Button>
-          </>
-        }
-      >
-        <TextField
-          label="Transaction hash"
-          value={txHashInput}
-          placeholder="0x…"
-          onChange={(e) => setTxHashInput(e.target.value)}
-        />
-      </Dialog>
-    </Surface>
-  );
-}
-
 export function Fleet() {
   const identity = useIdentity();
   const { toast } = useToast();
@@ -726,9 +385,10 @@ export function Fleet() {
             <p>Create a secure wallet, an identity wallet, or link your treasury.</p>
           </div>
         </div>
-        <div className="wallet-kind-toggle" role="tablist" aria-label="Wallet source">
+        <div className="wallet-kind-toggle" role="group" aria-label="Wallet source">
           <button
             type="button"
+            aria-pressed={walletSource === "sovereign"}
             className={walletSource === "sovereign" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => setWalletSource("sovereign")}
           >
@@ -736,6 +396,7 @@ export function Fleet() {
           </button>
           <button
             type="button"
+            aria-pressed={walletSource === "tba"}
             className={walletSource === "tba" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => setWalletSource("tba")}
           >
@@ -743,6 +404,7 @@ export function Fleet() {
           </button>
           <button
             type="button"
+            aria-pressed={walletSource === "external"}
             className={walletSource === "external" ? "workspace-tab active" : "workspace-tab"}
             onClick={() => setWalletSource("external")}
           >
@@ -778,7 +440,7 @@ export function Fleet() {
                 placeholder="Select a registered treasury wallet"
               />
             ) : (
-              <EmptyState
+              <EmptyState kind="wallet"
                 title="No treasury wallets yet"
                 detail="Register one in Treasury first, then come back to link it to this agent."
               />
@@ -799,9 +461,10 @@ export function Fleet() {
             <h2>Fleet Directory</h2>
             <p>{rows.length} agents registered.</p>
           </div>
-          <div className="fleet-view-toggle" role="tablist" aria-label="Fleet View Mode">
+          <div className="fleet-view-toggle" role="group" aria-label="Fleet view">
             <button
               type="button"
+              aria-pressed={viewMode === "table"}
               className={viewMode === "table" ? "workspace-tab active" : "workspace-tab"}
               onClick={() => setViewMode("table")}
             >
@@ -809,6 +472,7 @@ export function Fleet() {
             </button>
             <button
               type="button"
+              aria-pressed={viewMode === "swarm"}
               className={viewMode === "swarm" ? "workspace-tab active" : "workspace-tab"}
               onClick={() => setViewMode("swarm")}
             >
@@ -822,9 +486,10 @@ export function Fleet() {
         ) : (
           <>
             {/* Segmented Filter Pills with Integrated Live Counters */}
-            <div className="segmented-filter-pills" role="tablist" aria-label="Fleet quick status filters" style={{ marginBottom: "12px" }}>
+            <div className="segmented-filter-pills" role="group" aria-label="Fleet quick status filters" style={{ marginBottom: "12px" }}>
               <button
                 type="button"
+                aria-pressed={statusFilter === "all" && sourceFilter === "all"}
                 className={`segmented-filter-pill ${statusFilter === "all" && sourceFilter === "all" ? "active" : ""}`}
                 onClick={() => {
                   setStatusFilter("all");
@@ -836,6 +501,7 @@ export function Fleet() {
               </button>
               <button
                 type="button"
+                aria-pressed={statusFilter === "active"}
                 className={`segmented-filter-pill ${statusFilter === "active" ? "active" : ""}`}
                 onClick={() => setStatusFilter("active")}
               >
@@ -845,6 +511,7 @@ export function Fleet() {
               </button>
               <button
                 type="button"
+                aria-pressed={statusFilter === "tripped"}
                 className={`segmented-filter-pill ${statusFilter === "tripped" ? "active" : ""}`}
                 onClick={() => setStatusFilter("tripped")}
               >
@@ -854,6 +521,7 @@ export function Fleet() {
               </button>
               <button
                 type="button"
+                aria-pressed={sourceFilter === "sovereign"}
                 className={`segmented-filter-pill ${sourceFilter === "sovereign" ? "active" : ""}`}
                 onClick={() => setSourceFilter("sovereign")}
               >
@@ -1049,9 +717,9 @@ export function Fleet() {
         )}
 
         {query.isError ? (
-          <EmptyState title="Fleet unavailable" detail="We couldn't load your fleet right now." />
+          <EmptyState kind="warning" title="Fleet unavailable" detail="We couldn't load your fleet right now." />
         ) : rows.length === 0 ? (
-          <EmptyState
+          <EmptyState kind="agents"
             title="No agents registered"
             detail="Register your first agent to start enforcing spend policy."
             action={
@@ -1062,7 +730,7 @@ export function Fleet() {
             }
           />
         ) : filteredRows.length === 0 ? (
-          <EmptyState
+          <EmptyState kind="search"
             title="No matching agents found"
             detail="No autonomous agents match your active search and filter parameters."
             action={

@@ -9,6 +9,7 @@ import {
   type Address,
 } from "viem";
 import { configuration } from "../configuration";
+import { POLL } from "../polling";
 
 export const CIRCUIT_VAULT_ABI = parseAbi([
   "struct EpochBucket { uint128 allocatedCap; uint128 cumulativeSettled; uint32 epochStart; uint32 epochDuration; bool isClosed; }",
@@ -81,7 +82,7 @@ export function useVaultBalance(agentAddress: string, enabled = true) {
       return BigInt(bal);
     },
     enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -124,7 +125,7 @@ export function useEpochAllocation(
       isAddress(agentAddress) &&
       Boolean(providerAddress) &&
       isAddress(providerAddress),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 
@@ -154,7 +155,7 @@ export function useAgentChallenge(
       };
     },
     enabled: enabled && Boolean(agentAddress) && isAddress(agentAddress) && Boolean(sessionId),
-    refetchInterval: 5000,
+    refetchInterval: POLL.normal,
   });
 }
 

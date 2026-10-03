@@ -31,7 +31,6 @@ interface SimulationResult {
   reasonTitle: string;
   reasonDescription: string;
   remediationAdvice: string;
-  estimatedGas: number;
   executionLatencyMs: number;
   storageSlotsChecked: string[];
 }
@@ -392,7 +391,6 @@ export function PolicySimulator() {
         reasonTitle: `${reasonMeta.code} (${reasonMeta.title})`,
         reasonDescription: reasonMeta.desc,
         remediationAdvice: reasonMeta.remediation,
-        estimatedGas: decision.allowed ? 46200 : 21400,
         executionLatencyMs: decision.executionLatencyMs,
         storageSlotsChecked: [
           `Spending rules for ${truncateMiddle(activeAgent.address, 8, 4)}`,
@@ -407,7 +405,6 @@ export function PolicySimulator() {
         reasonTitle: "Couldn't complete the test",
         reasonDescription: toUserFacingError(err, "The policy evaluation could not be completed."),
         remediationAdvice: "Check your connection and make sure this agent has spending rules set.",
-        estimatedGas: 0,
         executionLatencyMs: 0,
         storageSlotsChecked: ["Connection check"],
       });
@@ -429,7 +426,7 @@ export function PolicySimulator() {
 
       {agents.length === 0 ? (
         <Surface>
-          <EmptyState
+          <EmptyState kind="agents"
             title="No agents registered yet"
             detail="Register your first agent in Fleet Overview to dry-run policy evaluations."
           />
@@ -444,7 +441,7 @@ export function PolicySimulator() {
               </div>
               <Badge tone="info">Instant</Badge>
             </div>
-            <div className="pipeline-steps">
+            <div className="pipeline-steps" tabIndex={0} role="group" aria-label="Checks, in order">
               {pipelineSteps.map((step, idx) => (
                 <div key={step.id} className={`pipeline-step ${step.status}`}>
                   <div className="pipeline-step-badge">{idx + 1}</div>
@@ -604,16 +601,8 @@ export function PolicySimulator() {
 
                 <div className="result-telemetry-row">
                   <div className="metric-box">
-                    <small>Gas Consumed</small>
-                    <strong>{result.estimatedGas.toLocaleString()} units</strong>
-                  </div>
-                  <div className="metric-box">
                     <small>Evaluation Latency</small>
                     <strong>{result.executionLatencyMs} ms</strong>
-                  </div>
-                  <div className="metric-box">
-                    <small>Settlement SLA</small>
-                    <strong>Network finality</strong>
                   </div>
                 </div>
 
@@ -913,6 +902,7 @@ export function PolicySimulator() {
 
             <input
               type="range"
+              aria-label="How unusual is the activity?"
               min="0"
               max="6"
               step="0.1"

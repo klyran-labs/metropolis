@@ -156,7 +156,7 @@ export function Billing() {
       <Surface>
         {message && <p className="form-message">{message}</p>}
         {plans.isError ? (
-          <EmptyState title="Plans unavailable" detail="We couldn't load the plan catalog right now." />
+          <EmptyState kind="warning" title="Plans unavailable" detail="We couldn't load the plan catalog right now." />
         ) : plans.data?.length ? (
           <div className="pricing-cards">
             {plans.data.flatMap((plan) =>
@@ -177,7 +177,7 @@ export function Billing() {
             )}
           </div>
         ) : (
-          <EmptyState
+          <EmptyState kind="billing"
             title="No plans available yet"
             detail="An administrator needs to publish a plan before you can subscribe."
           />
@@ -192,14 +192,14 @@ export function Billing() {
           )}
         </div>
         {subscription.isError ? (
-          <EmptyState
+          <EmptyState kind="warning"
             title="Subscription unavailable"
             detail="We couldn't load your subscription right now."
           />
         ) : subscription.data?.subscription ? (
           <RecordSummary record={subscription.data.subscription} />
         ) : (
-          <EmptyState
+          <EmptyState kind="billing"
             title="No subscription"
             detail="An administrator needs to publish a plan before you can subscribe."
           />

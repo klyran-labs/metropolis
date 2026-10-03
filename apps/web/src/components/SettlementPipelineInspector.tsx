@@ -301,7 +301,7 @@ export function SettlementPipelineInspector() {
 
       {/* Outbox Items Table */}
       {items.length === 0 ? (
-        <EmptyState
+        <EmptyState kind="neutral"
           title="Clearing Pipeline Idle"
           detail={
             statusFilter === "all"
