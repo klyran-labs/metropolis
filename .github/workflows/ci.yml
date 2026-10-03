@@ -196,6 +196,21 @@ jobs:
   rust-gateway:
     name: Rust Gateway Tests and Lints
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # Database-backed tests (approval concurrency, pagination) create and drop their own databases.
+      GATEWAY_TEST_DATABASE_URL: postgres://postgres:ci-password@127.0.0.1:5432/postgres
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

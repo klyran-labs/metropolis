@@ -2213,9 +2213,6 @@ pub async fn sign_approval_ticket_handler(
     let status: String = row
         .try_get("status")
         .map_err(|_| service_unavailable("The transfer record is invalid."))?;
-    if status != "pending_approval" {
-        return Err(invalid_request("This transfer is not awaiting approval."));
-    }
     let organization_wallet_id: Uuid = row
         .try_get("organization_wallet_id")
         .map_err(|_| service_unavailable("The transfer record is invalid."))?;
@@ -2228,57 +2225,68 @@ pub async fn sign_approval_ticket_handler(
         ));
     };
     require_wallet_access(&state, &context, organization_wallet_id).await?;
-
-    let ticket_row = sqlx::query(
-        "SELECT required_signatures, signatures, status FROM approval_tickets WHERE id = $1 AND org_id = $2",
-    )
-    .bind(ticket_id)
-    .bind(&context.tenant.org_id)
-    .fetch_optional(&state.repository.pool)
-    .await
-    .map_err(|_| service_unavailable("The approval ticket is unavailable."))?
-    .ok_or_else(|| service_unavailable("The approval ticket was not found."))?;
-    let ticket_status: String = ticket_row
-        .try_get("status")
-        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?;
-    if ticket_status != "open" {
-        return Err(invalid_request("This approval ticket is no longer open."));
-    }
-    let required: i16 = ticket_row
-        .try_get("required_signatures")
-        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?;
-    let mut signatures: Vec<String> = ticket_row
-        .try_get::<Value, _>("signatures")
-        .map_err(|_| service_unavailable("The approval ticket record is invalid."))?
-        .as_array()
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-    if signatures.iter().any(|subject| subject == &context.subject) {
-        return Err(invalid_request("You have already signed this approval."));
-    }
-    signatures.push(context.subject.clone());
-    let reached = signatures.len() as i16 >= required;
-    let new_ticket_status = if reached { "approved" } else { "open" };
-    sqlx::query("UPDATE approval_tickets SET signatures = $2::jsonb, status = $3 WHERE id = $1")
-        .bind(ticket_id)
-        .bind(serde_json::to_value(&signatures).unwrap_or(Value::Array(vec![])))
-        .bind(new_ticket_status)
-        .execute(&state.repository.pool)
+    if status != "pending_approval" {
+        // A retry after the transfer already advanced (for example a double click) is harmless.
+        if let Some((collected, required)) = crate::approvals::signed_state(
+            &state.repository.pool,
+            &context.tenant.org_id,
+            ticket_id,
+            &context.subject,
+        )
         .await
-        .map_err(|_| service_unavailable("The approval could not be recorded."))?;
+        .map_err(|_| service_unavailable("The approval ticket is unavailable."))?
+        {
+            return Ok(Json(serde_json::json!({
+                "transferId": transfer_id,
+                "status": status,
+                "signatures": collected,
+                "requiredSignatures": required,
+                "alreadySigned": true
+            })));
+        }
+        return Err(invalid_request("This transfer is not awaiting approval."));
+    }
 
-    if !reached {
-        return Ok(Json(serde_json::json!({
-            "transferId": transfer_id,
-            "status": "pending_approval",
-            "signatures": signatures.len(),
-            "requiredSignatures": required
-        })));
+    let outcome = crate::approvals::record_signature(
+        &state.repository.pool,
+        &context.tenant.org_id,
+        ticket_id,
+        &context.subject,
+    )
+    .await
+    .map_err(|_| service_unavailable("The approval could not be recorded."))?;
+    match outcome {
+        crate::approvals::SignOutcome::NotFound => {
+            return Err(service_unavailable("The approval ticket was not found."));
+        }
+        crate::approvals::SignOutcome::NotOpen => {
+            return Err(invalid_request("This approval ticket is no longer open."));
+        }
+        crate::approvals::SignOutcome::AlreadySigned {
+            collected,
+            required,
+        } => {
+            return Ok(Json(serde_json::json!({
+                "transferId": transfer_id,
+                "status": "pending_approval",
+                "signatures": collected,
+                "requiredSignatures": required,
+                "alreadySigned": true
+            })));
+        }
+        crate::approvals::SignOutcome::Recorded {
+            collected,
+            required,
+            reached: false,
+        } => {
+            return Ok(Json(serde_json::json!({
+                "transferId": transfer_id,
+                "status": "pending_approval",
+                "signatures": collected,
+                "requiredSignatures": required
+            })));
+        }
+        crate::approvals::SignOutcome::Recorded { reached: true, .. } => {}
     }
 
     sqlx::query("UPDATE wallet_transfers SET status = 'pending' WHERE id = $1")
@@ -2423,69 +2431,105 @@ pub fn pending_approval_state(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct PendingApprovalsQuery {
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
+}
+
+const PENDING_APPROVALS_DEFAULT_LIMIT: i64 = 25;
+const PENDING_APPROVALS_MAX_LIMIT: i64 = 100;
+
+/// Cursor = base64url("<created_at RFC3339>|<transfer id>"), the sort key of the last row served.
+pub fn encode_approvals_cursor(created_at: chrono::DateTime<Utc>, id: Uuid) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(format!("{}|{}", created_at.to_rfc3339(), id))
+}
+
+pub fn decode_approvals_cursor(cursor: &str) -> Option<(chrono::DateTime<Utc>, Uuid)> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(cursor)
+        .ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    let (timestamp, id) = text.split_once('|')?;
+    Some((
+        chrono::DateTime::parse_from_rfc3339(timestamp)
+            .ok()?
+            .with_timezone(&Utc),
+        Uuid::parse_str(id).ok()?,
+    ))
+}
+
 pub async fn list_pending_approvals_handler(
     State(state): State<SharedState>,
     Extension(context): Extension<RequestContext>,
+    axum::extract::Query(query): axum::extract::Query<PendingApprovalsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let rows = sqlx::query(
-        r#"SELECT wt.id, wt.direction, wt.amount_base_units::text AS amount_base_units, wt.agent_address,
-                  wt.initiated_by_subject, wt.created_at, ow.id AS wallet_id, ow.label AS wallet_label,
-                  ow.address AS wallet_address, tk.required_signatures, tk.signatures, tk.expires_at,
-                  (owa.subject IS NOT NULL) AS has_access
-           FROM wallet_transfers wt
-           JOIN organization_wallets ow ON ow.id = wt.organization_wallet_id
-           JOIN approval_tickets tk ON tk.id = wt.approval_ticket_id AND tk.org_id = wt.org_id
-           LEFT JOIN organization_wallet_access owa ON owa.wallet_id = ow.id AND owa.subject = $2
-           WHERE wt.org_id = $1 AND wt.status = 'pending_approval' AND tk.status = 'open'
-           ORDER BY wt.created_at DESC LIMIT 100"#,
+    let limit = query
+        .limit
+        .unwrap_or(PENDING_APPROVALS_DEFAULT_LIMIT)
+        .clamp(1, PENDING_APPROVALS_MAX_LIMIT);
+    let cursor = match query.cursor.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            decode_approvals_cursor(raw)
+                .ok_or_else(|| invalid_request("The pagination cursor is invalid."))?,
+        ),
+    };
+    let is_super_admin = context.role == Role::SuperAdmin;
+    let page = crate::approvals::list_pending(
+        &state.repository.pool,
+        &context.tenant.org_id,
+        &context.subject,
+        is_super_admin,
+        limit,
+        cursor,
     )
-    .bind(&context.tenant.org_id)
-    .bind(&context.subject)
-    .fetch_all(&state.repository.pool)
     .await
     .map_err(|_| service_unavailable("Pending approvals are unavailable."))?;
-    let is_super_admin = context.role == Role::SuperAdmin;
-    let approvals = rows
-        .into_iter()
+
+    let next_cursor = page
+        .rows
+        .last()
+        .map(|row| encode_approvals_cursor(row.created_at, row.id));
+    let approvals = page
+        .rows
+        .iter()
         .map(|row| {
-            let signatures: Vec<String> = row
-                .try_get::<Value, _>("signatures")?
-                .as_array()
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
             let progress = pending_approval_state(
-                &signatures,
-                row.try_get::<i16, _>("required_signatures")?,
+                &row.signers,
+                row.required_signatures,
                 &context.subject,
-                is_super_admin || row.try_get::<bool, _>("has_access")?,
+                is_super_admin || row.has_access,
             );
-            Ok(serde_json::json!({
-                "transferId": row.try_get::<Uuid, _>("id")?,
-                "direction": row.try_get::<String, _>("direction")?,
-                "amountBaseUnits": row.try_get::<String, _>("amount_base_units")?,
-                "agentAddress": row.try_get::<String, _>("agent_address")?,
-                "initiatedBySubject": row.try_get::<String, _>("initiated_by_subject")?,
-                "createdAt": row.try_get::<chrono::DateTime<Utc>, _>("created_at")?,
-                "expiresAt": row.try_get::<chrono::DateTime<Utc>, _>("expires_at")?,
-                "walletId": row.try_get::<Uuid, _>("wallet_id")?,
-                "walletLabel": row.try_get::<String, _>("wallet_label")?,
-                "walletAddress": row.try_get::<String, _>("wallet_address")?,
+            serde_json::json!({
+                "transferId": row.id,
+                "direction": row.direction,
+                "amountBaseUnits": row.amount_base_units,
+                "agentAddress": row.agent_address,
+                "initiatedBySubject": row.initiated_by_subject,
+                "createdAt": row.created_at,
+                "expiresAt": row.expires_at,
+                "walletId": row.wallet_id,
+                "walletLabel": row.wallet_label,
+                "walletAddress": row.wallet_address,
                 "signatures": progress.signatures_collected,
                 "requiredSignatures": progress.signatures_required,
                 "alreadySigned": progress.already_signed,
                 "canApprove": progress.can_approve,
-            }))
+            })
         })
-        .collect::<Result<Vec<_>, sqlx::Error>>()
-        .map_err(|_| service_unavailable("Pending approvals returned invalid data."))?;
-    Ok(Json(
-        serde_json::json!({ "count": approvals.len(), "approvals": approvals }),
-    ))
+        .collect::<Vec<_>>();
+    Ok(Json(serde_json::json!({
+        "count": approvals.len(),
+        "total": page.total,
+        "approvableCount": page.approvable,
+        "hasMore": page.has_more,
+        "nextCursor": if page.has_more { next_cursor } else { None },
+        "approvals": approvals,
+    })))
 }
 
 pub async fn create_plan_handler(

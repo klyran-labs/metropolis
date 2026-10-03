@@ -6,7 +6,10 @@ use agentguard_gateway::{
         compute_domain_separator, compute_eip712_digest, compute_spend_request_hash,
         parse_x402_authorization_header, recover_signer,
     },
-    handlers::{PendingApprovalState, is_assignable_api_key_capability, pending_approval_state},
+    handlers::{
+        PendingApprovalState, decode_approvals_cursor, encode_approvals_cursor,
+        is_assignable_api_key_capability, pending_approval_state,
+    },
     pbac::{self, PbacConditions, PbacInput, PbacPolicy, PolicyEffect},
     rbac::{self, Capability, Role},
     repository::PgRepository,
@@ -686,5 +689,19 @@ fn pending_approval_state_requires_access_and_blocks_double_signing() {
         pending_approval_state(&[], 3, "did:privy:alice", true).signatures_collected,
         0
     );
+}
+
+#[test]
+fn approvals_cursor_round_trips_and_rejects_garbage() {
+    let created_at = Utc::now();
+    let id = Uuid::now_v7();
+    let cursor = encode_approvals_cursor(created_at, id);
+    let (decoded_at, decoded_id) = decode_approvals_cursor(&cursor).expect("valid cursor");
+    assert_eq!(decoded_id, id);
+    assert_eq!(decoded_at.timestamp_micros(), created_at.timestamp_micros());
+
+    assert!(decode_approvals_cursor("not-base64!!").is_none());
+    assert!(decode_approvals_cursor("bm9waXBl").is_none()); // "nopipe"
+    assert!(decode_approvals_cursor("").is_none());
 }
 

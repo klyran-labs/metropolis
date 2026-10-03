@@ -1,5 +1,6 @@
 pub mod abac;
 pub mod anomaly;
+pub mod approvals;
 pub mod audit_anchor;
 pub mod auth;
 pub mod chain;
