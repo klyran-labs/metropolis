@@ -1,7 +1,11 @@
 node_modules
+**/node_modules
 .next
+**/.next
 dist
+**/dist
 out
+**/out
 .git
 .gitignore
 .dockerignore
@@ -13,3 +17,4 @@ scratch
 contracts/cache
 cache
 contracts/out
+

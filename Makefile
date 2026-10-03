@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 LOCAL_ENV_FILE ?= .env.local
 
-.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-contracts-forge test-web test-middleware test-gateway bench-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down docker-prod-up docker-prod-down clean help
+.PHONY: all build test lint typecheck verify-production-integrity verify-ui-contract verify-theme-contract test-contracts test-contracts-forge test-web test-middleware test-gateway bench-gateway test-opensigner build-packages build-web build-gateway build-opensigner docker-up docker-web-up docker-admin-web-up docker-down docker-logs docker-testnet-up docker-testnet-down docker-mainnet-up docker-mainnet-down docker-prod-up docker-prod-down clean help
 
 all: lint build test
 
@@ -94,6 +94,22 @@ docker-up:
 	fi
 	@node scripts/ensure-local-env.mjs "$(LOCAL_ENV_FILE)"
 	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up --build -d
+
+docker-web-up:
+	@echo "=== Rebuilding and Updating AgentGuard Web Control Plane ==="
+	@if [ ! -f "$(LOCAL_ENV_FILE)" ]; then \
+		echo "Missing $(LOCAL_ENV_FILE). Create it with: cp docker/.env.local.example $(LOCAL_ENV_FILE)"; \
+		exit 1; \
+	fi
+	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up -d --build --no-deps agentguard-web
+
+docker-admin-web-up:
+	@echo "=== Rebuilding and Updating AgentGuard Admin Web Control Plane ==="
+	@if [ ! -f "$(LOCAL_ENV_FILE)" ]; then \
+		echo "Missing $(LOCAL_ENV_FILE). Create it with: cp docker/.env.local.example $(LOCAL_ENV_FILE)"; \
+		exit 1; \
+	fi
+	@docker compose --env-file "$(LOCAL_ENV_FILE)" -f docker/docker-compose.yml up -d --build --no-deps agentguard-admin-web
 
 fund-wallets:
 	@echo "=== Funding Local Devnet Wallets and Seeding Policies ==="

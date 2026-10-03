@@ -53,7 +53,7 @@ COPY apps/web/package.json ./apps/web/package.json
 RUN apk add --no-cache python3 make g++
 
 # Install dependencies with persistent build cache and network retry configuration
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \

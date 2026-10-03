@@ -1,25 +1,34 @@
 # AgentGuard Self-Hosted OpenSigner Container
 # Hardened Alpine Node.js container for sovereign agent key enclave & EIP-712 signer
 
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Copy root configs for monorepo resolution
-COPY package*.json ./
+# Copy package manifests for complete monorepo workspace resolution
+COPY package.json package-lock.json ./
+COPY packages/shared-types/package.json ./packages/shared-types/package.json
+COPY packages/x402-middleware/package.json ./packages/x402-middleware/package.json
+COPY packages/cli/package.json ./packages/cli/package.json
+COPY packages/mcp-server/package.json ./packages/mcp-server/package.json
+COPY contracts/package.json ./contracts/package.json
+COPY services/opensigner/package.json ./services/opensigner/package.json
+COPY apps/web/package.json ./apps/web/package.json
+
+# Copy root configs and package sources for monorepo resolution
 COPY tsconfig*.json ./
 COPY packages ./packages
 COPY services/opensigner ./services/opensigner
 
 # Install dependencies and build opensigner with persistent cache
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm ci --ignore-scripts
 RUN npm run build --workspace=@agentguard/opensigner
 
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app
 
