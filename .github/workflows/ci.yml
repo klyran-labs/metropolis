@@ -169,6 +169,9 @@ jobs:
       - name: Run UI Suite
         run: npm run test:ui
 
+      - name: Run UI Suite Through the Production Web Server (Security Policy)
+        run: npm run test:csp
+
       - name: Upload Failure Artifacts
         if: failure()
         uses: actions/upload-artifact@v4

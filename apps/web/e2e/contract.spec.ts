@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { contractSamples, defaultScenario } from "./support/fixtures";
 
 /**

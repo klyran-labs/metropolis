@@ -179,6 +179,7 @@ export async function installGateway(
       // Default: no push channel, so the UI falls back to polling. A test can point it at a real SSE server.
       return options.streamUrl ? route.continue({ url: options.streamUrl }) : route.abort();
     }
+    if (path === "/telemetry/web-vitals" || path === "/telemetry/csp-report") return route.fulfill({ status: 204 });
     if (/^\/users\/.+\/role$/.test(path)) return json(route, { role: scenario.role, org_id: ORG_ID, tenant_name: "Acme Robotics" });
     if (path === "/agents") return json(route, agents);
     if (path === "/organization/wallets") return json(route, { wallets });

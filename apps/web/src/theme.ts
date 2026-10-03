@@ -93,21 +93,11 @@ function suppressTransitionsDuringUpdate(fn: () => void) {
     return;
   }
 
-  // Inject a temporary style tag that disables transitions across all elements
-  // This prevents the visual tearing and color mismatch flicker (e.g. background fading
-  // while text color snaps instantly) during a global theme switch.
-  const style = document.createElement("style");
-  style.setAttribute("data-agentguard-theme-transition-lock", "true");
-  style.textContent = `
-    *, *::before, *::after {
-      -webkit-transition: none !important;
-      -moz-transition: none !important;
-      -o-transition: none !important;
-      -ms-transition: none !important;
-      transition: none !important;
-    }
-  `;
-  document.head.appendChild(style);
+  // Flag the document while the theme changes; a static rule in globals.css disables transitions
+  // for the duration. This prevents the flicker (background fading while text snaps) during a
+  // global theme switch, and avoids injecting <style> elements that a strict policy would block.
+  const root = document.documentElement;
+  root.setAttribute("data-theme-switching", "");
 
   try {
     fn();
@@ -117,12 +107,10 @@ function suppressTransitionsDuringUpdate(fn: () => void) {
       void window.getComputedStyle(document.body).opacity;
     }
   } finally {
-    // Remove the transition lock on the next frame so interactive transitions resume cleanly.
+    // Resume transitions on the next frame so interactive transitions work again.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (style.parentNode) {
-          style.parentNode.removeChild(style);
-        }
+        root.removeAttribute("data-theme-switching");
       });
     });
   }

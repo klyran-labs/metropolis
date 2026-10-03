@@ -77,6 +77,14 @@ FROM nginx:alpine
 COPY docker/nginx.admin.conf /etc/nginx/nginx.conf
 RUN rm -f /etc/nginx/conf.d/default.conf
 
+# Security headers: one shared include plus a Content-Security-Policy chosen per profile.
+# CSP_PROFILE=local additionally allows loopback origins and must not be used for deployed images.
+ARG CSP_PROFILE=production
+ARG VITE_RPC_URL
+COPY docker/nginx /tmp/nginx
+RUN sh /tmp/nginx/render-snippets.sh "$CSP_PROFILE" "$VITE_RPC_URL" /tmp/nginx /etc/nginx/snippets \
+    && rm -rf /tmp/nginx
+
 # Copy build artifacts for admin target
 COPY --from=builder /app/apps/web/dist/admin /usr/share/nginx/html
 

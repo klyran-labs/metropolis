@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { createServer, type ServerResponse } from "node:http";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { defaultScenario, installGateway, manyPending } from "./support/fixtures";
 
 test.describe("navigation shell", () => {
@@ -212,5 +212,71 @@ test.describe("overlays are accessible", () => {
     expect(blocking(results.violations)).toEqual([]);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+  });
+});
+
+test.describe("performance reporting", () => {
+  test("sends page metrics and a scrubbed error when the page is hidden", async ({ page }) => {
+    await installGateway(page);
+    const reports: Array<{ page: string; metrics: Array<{ name: string }>; errors: Array<{ message: string }> }> = [];
+    await page.route("**/api/v1/telemetry/web-vitals", async (route) => {
+      reports.push(route.request().postDataJSON());
+      await route.fulfill({ status: 204 });
+    });
+    await page.goto("/app/overview?session=secret-value");
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new ErrorEvent("error", { message: "boom at https://example.com/x?token=abc and 0xA978BD5ea722e96caFe47384877F39f8E7EAD22f" }),
+      );
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    await expect.poll(() => reports.length).toBeGreaterThan(0);
+    const report = reports[0];
+    expect(report.metrics.map((metric) => metric.name)).toEqual(expect.arrayContaining(["TTFB", "FCP"]));
+    expect(report.page).toBe("/app/overview");
+    expect(JSON.stringify(report)).not.toContain("secret-value");
+    expect(report.errors[0].message).toBe("boom at https://example.com/x and 0x…");
+  });
+});
+
+test.describe("typography", () => {
+  test("loads the self-hosted typeface and never contacts a third-party font host", async ({ page }) => {
+    await installGateway(page);
+    const external: string[] = [];
+    page.on("request", (request) => {
+      const { hostname } = new URL(request.url());
+      if (!["127.0.0.1", "localhost"].includes(hostname)) external.push(request.url());
+    });
+    await page.goto("/app/overview");
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+    // `fonts.check` is true when no face matches at all, so inspect the faces themselves.
+    const loadedFaces = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((face) => face.family.includes("Inter Variable") && face.status === "loaded").length;
+    });
+    expect(loadedFaces).toBeGreaterThan(0);
+    expect(external).toEqual([]);
+  });
+});
+
+test.describe("theme", () => {
+  test("switching theme changes the palette and releases the transition lock", async ({ page }) => {
+    await installGateway(page);
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto("/app/overview");
+    const root = page.locator("html");
+    const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const before = await background();
+
+    const toggle = page.getByRole("button", { name: "Switch to dark mode" });
+    if (!(await toggle.isVisible())) await page.getByRole("button", { name: "Account menu" }).click();
+    await toggle.click();
+
+    await expect(root).toHaveAttribute("data-theme", "dark");
+    await expect(root).not.toHaveAttribute("data-theme-switching", "");
+    expect(await background()).not.toBe(before);
   });
 });

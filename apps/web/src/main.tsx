@@ -1,11 +1,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./fonts.css";
 import "./globals.css";
 import Application from "./application";
 import { IdentityBridge, IdentityProvider } from "./identity";
+import { configuration } from "./configuration";
+import { startTelemetry } from "./telemetry";
 import { applyTheme, getStoredTheme } from "./theme";
 
 applyTheme(getStoredTheme());
+startTelemetry({
+  endpoint: `${configuration.apiBaseUrl}/telemetry/web-vitals`,
+  release: configuration.appTarget,
+});
 
 // Auto-recover from stale dynamic chunk imports following production rebuilds/deployments
 if (typeof window !== "undefined") {

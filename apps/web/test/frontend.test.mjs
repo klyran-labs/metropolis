@@ -731,3 +731,119 @@ test("push channel parses SSE, maps events to refetches, and relaxes polling onl
   assert.equal(pollInterval(20000)(), 20000);
 });
 
+
+test("telemetry scrubs identifiers and secrets before anything leaves the browser", async () => {
+  const { scrubMessage } = await import("../src/telemetry.ts");
+  assert.equal(
+    scrubMessage("Failed to load https://api.example.com/v1/items?token=abc123#x now"),
+    "Failed to load https://api.example.com/v1/items now",
+  );
+  assert.equal(
+    scrubMessage("transfer to 0xA978BD5ea722e96caFe47384877F39f8E7EAD22f failed"),
+    "transfer to 0x… failed",
+  );
+  assert.equal(scrubMessage("auth failed: bearer: eyJhbGciOi.secret"), "auth failed: bearer=…");
+  assert.equal(scrubMessage("line one\nline two\u0000"), "line one line two");
+  assert.ok(scrubMessage("x".repeat(1000)).length <= 200);
+});
+
+test("telemetry reporter batches the latest metrics, dedupes and caps errors", async () => {
+  const { createReporter } = await import("../src/telemetry.ts");
+  const sent = [];
+  const reporter = createReporter({
+    endpoint: "/api/v1/telemetry/web-vitals",
+    release: "tenant",
+    page: () => "/app/fleet",
+    transport: (url, body) => {
+      sent.push({ url, body: JSON.parse(body) });
+      return true;
+    },
+  });
+
+  assert.equal(reporter.flush(), false, "nothing gathered means nothing sent");
+
+  reporter.addMetric({ name: "CLS", value: 0.02, rating: "good" });
+  reporter.addMetric({ name: "CLS", value: 0.05, rating: "good" });
+  reporter.addMetric({ name: "LCP", value: Number.NaN });
+  for (let index = 0; index < 30; index += 1) reporter.addError({ kind: "error", message: `failure ${index}` });
+  reporter.addError({ kind: "error", message: "failure 0" });
+  assert.equal(reporter.flush(), true);
+
+  assert.equal(sent.length, 1);
+  const [{ url, body }] = sent;
+  assert.equal(url, "/api/v1/telemetry/web-vitals");
+  assert.equal(body.page, "/app/fleet");
+  assert.deepEqual(body.metrics, [{ name: "CLS", value: 0.05, rating: "good" }]);
+  assert.equal(body.errors.length, 5);
+  assert.equal(new Set(body.errors.map((entry) => entry.message)).size, 5);
+  assert.equal(reporter.flush(), false, "a flushed batch is not sent twice");
+});
+
+test("fonts are self-hosted: no third-party font origins in the app shell", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /fonts\.(googleapis|gstatic)\.com/);
+  const faces = await readFile(new URL("fonts.css", sourceRoot), "utf8");
+  assert.match(faces, /@fontsource-variable\/inter\/files\//);
+  assert.match(faces, /@fontsource-variable\/jetbrains-mono\/files\//);
+  assert.doesNotMatch(faces, /https?:\/\//);
+  const entry = await readFile(new URL("main.tsx", sourceRoot), "utf8");
+  assert.match(entry, /\.\/fonts\.css/);
+});
+
+test("security headers have one source and the right shape per profile", async () => {
+  const docker = (name) => readFile(new URL(`../../../docker/${name}`, import.meta.url), "utf8");
+  const [tenant, admin, headers, production, local, webfile, adminfile, composeDev, composeTestnet, composeMainnet] =
+    await Promise.all([
+      docker("nginx.tenant.conf"),
+      docker("nginx.admin.conf"),
+      docker("nginx/security-headers.conf"),
+      docker("nginx/csp.production.conf"),
+      docker("nginx/csp.local.conf"),
+      docker("Dockerfile.web"),
+      docker("Dockerfile.admin"),
+      docker("docker-compose.yml"),
+      docker("docker-compose.testnet.yml"),
+      docker("docker-compose.mainnet.yml"),
+    ]);
+
+  for (const conf of [tenant, admin]) {
+    // The policy lives only in the shared snippets, never pasted into a server config.
+    assert.doesNotMatch(conf, /Content-Security-Policy/);
+    assert.match(conf, /include \/etc\/nginx\/snippets\/security-headers\.conf;/);
+    assert.doesNotMatch(conf, /fonts\.googleapis\.com/);
+    // Every location that sets its own headers (and so drops inherited ones) pulls the shared list back in.
+    const locations = conf.split(/\n\s*location /).slice(1);
+    for (const location of locations.filter((block) => /add_header/.test(block))) {
+      assert.match(location, /include \/etc\/nginx\/snippets\/security-headers\.conf;/);
+    }
+    // The live-update stream must not be buffered or cut by the normal API timeout.
+    const stream = conf.match(/location = \/api\/v1\/telemetry\/stream \{[^}]*\}/)?.[0] ?? "";
+    assert.match(stream, /proxy_buffering off;/);
+    assert.match(stream, /proxy_read_timeout 1h;/);
+    assert.match(stream, /proxy_set_header Connection "";/);
+  }
+
+  assert.match(headers, /include \/etc\/nginx\/snippets\/csp\.conf;/);
+  assert.match(headers, /Reporting-Endpoints/);
+
+  for (const policy of [production, local]) {
+    assert.match(policy, /Content-Security-Policy "[^"]*script-src 'self';/);
+    assert.match(policy, /object-src 'none'/);
+    assert.match(policy, /frame-ancestors 'none'/);
+    // Staged strict policy reports to the gateway instead of enforcing.
+    assert.match(policy, /Content-Security-Policy-Report-Only "[^"]*style-src 'self';/);
+    assert.match(policy, /report-uri \/api\/v1\/telemetry\/csp-report/);
+    assert.match(policy, /__RPC_ORIGIN__/);
+    assert.doesNotMatch(policy, /fonts\.googleapis\.com/);
+  }
+  assert.doesNotMatch(production, /localhost|127\.0\.0\.1/);
+  assert.match(local, /http:\/\/localhost:\*/);
+
+  for (const file of [webfile, adminfile]) {
+    assert.match(file, /ARG CSP_PROFILE=production/);
+    assert.match(file, /render-snippets\.sh/);
+  }
+  assert.match(composeDev, /CSP_PROFILE: local/);
+  assert.doesNotMatch(composeTestnet, /CSP_PROFILE: local/);
+  assert.doesNotMatch(composeMainnet, /CSP_PROFILE: local/);
+});

@@ -33,12 +33,13 @@
     "test:opensigner": "node --test services/opensigner/test/opensigner.test.mjs",
     "test:forge": "forge test --root contracts",
     "preflight": "npm run lint && npm run compile && npm test",
-    "check:all": "npm run lint && npm run build && npm run lint:bundle && npm test && npm run test:ui && npm run test:gateway && npm run test:forge",
+    "check:all": "npm run lint && npm run build && npm run lint:bundle && npm test && npm run test:ui && npm run test:csp && npm run test:gateway && npm run test:forge",
     "fund:local": "node scripts/fund-wallets.mjs",
     "clean": "npm run clean --workspaces --if-present",
     "lint:bundle": "node scripts/verify-bundle-budget.mjs",
     "lint:css": "node scripts/prune-dead-css.mjs --check 0",
-    "test:ui": "npm run test:ui --workspace=@agentguard/web"
+    "test:ui": "npm run test:ui --workspace=@agentguard/web",
+    "test:csp": "node scripts/verify-csp-through-nginx.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

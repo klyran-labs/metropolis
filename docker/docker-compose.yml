@@ -71,6 +71,7 @@ services:
         VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:-}
         VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
         VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
+        CSP_PROFILE: local
     container_name: agentguard-web
     restart: unless-stopped
     ports:
@@ -103,6 +104,7 @@ services:
         VITE_USDC_TOKEN_ADDRESS: ${VITE_USDC_TOKEN_ADDRESS:-}
         VITE_PRIVY_APP_ID: ${VITE_PRIVY_APP_ID:?VITE_PRIVY_APP_ID is required}
         VITE_BRAND_NAME: ${VITE_BRAND_NAME:-AgentGuard}
+        CSP_PROFILE: local
     container_name: agentguard-admin-web
     restart: unless-stopped
     ports:

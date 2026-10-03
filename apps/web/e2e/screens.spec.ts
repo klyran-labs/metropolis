@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/test";
 import { installGateway } from "./support/fixtures";
 
 const SCREENS: Array<{ path: string; heading: string }> = [
