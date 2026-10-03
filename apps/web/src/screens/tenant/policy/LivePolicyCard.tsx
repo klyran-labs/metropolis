@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { useAgentPolicy } from "../../../api";
 import { Badge, EmptyState, Mono, Surface } from "../../../design-system";
 import { formatWindowEpoch } from "./utils";
+import { formatBaseUnits } from "../../../format";
 
 export function LivePolicyCard({ policy }: { policy: ReturnType<typeof useAgentPolicy> }) {
   return (
@@ -26,14 +27,14 @@ export function LivePolicyCard({ policy }: { policy: ReturnType<typeof useAgentP
             <div className="live-summary-row">
               <span className="summary-row-label">Per transaction</span>
               <Mono className="summary-row-val">
-                {(Number(policy.data.maxPerTx ?? 0) / 1_000_000).toFixed(2)} USDC
+                {formatBaseUnits((policy.data.maxPerTx ?? 0) as string | number)} USDC
               </Mono>
             </div>
 
             <div className="live-summary-row">
               <span className="summary-row-label">Per period</span>
               <Mono className="summary-row-val">
-                {(Number(policy.data.maxPerWindow ?? 0) / 1_000_000).toFixed(2)} USDC
+                {formatBaseUnits((policy.data.maxPerWindow ?? 0) as string | number)} USDC
               </Mono>
             </div>
 

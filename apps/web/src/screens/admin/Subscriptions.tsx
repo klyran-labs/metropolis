@@ -1,7 +1,8 @@
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { usePlatformSubscriptions, type PlatformSubscription } from "../../api";
-import { Badge, EmptyState, Surface, TokenAmount } from "../../design-system";
+import { Badge, EmptyState, Surface, TokenAmount, TableViewport } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { formatDate } from "../../format";
 
 const statusTone = (status: string) =>
   status === "active" ? "success" : status === "past_due" ? "warning" : status === "cancelled" || status === "expired" ? "critical" : "neutral";
@@ -32,7 +33,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("currentPeriodEnd", {
     header: "Renews",
-    cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+    cell: (info) => formatDate(info.getValue()),
   }),
 ]);
 
@@ -53,7 +54,7 @@ export function AdminSubscriptions() {
         {subscriptions.isError ? (
           <EmptyState kind="warning" title="Subscription directory unavailable" detail="We couldn't load subscriptions right now." />
         ) : rows.length ? (
-          <div className="table-viewport">
+          <TableViewport label="Subscriptions">
             <table>
               <thead>
                 {table.getHeaderGroups().map((group) => (
@@ -76,7 +77,7 @@ export function AdminSubscriptions() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableViewport>
         ) : (
           <EmptyState kind="billing" title="No subscriptions yet" detail="Subscriptions will appear once a tenant checks out a plan." />
         )}

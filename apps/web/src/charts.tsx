@@ -7,6 +7,7 @@ import { TrendingDown, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { chartPalette, resolveTheme, type ResolvedTheme } from "./theme";
 import { EmptyState } from "./design-system";
+import { formatCompactNumber, formatNumber } from "./format";
 
 echarts.use([BarChart, GaugeChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -64,8 +65,7 @@ function useChart(
   return setRef;
 }
 
-const compact = (value: number) =>
-  new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+const compact = formatCompactNumber;
 
 export function Sparkline({
   data,
@@ -357,7 +357,7 @@ export function Breakdown({
               style={{ background: palette.categorical[index % palette.categorical.length] }}
             />
             <span>{row.label}</span>
-            <strong>{row.value.toLocaleString()}</strong>
+            <strong>{formatNumber(row.value)}</strong>
           </div>
         ))}
       </div>

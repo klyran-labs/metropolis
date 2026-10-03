@@ -1,8 +1,9 @@
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useState } from "react";
 import { request, toUserFacingError, usePlatformTenants, type PlatformTenant } from "../../api";
-import { Badge, Button, EmptyState, Mono, Surface, TextField } from "../../design-system";
+import { Badge, Button, EmptyState, Mono, Surface, TextField, TableViewport } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { formatDate } from "../../format";
 
 const tenantFeatures = tableFeatures({});
 const tenantColumnHelper = createColumnHelper<typeof tenantFeatures, PlatformTenant>();
@@ -18,7 +19,7 @@ const tenantColumns = tenantColumnHelper.columns([
   }),
   tenantColumnHelper.accessor("createdAt", {
     header: "Created",
-    cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+    cell: (info) => formatDate(info.getValue()),
   }),
 ]);
 
@@ -89,7 +90,7 @@ export function AdminTenants() {
         {tenants.isError ? (
           <EmptyState kind="warning" title="Couldn't load organizations" detail="Try refreshing the page." />
         ) : tenants.data?.length ? (
-          <div className="table-viewport">
+          <TableViewport label="Organizations">
             <table>
               <thead>
                 {table.getHeaderGroups().map((group) => (
@@ -112,7 +113,7 @@ export function AdminTenants() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableViewport>
         ) : (
           <EmptyState kind="neutral" title="No organizations yet" detail="Add your first organization above." />
         )}

@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Building2, CircleDollarSign, ReceiptText, Undo2 } from "lucide-react";
 import { usePlatformLedger, usePlatformTenants, useRevenueSummary } from "../../api";
-import { Surface, formatTokenAmount } from "../../design-system";
+import { Surface } from "../../design-system";
 import { Breakdown, Gauge, StatTile, TrendArea } from "../../charts";
 import { useIdentity } from "../../identity";
+import { formatDate, formatUsd, formatUsdBaseUnits } from "../../format";
 
 export function AdminOverview() {
   const identity = useIdentity();
@@ -59,14 +60,14 @@ export function AdminOverview() {
         />
         <StatTile
           label="Total revenue"
-          value={`$${formatTokenAmount(revenue.data?.totalRevenueBaseUnits)}`}
+          value={formatUsdBaseUnits(revenue.data?.totalRevenueBaseUnits)}
           trend={dailyRevenue.map((point) => point.value)}
           icon={<CircleDollarSign size={18} />}
           accent={1}
         />
         <StatTile
           label="Total refunds"
-          value={`$${formatTokenAmount(revenue.data?.totalRefundsBaseUnits)}`}
+          value={formatUsdBaseUnits(revenue.data?.totalRefundsBaseUnits)}
           icon={<Undo2 size={18} />}
           accent={4}
         />
@@ -85,7 +86,7 @@ export function AdminOverview() {
             seriesName="Net revenue"
             emptyTitle="No confirmed settlement yet"
             emptyDetail="Revenue appears once tenant subscriptions are paid."
-            valueFormatter={(value) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+            valueFormatter={(value) => formatUsd(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           />
         </Surface>
 
@@ -133,7 +134,7 @@ export function AdminOverview() {
                     <strong>{entry.tenantName}</strong>
                     <small>{entry.entryType === "refund" ? "Refund" : "Payment"}</small>
                   </div>
-                  <time>{new Date(entry.createdAt).toLocaleDateString()}</time>
+                  <time>{formatDate(entry.createdAt)}</time>
                 </div>
               ))}
             </div>

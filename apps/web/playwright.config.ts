@@ -15,15 +15,42 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   timeout: 30_000,
-  expect: { timeout: 8_000 },
+  expect: {
+    timeout: 8_000,
+    // Pixel comparisons only run in the `visual` project, inside the pinned Playwright image (see
+    // scripts/run-visual-tests.mjs); baselines carry the platform in their name so a native macOS or
+    // Windows run can never be compared against Linux renderings.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" },
+  },
+  snapshotPathTemplate: "{testDir}/__screenshots__/{arg}-{platform}{ext}",
   use: {
     baseURL: externalBaseUrl ?? `http://localhost:${PORT}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    {
+      name: "desktop",
+      testIgnore: /visual\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
+    },
+    { name: "mobile", testIgnore: /visual\.spec\.ts/, use: { ...devices["Pixel 7"] } },
+    // Pixel comparison runs only when asked for (inside the pinned image, see scripts/run-visual-tests.mjs).
+    ...(process.env.E2E_VISUAL
+      ? [
+          {
+            name: "visual",
+            testMatch: /visual\.spec\.ts/,
+            use: {
+              ...devices["Desktop Chrome"],
+              viewport: { width: 1280, height: 800 },
+              deviceScaleFactor: 1,
+              locale: "en-US",
+              timezoneId: "UTC",
+            },
+          },
+        ]
+      : []),
   ],
   webServer: externalBaseUrl
     ? undefined

@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Activity, Bot, Download, Filter, Layers, Network, PauseCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, Sparkles, Wallet, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { request, toUserFacingError, useAgents, useOrganizationWallets, type Agent } from "../../api";
-import { Badge, Button, EmptyState, Select, Surface, TextField, truncateMiddle, formatRiskTier } from "../../design-system";
+import { Badge, Button, EmptyState, Select, Surface, TextField, truncateMiddle, formatRiskTier, TableViewport } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
@@ -751,7 +751,7 @@ export function Fleet() {
             }
           />
         ) : (
-          <div className="table-viewport" ref={parent}>
+          <TableViewport label="Agents" ref={parent}>
             <table>
               <thead>
                 {table.getHeaderGroups().map((group) => (
@@ -792,7 +792,7 @@ export function Fleet() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableViewport>
         )}
         </>
         )}

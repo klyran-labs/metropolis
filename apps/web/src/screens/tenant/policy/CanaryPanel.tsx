@@ -1,6 +1,7 @@
 import { AlertOctagon, Scale, Gauge, RotateCcw, TrendingUp } from "lucide-react";
 import { type CanaryDeployment } from "../../../api";
 import { Badge, Button } from "../../../design-system";
+import { formatPercent } from "../../../format";
 export function CanaryPanel({ deployment, isPublishing, canStage, onInit, onAdvance, onRollback, onCancel }: {
   deployment: CanaryDeployment | null;
   isPublishing: boolean;
@@ -62,12 +63,12 @@ export function CanaryPanel({ deployment, isPublishing, canStage, onInit, onAdva
             <div className="canary-metric-box">
               <small className="muted-label">Problem rate</small>
               <strong style={{ color: deployment.observedBreachRatePct > deployment.anomalyThresholdPct ? "var(--error)" : "var(--status-good)" }}>
-                {deployment.observedBreachRatePct.toFixed(1)}%
+                {formatPercent(deployment.observedBreachRatePct, 1)}
               </strong>
             </div>
             <div className="canary-metric-box">
               <small className="muted-label">Safety threshold</small>
-              <strong>{deployment.anomalyThresholdPct.toFixed(1)}%</strong>
+              <strong>{formatPercent(deployment.anomalyThresholdPct, 1)}</strong>
             </div>
             <div className="canary-metric-box">
               <small className="muted-label">Traffic on new rules</small>

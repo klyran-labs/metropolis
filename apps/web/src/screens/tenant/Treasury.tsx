@@ -42,6 +42,11 @@ import {
   usePaymasterTreasuryBalance,
   useDepositPaymasterGas,
 } from "../../hooks/usePolicyContracts";
+import { formatBaseUnits, toInputAmount } from "../../format";
+
+const MON_FEE_RESERVE = 5_000_000_000_000_000n; // 0.005 MON
+const formatMon = (units: bigint, digits: number) =>
+  formatBaseUnits(units, { decimals: 18, minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 function parseBaseUnits(amountStr: string, decimals: number): bigint {
   const [whole = "0", fraction = ""] = amountStr.trim().split(".");
@@ -369,7 +374,8 @@ export function Treasury() {
         : 0n;
 
   const availableUsdcNumber = Number(availableUsdcUnits) / 1e6;
-  const availableMonNumber = Number(liveSourceMon.data ?? 0n) / 1e18;
+  const availableMonUnits = liveSourceMon.data ?? 0n;
+  const availableMonNumber = Number(availableMonUnits) / 1e18;
 
   const selectedAgent = agentsQuery.data?.find(
     (a) => a.address.toLowerCase() === selectedAgentAddress.toLowerCase(),
@@ -382,7 +388,8 @@ export function Treasury() {
   // Paymaster Gas Sponsorship Float state
   const primaryTreasury = rows[0]?.address || connectedWallets[0]?.address || "";
   const paymasterBalanceQuery = usePaymasterTreasuryBalance(primaryTreasury);
-  const paymasterFloatMon = Number(paymasterBalanceQuery.data || 0n) / 1e18;
+  const paymasterFloatUnits = paymasterBalanceQuery.data || 0n;
+  const paymasterFloatMon = Number(paymasterFloatUnits) / 1e18;
   const [paymasterModalOpen, setPaymasterModalOpen] = useState(false);
   const [paymasterAmount, setPaymasterAmount] = useState("2.0");
   const [paymasterWorking, setPaymasterWorking] = useState(false);
@@ -466,14 +473,14 @@ export function Treasury() {
     if (tokenSymbol === "USDC" && requestedAmount > availableUsdcNumber) {
       setTransferFeedback({
         type: "error",
-        message: `Insufficient balance: wallet holds ${availableUsdcNumber.toFixed(2)} USDC.`,
+        message: `Insufficient balance: wallet holds ${formatBaseUnits(availableUsdcUnits)} USDC.`,
       });
       return;
     }
     if (tokenSymbol === "MON" && requestedAmount > availableMonNumber) {
       setTransferFeedback({
         type: "error",
-        message: `Insufficient balance: wallet holds ${availableMonNumber.toFixed(4)} MON.`,
+        message: `Insufficient balance: wallet holds ${formatMon(availableMonUnits, 4)} MON.`,
       });
       return;
     }
@@ -601,7 +608,7 @@ export function Treasury() {
         <StatTile label="Treasury wallets" value={String(rows.length)} icon={<Landmark size={18} />} accent={0} />
         <StatTile label="Wallets we manage" value={String(sovereignCount)} icon={<ShieldCheck size={18} />} accent={2} />
         <StatTile label="You can access" value={String(withAccessCount)} icon={<UsersRound size={18} />} accent={1} />
-        <StatTile label="Network fee balance" value={`${paymasterFloatMon.toFixed(2)} MON`} icon={<Fuel size={18} />} accent={3} />
+        <StatTile label="Network fee balance" value={`${formatMon(paymasterFloatUnits, 2)} MON`} icon={<Fuel size={18} />} accent={3} />
       </div>
       <Surface>
         <div className="section-heading">
@@ -763,7 +770,7 @@ export function Treasury() {
       <Surface>
         <div className="section-heading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h2>Wallets ({rows.length})</h2>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
             <Button
               variant="tonal"
               onClick={() => setPaymasterModalOpen(true)}
@@ -883,7 +890,7 @@ export function Treasury() {
                 <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
                   Available:{" "}
                   <strong style={{ color: "var(--on-surface)" }}>
-                    {tokenSymbol === "USDC" ? `${availableUsdcNumber.toFixed(2)} USDC` : `${availableMonNumber.toFixed(4)} MON`}
+                    {tokenSymbol === "USDC" ? `${formatBaseUnits(availableUsdcUnits)} USDC` : `${formatMon(availableMonUnits, 4)} MON`}
                   </strong>
                 </span>
               )}
@@ -949,7 +956,7 @@ export function Treasury() {
                     <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "0.78rem", color: "var(--muted)", padding: "2px 2px" }}>
                       <Badge tone="info">{selectedAgent.environment.toUpperCase()}</Badge>
                       <Badge tone="neutral">{selectedAgent.riskTier.replace("_", " ").toUpperCase()}</Badge>
-                      <span>Float: {liveAgentUsdc.data ? (Number(liveAgentUsdc.data) / 1e6).toFixed(2) : "0.00"} USDC</span>
+                      <span>Float: {liveAgentUsdc.data ? formatBaseUnits(liveAgentUsdc.data) : "0.00"} USDC</span>
                     </div>
                   )}
                 </div>
@@ -1022,7 +1029,7 @@ export function Treasury() {
               <span style={{ fontSize: "0.76rem", color: "var(--muted)" }}>
                 Max sendable:{" "}
                 <strong style={{ color: "var(--on-surface)" }}>
-                  {tokenSymbol === "USDC" ? `${availableUsdcNumber.toFixed(2)} USDC` : `${availableMonNumber.toFixed(4)} MON`}
+                  {tokenSymbol === "USDC" ? `${formatBaseUnits(availableUsdcUnits)} USDC` : `${formatMon(availableMonUnits, 4)} MON`}
                 </strong>
               </span>
             </div>
@@ -1041,9 +1048,10 @@ export function Treasury() {
                     type="button"
                     onClick={() => {
                       if (tokenSymbol === "USDC") {
-                        setTransferAmount(availableUsdcNumber.toFixed(2));
+                        setTransferAmount(toInputAmount(availableUsdcUnits));
                       } else {
-                        setTransferAmount(Math.max(0, availableMonNumber - 0.005).toFixed(4));
+                        // Keep a small reserve so the transfer itself can still pay its network fee.
+                        setTransferAmount(toInputAmount(availableMonUnits > MON_FEE_RESERVE ? availableMonUnits - MON_FEE_RESERVE : 0n, { decimals: 18, digits: 4 }));
                       }
                     }}
                     style={{
@@ -1233,7 +1241,7 @@ export function Treasury() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>Current Float Status:</span>
             <Badge tone={paymasterFloatMon >= 2.0 ? "success" : paymasterFloatMon > 0 ? "warning" : "critical"}>
-              {paymasterFloatMon >= 2.0 ? "Optimal Float" : paymasterFloatMon > 0 ? "Low Float" : "Unfunded"} ({paymasterFloatMon.toFixed(4)} MON)
+              {paymasterFloatMon >= 2.0 ? "Optimal Float" : paymasterFloatMon > 0 ? "Low Float" : "Unfunded"} ({formatMon(paymasterFloatUnits, 4)} MON)
             </Badge>
           </div>
           <TextField

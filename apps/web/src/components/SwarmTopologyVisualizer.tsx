@@ -27,6 +27,7 @@ import {
 import { useToast } from "./UndoToast";
 import { useTripKillSwitch } from "../hooks/usePolicyContracts";
 import { Badge, Button, Dialog, EmptyState, Mono, Select, Surface, TextField, truncateMiddle } from "../design-system";
+import { formatFixed, formatUsd } from "../format";
 
 interface SwarmTopologyVisualizerProps {
   agents: Agent[];
@@ -525,7 +526,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.78rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "var(--muted)" }}>Response time:</span>
-                      <Mono style={{ color: "var(--status-good)", fontWeight: 700 }}>{reg.latency_p99_ms.toFixed(2)}ms</Mono>
+                      <Mono style={{ color: "var(--status-good)", fontWeight: 700 }}>{formatFixed(reg.latency_p99_ms, 2)}ms</Mono>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "var(--muted)" }}>Active budgets:</span>
@@ -533,7 +534,7 @@ export function SwarmTopologyVisualizer({ agents, onInspectAgent }: SwarmTopolog
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "var(--muted)" }}>Allocated:</span>
-                      <Mono>${reg.allocated_budget_usd.toFixed(2)} USDC</Mono>
+                      <Mono>{formatUsd(reg.allocated_budget_usd)} USDC</Mono>
                     </div>
                   </div>
                 </div>

@@ -23,7 +23,7 @@ The current settlement boundary is `PolicyEngine` and `AgentWalletGuard`. Circui
 | `/health` | GET | Public | Liveness only |
 | `/ready` | GET | Public | PostgreSQL and Monad dependency readiness |
 | `/v1/inference` | GET/POST | x402 EIP-712 | Read-only onchain policy evaluation |
-| `/api/v1/telemetry/stream` | GET | Tenant-authenticated | Tenant-filtered Server-Sent Events: finalized chain events plus `ui_*` change notifications (`ui_approvals_changed`, `ui_transfers_changed`, `ui_wallets_changed`, `ui_agents_changed`). Notifications carry only the kind, never row data; clients refetch through the normal authorized endpoints |
+| `/api/v1/telemetry/stream` | GET | Tenant-authenticated | Tenant-filtered Server-Sent Events: finalized chain events plus content-free change notifications (`approvals_changed`, `transfers_changed`, `wallets_changed`, `agents_changed`). Notifications carry only the kind, never row data; clients refetch through the normal authorized endpoints |
 | `/api/v1/telemetry/web-vitals` | POST | Public, rate limited | Browser performance metrics (LCP, CLS, INP, FCP, TTFB) and sanitized client errors; body ≤ 8 KiB, logged under `web_vitals` / `web_errors`; returns 204 |
 | `/api/v1/telemetry/csp-report` | POST | Public, rate limited | Content-Security-Policy violation reports (legacy and Reporting API formats); URLs reduced to path/origin; logged under `csp`; returns 204 |
 | `/api/v1/agents` | GET/POST | Tenant-authenticated | Tenant fleet registration and reads |

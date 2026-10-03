@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, Ref } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { clsx } from "clsx";
+import { formatBaseUnits } from "./format";
 import { applyTheme, getStoredTheme, resolveTheme, type ResolvedTheme, type ThemeMode } from "./theme";
 
 export function Mono({
@@ -32,30 +33,6 @@ export function Mono({
       {children}
     </span>
   );
-}
-
-/** Formats a raw onchain integer amount (no decimal point) as a human currency figure. */
-export function formatTokenAmount(
-  baseUnits: string | number | null | undefined,
-  decimals = 6,
-): string {
-  if (baseUnits === null || baseUnits === undefined || baseUnits === "") return "—";
-  let value: bigint;
-  try {
-    value = typeof baseUnits === "number" ? BigInt(Math.trunc(baseUnits)) : BigInt(baseUnits);
-  } catch {
-    return "—";
-  }
-  const negative = value < 0n;
-  const magnitude = negative ? -value : value;
-  const divisor = 10n ** BigInt(decimals);
-  const whole = magnitude / divisor;
-  const fraction = magnitude % divisor;
-  const fractionStr = fraction
-    .toString()
-    .padStart(decimals, "0")
-    .slice(0, 2);
-  return `${negative ? "-" : ""}${whole.toLocaleString("en-US")}.${fractionStr}`;
 }
 
 const roleLabels: Record<string, string> = {
@@ -90,8 +67,28 @@ export function TokenAmount({
 }) {
   return (
     <span className={clsx("token-amount", className)}>
-      {formatTokenAmount(baseUnits)} <small>{symbol}</small>
+      {formatBaseUnits(baseUnits)} <small>{symbol}</small>
     </span>
+  );
+}
+
+/**
+ * Scroll container for a wide table. It is keyboard focusable and named, so people who navigate with
+ * a keyboard or a screen reader can scroll it; an unfocusable scroll area is an accessibility failure.
+ */
+export function TableViewport({
+  label,
+  children,
+  ref,
+}: {
+  label: string;
+  children: ReactNode;
+  ref?: Ref<HTMLDivElement>;
+}) {
+  return (
+    <div className="table-viewport" role="region" aria-label={label} tabIndex={0} ref={ref}>
+      {children}
+    </div>
   );
 }
 

@@ -1,9 +1,10 @@
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useReconciliation, type ReconciliationReport } from "../../api";
-import { Badge, EmptyState, Surface, TokenAmount } from "../../design-system";
+import { Badge, EmptyState, Surface, TokenAmount, TableViewport } from "../../design-system";
 import { StatTile } from "../../charts";
 import { useIdentity } from "../../identity";
+import { formatDateTime } from "../../format";
 
 type Entry = ReconciliationReport["entries"][number];
 
@@ -39,7 +40,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("createdAt", {
     header: "Created",
-    cell: (info) => new Date(info.getValue()).toLocaleString(),
+    cell: (info) => formatDateTime(info.getValue()),
   }),
 ]);
 
@@ -78,7 +79,7 @@ export function AdminReconciliation() {
         {report.isError ? (
           <EmptyState kind="warning" title="Couldn't load payment checks" detail="Try refreshing the page." />
         ) : rows.length ? (
-          <div className="table-viewport">
+          <TableViewport label="Payment checks">
             <table>
               <thead>
                 {table.getHeaderGroups().map((group) => (
@@ -101,7 +102,7 @@ export function AdminReconciliation() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableViewport>
         ) : (
           <EmptyState kind="neutral" title="No payment attempts yet" detail="Rows appear here once a tenant attempts checkout." />
         )}

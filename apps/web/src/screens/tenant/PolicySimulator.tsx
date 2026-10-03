@@ -24,6 +24,7 @@ import { AgentSelect, Badge, Button, EmptyState, Mono, Surface, TextField, Token
 import { useIdentity } from "../../identity";
 import { configuration } from "../../configuration";
 import { evaluatePolicyOnchain, ONCHAIN_REASON_CODES, useTripKillSwitch } from "../../hooks/usePolicyContracts";
+import { formatFixed, formatTime } from "../../format";
 
 interface SimulationResult {
   success: boolean;
@@ -120,7 +121,7 @@ export function PolicySimulator() {
           reasonCode: decision.reasonCode,
           reasonTitle: reasonMeta.code,
           status: decision.allowed ? "allowed" : "denied",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         };
         if (!decision.allowed) deniedCount += 1;
         logs.push(stepLog);
@@ -132,7 +133,7 @@ export function PolicySimulator() {
           reasonCode: 0,
           reasonTitle: "DEPENDENCY_UNAVAILABLE",
           status: "pending",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         };
         logs.push(stepLog);
         setRunawayLogs([...logs]);
@@ -232,7 +233,7 @@ export function PolicySimulator() {
           reasonCode: decision.reasonCode,
           reasonTitle: reasonMeta.code,
           status: decision.allowed ? "allowed" : "denied",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         });
         setRunawayLogs([...logs]);
       } catch {
@@ -242,7 +243,7 @@ export function PolicySimulator() {
           reasonCode: 0,
           reasonTitle: "DEPENDENCY_UNAVAILABLE",
           status: "pending",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         });
         setRunawayLogs([...logs]);
       }
@@ -281,7 +282,7 @@ export function PolicySimulator() {
           reasonCode: decision.reasonCode,
           reasonTitle: reasonMeta.code,
           status: decision.allowed ? "allowed" : "denied",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         },
       ]);
       setCircuitMessage(
@@ -327,7 +328,7 @@ export function PolicySimulator() {
           reasonCode: decision.reasonCode,
           reasonTitle: reasonMeta.code,
           status: decision.allowed ? "allowed" : "denied",
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: formatTime(new Date(), { seconds: true }),
         },
       ]);
       setCircuitMessage(`Replay probe processed: ${reasonMeta.code} . The expired request was blocked.`);
@@ -897,7 +898,7 @@ export function PolicySimulator() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
               <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>How unusual is the activity?</span>
               <Mono style={{ fontSize: "0.95rem", fontWeight: 700, color: simulatedZScore >= 3.5 ? "var(--color-error)" : "var(--color-primary)" }}>
-                {simulatedZScore.toFixed(1)} / 6
+                {formatFixed(simulatedZScore, 1)} / 6
               </Mono>
             </div>
 

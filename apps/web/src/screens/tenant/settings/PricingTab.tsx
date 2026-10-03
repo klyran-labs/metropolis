@@ -4,6 +4,7 @@ import { type CalculateToolCallRequest, type ModelRateOverride, type PricingMode
 import { Badge, Button, Mono, Select, Surface, SkeletonRows } from "../../../design-system";
 import { type Identity } from "../../../identity";
 import { canManagePricing } from "./shared";
+import { formatMicroUsd, formatNumber, formatPercent } from "../../../format";
 
 export function PricingTab({ identity }: { identity: Identity }) {
   const pricingQuery = useTenantPricingModel(Boolean(identity.authenticated));
@@ -157,7 +158,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
               <div className="finops-stat-card">
                 <span className="finops-stat-label">Tokens used this month</span>
                 <span className="finops-stat-value">
-                  {(currentPricing?.monthlyTokensConsumed ?? 0).toLocaleString()} <small style={{ fontSize: "0.75rem", fontWeight: 400 }}>tokens</small>
+                  {formatNumber(currentPricing?.monthlyTokensConsumed ?? 0)} <small style={{ fontSize: "0.75rem", fontWeight: 400 }}>tokens</small>
                 </span>
                 <span className="finops-stat-sub">Running total this month</span>
               </div>
@@ -174,7 +175,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
                 <span className="finops-stat-label">Monthly usage cap</span>
                 <span className="finops-stat-value">
                   {currentPricing?.tokenCapTokens != null && currentPricing.tokenCapTokens > 0
-                    ? `${(currentPricing.tokenCapTokens / 1_000_000).toLocaleString()}M`
+                    ? `${formatNumber(currentPricing.tokenCapTokens / 1_000_000, { maximumFractionDigits: 2 })}M`
                     : "Unlimited"}
                 </span>
                 <span className="finops-stat-sub">Maximum tokens per month</span>
@@ -440,18 +441,18 @@ export function PricingTab({ identity }: { identity: Identity }) {
                       </div>
                     </td>
                     <td className="text-right">
-                      <span className="finops-rate-pill">${(entry.inputPerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                      <span className="finops-rate-pill">{formatMicroUsd(entry.inputPerMMicroDollars, 2)}</span>
                     </td>
                     <td className="text-right">
-                      <span className="finops-rate-pill">${(entry.outputPerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                      <span className="finops-rate-pill">{formatMicroUsd(entry.outputPerMMicroDollars, 2)}</span>
                     </td>
                     <td className="text-right">
                       <span className="finops-rate-pill" style={{ color: "var(--status-good)" }}>
-                        ${(entry.cacheReadPerMMicroDollars / 1_000_000).toFixed(2)}
+                        {formatMicroUsd(entry.cacheReadPerMMicroDollars, 2)}
                       </span>
                     </td>
                     <td className="text-right">
-                      <span className="finops-rate-pill">${(entry.cacheWritePerMMicroDollars / 1_000_000).toFixed(2)}</span>
+                      <span className="finops-rate-pill">{formatMicroUsd(entry.cacheWritePerMMicroDollars, 2)}</span>
                     </td>
                     <td>
                       <div className="finops-override-grid">
@@ -558,7 +559,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
                       </Badge>
                     </td>
                     <td className="text-right">
-                      <span className="finops-rate-pill">${(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)} / call</span>
+                      <span className="finops-rate-pill">{formatMicroUsd(tool.costPerCallMicroDollars, 4)} / call</span>
                     </td>
                     <td>
                       <div className="finops-input-wrapper" style={{ maxWidth: "200px", margin: "0 auto" }}>
@@ -701,7 +702,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
                       value={simToolCounts[tool.toolId] || "0"}
                       onChange={(e) => setSimToolCounts({ ...simToolCounts, [tool.toolId]: e.target.value })}
                     />
-                    <span className="finops-stat-sub">${(tool.costPerCallMicroDollars / 1_000_000).toFixed(4)} / call</span>
+                    <span className="finops-stat-sub">{formatMicroUsd(tool.costPerCallMicroDollars, 4)} / call</span>
                   </div>
                 ))}
               </div>
@@ -719,25 +720,25 @@ export function PricingTab({ identity }: { identity: Identity }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                 <h3 style={{ fontSize: "0.95rem", margin: 0 }}>Estimated cost</h3>
                 <Badge tone={calculateSpend.data.effectiveDiscountBps > 0 ? "success" : "neutral"}>
-                  {(calculateSpend.data.effectiveDiscountBps / 100).toFixed(1)}% off
+                  {formatPercent(calculateSpend.data.effectiveDiscountBps / 100, 1)} off
                 </Badge>
               </div>
 
               <div className="finops-stat-grid" style={{ marginBottom: 0 }}>
                 <div className="finops-stat-card">
                   <span className="finops-stat-label">Total tokens</span>
-                  <span className="finops-stat-value">{calculateSpend.data.totalTokens.toLocaleString()}</span>
+                  <span className="finops-stat-value">{formatNumber(calculateSpend.data.totalTokens)}</span>
                   <span className="finops-stat-sub">Input + output + cache</span>
                 </div>
                 <div className="finops-stat-card">
                   <span className="finops-stat-label">Standard price</span>
-                  <span className="finops-stat-value">${(calculateSpend.data.nominalListCostMicroDollars / 1_000_000).toFixed(4)}</span>
+                  <span className="finops-stat-value">{formatMicroUsd(calculateSpend.data.nominalListCostMicroDollars, 4)}</span>
                   <span className="finops-stat-sub">Before your discount</span>
                 </div>
                 <div className="finops-stat-card">
                   <span className="finops-stat-label">Your price</span>
                   <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
-                    ${(calculateSpend.data.effectiveCostMicroDollars / 1_000_000).toFixed(4)}
+                    {formatMicroUsd(calculateSpend.data.effectiveCostMicroDollars, 4)}
                   </span>
                   <span className="finops-stat-sub">With your discount</span>
                 </div>
@@ -745,7 +746,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
                   <div className="finops-stat-card">
                     <span className="finops-stat-label">Tool costs</span>
                     <span className="finops-stat-value">
-                      ${(calculateSpend.data.toolCostMicroDollars / 1_000_000).toFixed(4)}
+                      {formatMicroUsd(calculateSpend.data.toolCostMicroDollars, 4)}
                     </span>
                     <span className="finops-stat-sub">From tools used</span>
                   </div>
@@ -754,7 +755,7 @@ export function PricingTab({ identity }: { identity: Identity }) {
                   <div className="finops-stat-card">
                     <span className="finops-stat-label">Total</span>
                     <span className="finops-stat-value" style={{ color: "var(--primary)" }}>
-                      ${((calculateSpend.data.effectiveCostMicroDollars + calculateSpend.data.toolCostMicroDollars) / 1_000_000).toFixed(4)}
+                      {formatMicroUsd(calculateSpend.data.effectiveCostMicroDollars + calculateSpend.data.toolCostMicroDollars, 4)}
                     </span>
                     <span className="finops-stat-sub">Tokens + tools</span>
                   </div>
@@ -763,12 +764,12 @@ export function PricingTab({ identity }: { identity: Identity }) {
 
               {calculateSpend.data.contractModel === "committed_ptu" && (
                 <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
-                  Prepaid tokens used: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> at no extra cost.
+                  Prepaid tokens used: <strong style={{ color: "var(--on-surface)" }}>{formatNumber(calculateSpend.data.ptuCapacityApplied)} tokens</strong> at no extra cost.
                 </div>
               )}
               {calculateSpend.data.contractModel === "hybrid_commit_volume" && (
                 <div style={{ marginTop: "12px", padding: "8px 12px", borderRadius: "8px", background: "var(--surface-sunken)", fontSize: "0.8rem", color: "var(--muted)" }}>
-                  Prepaid tokens applied: <strong style={{ color: "var(--on-surface)" }}>{calculateSpend.data.ptuCapacityApplied.toLocaleString()} tokens</strong> before volume discounts.
+                  Prepaid tokens applied: <strong style={{ color: "var(--on-surface)" }}>{formatNumber(calculateSpend.data.ptuCapacityApplied)} tokens</strong> before volume discounts.
                 </div>
               )}
             </div>

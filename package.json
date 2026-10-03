@@ -39,7 +39,9 @@
     "lint:bundle": "node scripts/verify-bundle-budget.mjs",
     "lint:css": "node scripts/prune-dead-css.mjs --check 0",
     "test:ui": "npm run test:ui --workspace=@agentguard/web",
-    "test:csp": "node scripts/verify-csp-through-nginx.mjs"
+    "test:csp": "node scripts/verify-csp-through-nginx.mjs",
+    "test:visual": "node scripts/run-visual-tests.mjs",
+    "test:visual:update": "node scripts/run-visual-tests.mjs --update"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -50,6 +50,7 @@ import { walletSourceLabel, trustScoreLabel } from "../../copy";
 import { useIdentity } from "../../identity";
 import { useAgentReputation, useAgentRuntimeState, useTripKillSwitch, useLiveTokenBalance } from "../../hooks/usePolicyContracts";
 import { useToast } from "../../components/UndoToast";
+import { formatBaseUnits, formatDate, formatNumber } from "../../format";
 
 type InspectorTab = "overview" | "wallet" | "security" | "health" | "integrate";
 
@@ -89,7 +90,7 @@ export function AgentInspector({
   const liveBalance = useLiveTokenBalance(agent.address);
   const floatUsdc =
     liveBalance.data !== null && liveBalance.data !== undefined
-      ? (Number(liveBalance.data) / 1e6).toFixed(2)
+      ? formatBaseUnits(liveBalance.data)
       : "0.00";
   const reputation = useAgentReputation(agent.address, Boolean(identity.authenticated));
   const tripKillSwitch = useTripKillSwitch();
@@ -130,10 +131,10 @@ export function AgentInspector({
   }, [onClose, onNextAgent, onPrevAgent]);
 
   const maxSpendPerTxFormatted = policy?.maxPerTx
-    ? `${(Number(policy.maxPerTx) / 1_000_000).toFixed(2)} USDC`
+    ? `${formatBaseUnits(policy.maxPerTx as string | number)} USDC`
     : "Not set";
   const maxSpendPerWindowFormatted = policy?.maxPerWindow
-    ? `${(Number(policy.maxPerWindow) / 1_000_000).toFixed(2)} USDC`
+    ? `${formatBaseUnits(policy.maxPerWindow as string | number)} USDC`
     : "Not set";
 
   const spentUnits = runtimeState.data ? Number(runtimeState.data.spentInWindow) : 0;
@@ -237,11 +238,7 @@ export function AgentInspector({
     }
   };
 
-  const createdOn = new Date(agent.createdAt).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const createdOn = formatDate(agent.createdAt);
 
   return (
     <div className="inspector-backdrop" onClick={onClose}>
@@ -412,7 +409,7 @@ export function AgentInspector({
                       {isTripped
                         ? "Paused — can't spend"
                         : maxWindowUnits > 0
-                        ? `Spent ${(spentUnits / 1_000_000).toFixed(2)} of ${(maxWindowUnits / 1_000_000).toFixed(2)} USDC (${velocityPct}%)`
+                        ? `Spent ${formatBaseUnits(spentUnits)} of ${formatBaseUnits(maxWindowUnits)} USDC (${velocityPct}%)`
                         : "No spending limit set yet"}
                     </span>
                   </div>
@@ -831,7 +828,7 @@ export function AgentInspector({
                 <div className="metric-grid-4" style={{ marginTop: "var(--space-16)" }}>
                   <div className="metric-cell">
                     <small>Auto-pause after</small>
-                    <strong>{livenessQuery.data ? `${(livenessQuery.data.grace_period_seconds / 3600).toFixed(0)}h of inactivity` : "—"}</strong>
+                    <strong>{livenessQuery.data ? `${formatNumber(livenessQuery.data.grace_period_seconds / 3600)}h of inactivity` : "—"}</strong>
                   </div>
                   <div className="metric-cell">
                     <small>Last seen</small>

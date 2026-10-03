@@ -33,6 +33,7 @@ import { configuration, networkLabel } from "../../configuration";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
 import { useToast } from "../../components/UndoToast";
 import { SettlementPipelineInspector } from "../../components/SettlementPipelineInspector";
+import { formatBaseUnits, formatDateTime, formatFixed, formatTime } from "../../format";
 
 export interface ReasonCodeInfo {
   code: number;
@@ -281,7 +282,7 @@ export function ActivityTrace() {
             historicalCategory: "Deterministic Cadence",
             attemptedCategory: "Rapid High-Frequency Burst",
             observedAt: sorted[sorted.length - 1].observedAt,
-            details: `Velocity surge detected: execution interval compressed by ${zScore.toFixed(1)}σ beyond EWMA historical baseline.`,
+            details: `Velocity surge detected: execution interval compressed by ${formatFixed(zScore, 1)}σ beyond EWMA historical baseline.`,
             remediationAction: "trip_killswitch",
           });
         }
@@ -338,7 +339,7 @@ export function ActivityTrace() {
             historicalCategory: "Normal Spend Distribution",
             attemptedCategory: "Micro-Targeted Ceiling Probing (98%)",
             observedAt: ev.observedAt,
-            details: `Transaction amount (${(amount / 1e6).toFixed(2)} USDC) clusters within 2% of single transaction limit ceiling.`,
+            details: `Transaction amount (${formatBaseUnits(amount)} USDC) clusters within 2% of single transaction limit ceiling.`,
             remediationAction: "tighten_policy",
           });
         }
@@ -620,7 +621,7 @@ export function ActivityTrace() {
                         {anom.anomalyType.replace("_", " ").toUpperCase()}
                       </strong>
                       <span className="threat-time">
-                        {new Date(anom.observedAt).toLocaleTimeString()}
+                        {formatTime(anom.observedAt, { seconds: true })}
                       </span>
                     </div>
 
@@ -825,7 +826,7 @@ export function ActivityTrace() {
                     >
                       <td>
                         <small className="timestamp-cell" title={ev.observedAt}>
-                          {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          {formatTime(date, { seconds: true })}
                         </small>
                       </td>
                       <td>
@@ -1066,7 +1067,7 @@ export function ActivityTrace() {
 
                   <div className="meta-row">
                     <small>Time</small>
-                    <span>{new Date(selectedEvent.observedAt).toLocaleString()}</span>
+                    <span>{formatDateTime(selectedEvent.observedAt)}</span>
                   </div>
                 </div>
               </div>

@@ -180,6 +180,41 @@ jobs:
           path: apps/web/test-results
           retention-days: 7
 
+  ui-visual:
+    name: Screenshot Comparison (pinned Playwright image, linux/amd64)
+    runs-on: ubuntu-latest
+    # Same image and architecture as `npm run test:visual`, so baselines made locally match CI.
+    # Keep the tag equal to the @playwright/test version in package-lock.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Core Packages
+        run: |
+          npm run build --workspace=@agentguard/shared-types
+          npm run build --workspace=@agentguard/x402-middleware
+
+      - name: Compare Screenshots
+        working-directory: apps/web
+        env:
+          CI: "1"
+          E2E_VISUAL: "1"
+        run: npx playwright test --project=visual
+
+      - name: Upload Diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: apps/web/test-results
+          retention-days: 7
+
   container-builds:
     name: Runtime Container Build Gate
     runs-on: ubuntu-latest

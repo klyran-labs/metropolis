@@ -1,4 +1,5 @@
-import { request } from "../../../api";
+import { decimalFromBaseUnits, formatUsd } from "../../../format.ts";
+import { t } from "../../../messages/index.ts";
 
 export async function waitForReceipt(
   provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> },
@@ -81,23 +82,20 @@ export function parseBaseUnits(amountStr: string | number, decimals = 6): bigint
   return BigInt(whole || "0") * (10n ** BigInt(decimals)) + BigInt(padded);
 }
 
+/** Plain decimal text for a form field ("1.5") from base units, exact and without grouping. */
 export function baseUnitsToDollars(val: string | number | bigint | null | undefined, decimals = 6): string {
   if (val === null || val === undefined || val === "") return "0";
   const str = String(val).trim();
   if (str.includes(".")) return str;
-  const num = Number(str);
-  if (isNaN(num) || num === 0) return "0";
-  const float = num / (10 ** decimals);
-  return Number(float.toFixed(decimals)).toString();
+  const decimal = decimalFromBaseUnits(str, decimals);
+  if (decimal === null) return "0";
+  return decimal.replace(/\.?0+$/, "") || "0";
 }
 
 export function formatUsdcAmount(amount: string | number): string {
-  const float = typeof amount === "number" ? amount : parseFloat(amount || "0");
-  if (isNaN(float) || float <= 0) return "$0.00 USDC";
-  if (float < 0.01) {
-    return `$${float.toFixed(6)} USDC`;
-  }
-  return `$${float.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
+  const value = typeof amount === "number" ? amount : parseFloat(amount || "0");
+  if (!Number.isFinite(value) || value <= 0) return "$0.00 USDC";
+  return `${formatUsd(amount, { maximumFractionDigits: value < 0.01 ? 6 : 2 })} USDC`;
 }
 
 export function formatWindowEpoch(seconds: number): string {
@@ -128,4 +126,88 @@ export interface PolicyDiffRow {
   draftVal: string;
   deltaText: string;
   risk: "low" | "medium" | "high";
+}
+
+export interface DryRunInput {
+  amount: string;
+  merchant: "whitelisted" | "unwhitelisted";
+  limits: {
+    maxPerTx: string;
+    maxPerWindow: string;
+    killSwitch: boolean;
+    whitelistEnabled: boolean;
+  };
+}
+
+/** Turns what a person typed into base units without passing through binary floating point. */
+export function amountToBaseUnits(input: string): bigint {
+  const value = Number(String(input ?? "").trim());
+  if (!Number.isFinite(value) || value <= 0 || value >= 1e15) return 0n;
+  return parseBaseUnits(value.toFixed(6));
+}
+
+/**
+ * Mirrors the order the policy engine evaluates a payment in, so the preview matches what would
+ * really happen: paused, amount, per-payment limit, period limit, then approved recipients.
+ */
+export function evaluateDryRun({ amount, merchant, limits }: DryRunInput): DryRunVerdict {
+  const units = amountToBaseUnits(amount);
+  const maxTx = parseBaseUnits(limits.maxPerTx || "0", 6);
+  const maxWindow = parseBaseUnits(limits.maxPerWindow || "0", 6);
+
+  if (limits.killSwitch) {
+    return {
+      allowed: false,
+      reasonCode: 4,
+      title: "ERR_KILL_SWITCH_ACTIVE",
+      description: t("dryRun.paused.description"),
+      remediation: t("dryRun.paused.remedy"),
+    };
+  }
+  if (units <= 0n) {
+    return {
+      allowed: false,
+      reasonCode: 9,
+      title: "ERR_AMOUNT_ZERO",
+      description: t("dryRun.amountZero.description"),
+      remediation: t("dryRun.amountZero.remedy"),
+    };
+  }
+  if (units > maxTx) {
+    return {
+      allowed: false,
+      reasonCode: 1,
+      title: "ERR_MAX_PER_TX_EXCEEDED",
+      description: t("dryRun.overTransactionLimit.description", {
+        amount: formatUsdcAmount(Number(amount)),
+        limit: formatUsdcAmount(limits.maxPerTx),
+      }),
+      remediation: t("dryRun.overTransactionLimit.remedy"),
+    };
+  }
+  if (units > maxWindow) {
+    return {
+      allowed: false,
+      reasonCode: 2,
+      title: "ERR_MAX_PER_WINDOW_EXCEEDED",
+      description: t("dryRun.overPeriodLimit.description", { limit: formatUsdcAmount(limits.maxPerWindow) }),
+      remediation: t("dryRun.overPeriodLimit.remedy"),
+    };
+  }
+  if (limits.whitelistEnabled && merchant === "unwhitelisted") {
+    return {
+      allowed: false,
+      reasonCode: 5,
+      title: "ERR_MERCHANT_NOT_WHITELISTED",
+      description: t("dryRun.merchantNotApproved.description"),
+      remediation: t("dryRun.merchantNotApproved.remedy"),
+    };
+  }
+  return {
+    allowed: true,
+    reasonCode: 0,
+    title: "ERR_NONE",
+    description: t("dryRun.allowed.description", { limit: formatUsdcAmount(limits.maxPerWindow) }),
+    remediation: t("dryRun.allowed.remedy"),
+  };
 }

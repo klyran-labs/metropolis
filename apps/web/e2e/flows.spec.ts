@@ -280,3 +280,43 @@ test.describe("theme", () => {
     expect(await background()).not.toBe(before);
   });
 });
+
+test.describe("small screens", () => {
+  const screens = [
+    "/app/overview", "/app/fleet", "/app/quorum", "/app/policy", "/app/treasury", "/app/billing", "/app/settings",
+    "/app/activity", "/app/simulator", "/app/merchants",
+    "/admin/overview", "/admin/tenants", "/admin/plans", "/admin/subscriptions", "/admin/billing",
+    "/admin/reconciliation", "/admin/revenue", "/admin/access",
+  ];
+
+  for (const path of screens) {
+    test(`${path} fits the screen width`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "mobile", "checked at phone width");
+      await installGateway(page);
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      // Anything wider than the screen must live inside its own horizontal scroller (for example a table).
+      // The page's main area does not count as one: scrolling the whole page sideways is the bug.
+      const escaping = await page.evaluate(() => {
+        const width = document.documentElement.clientWidth;
+        const main = document.querySelector("main.content");
+        const scrolls = (element: Element | null) => {
+          for (let node = element; node && node !== main && node !== document.body; node = node.parentElement) {
+            const overflow = getComputedStyle(node).overflowX;
+            if (overflow === "auto" || overflow === "scroll") return true;
+          }
+          return false;
+        };
+        return Array.from(document.querySelectorAll("body *"))
+          .filter((element) => {
+            const box = element.getBoundingClientRect();
+            return box.width > 0 && box.right > width + 1 && !scrolls(element.parentElement) && !scrolls(element);
+          })
+          .slice(0, 5)
+          .map((element) => `${element.tagName.toLowerCase()}.${String(element.className).split(" ")[0]}`);
+      });
+      expect(escaping, "elements wider than the screen").toEqual([]);
+    });
+  }
+});

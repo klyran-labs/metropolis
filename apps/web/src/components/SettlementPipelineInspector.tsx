@@ -23,6 +23,7 @@ import {
 import { Badge, Button, EmptyState, Mono, Surface, truncateMiddle } from "../design-system";
 import { configuration, networkLabel } from "../configuration";
 import { useToast } from "./UndoToast";
+import { formatBaseUnits, formatFixed } from "../format";
 
 export function SettlementPipelineInspector() {
   const { toast } = useToast();
@@ -241,7 +242,7 @@ export function SettlementPipelineInspector() {
             <div className="flex items-center gap-3 text-xs text-text-muted">
               <span>Active Builder Peers: <strong className="text-text-primary">{mevStatsQuery.data.active_builder_connections}</strong></span>
               <span>•</span>
-              <span>Avg Inclusion Latency: <strong className="text-text-primary">{mevStatsQuery.data.avg_builder_latency_ms.toFixed(1)}ms</strong></span>
+              <span>Avg Inclusion Latency: <strong className="text-text-primary">{formatFixed(mevStatsQuery.data.avg_builder_latency_ms, 1)}ms</strong></span>
             </div>
           </div>
 
@@ -269,7 +270,7 @@ export function SettlementPipelineInspector() {
             <div className="rounded-md border border-border-default/50 bg-surface-1/70 p-3 text-xs">
               <span className="text-text-muted">Searcher Kickbacks Accrued</span>
               <div className="mt-1 font-mono text-base font-bold text-accent-blue">
-                {(mevStatsQuery.data.total_kickbacks_wei / 1e18).toFixed(4)} MON
+                {formatFixed(mevStatsQuery.data.total_kickbacks_wei / 1e18, 4)} MON
               </div>
               <div className="mt-1 text-[11px] text-text-secondary">
                 Credited directly to treasury float reserves
@@ -370,7 +371,7 @@ export function SettlementPipelineInspector() {
                   </td>
                   <td className="px-4 py-3">
                     <Mono className="font-semibold text-text-primary">
-                      {(Number(item.amount) / 1e6).toFixed(4)} USDC
+                      {formatBaseUnits(item.amount as string | number, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} USDC
                     </Mono>
                   </td>
                   <td className="px-4 py-3">

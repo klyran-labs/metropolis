@@ -1,7 +1,8 @@
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { usePlatformLedger, type PlatformLedgerEntry } from "../../api";
-import { Badge, EmptyState, Mono, Surface, TokenAmount } from "../../design-system";
+import { Badge, EmptyState, Mono, Surface, TokenAmount, TableViewport } from "../../design-system";
 import { useIdentity } from "../../identity";
+import { formatDateTime } from "../../format";
 
 const entryTypeLabel: Record<string, string> = {
   refund: "Refund",
@@ -35,7 +36,7 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("createdAt", {
     header: "Date",
-    cell: (info) => new Date(info.getValue()).toLocaleString(),
+    cell: (info) => formatDateTime(info.getValue()),
   }),
 ]);
 
@@ -56,7 +57,7 @@ export function AdminLedger() {
         {ledger.isError ? (
           <EmptyState kind="warning" title="Couldn't load payment history" detail="Try refreshing the page." />
         ) : rows.length ? (
-          <div className="table-viewport">
+          <TableViewport label="Payment history">
             <table>
               <thead>
                 {table.getHeaderGroups().map((group) => (
@@ -79,7 +80,7 @@ export function AdminLedger() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableViewport>
         ) : (
           <EmptyState kind="billing" title="No payments yet" detail="Confirmed payments will appear here." />
         )}

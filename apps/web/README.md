@@ -24,3 +24,9 @@ npm run test:ui           # builds with the test sign-in stub and runs desktop +
 ```
 
 Specs live in `e2e/`. They run against a production build with the sign-in SDK replaced by `e2e/support/privy-stub.tsx` and gateway responses served from `e2e/support/fixtures.ts`; nothing from `e2e/` ships. Every screen is scanned with axe in light and dark themes, so a contrast or labeling regression fails the run.
+
+### Security policy, screenshots and formatting
+
+* `npm run test:csp` (repository root) serves the end-to-end build through the real nginx configuration in Docker and fails any test on a Content-Security-Policy violation. See `docs/runbooks/web-security-policy.md`.
+* `npm run test:visual` compares screenshots inside the pinned Playwright image on linux/amd64 (the same image CI uses). `npm run test:visual:update` regenerates baselines in `e2e/__screenshots__`; review the images before committing. The `visual` project only runs when `E2E_VISUAL` is set, so a normal `npm run test:ui` never compares pixels.
+* All money, number, date and time text goes through `src/format.ts`; recurring wording lives in the typed catalog in `src/messages`. A unit test rejects new `toLocale*String` calls in screens.

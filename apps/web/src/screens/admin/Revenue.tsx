@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { CircleDollarSign, Layers, Undo2 } from "lucide-react";
 import { useRevenueSummary } from "../../api";
-import { EmptyState, Surface, formatTokenAmount } from "../../design-system";
+import { EmptyState, Surface } from "../../design-system";
 import { Bars, StatTile, TrendArea } from "../../charts";
 import { useIdentity } from "../../identity";
+import { formatUsd, formatUsdBaseUnits } from "../../format";
 
 export function AdminRevenue() {
   const identity = useIdentity();
@@ -31,8 +32,7 @@ export function AdminRevenue() {
     [revenue.data],
   );
 
-  const currencyFormatter = (value: number) =>
-    `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const currencyFormatter = (value: number) => formatUsd(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <div className="stack">
@@ -52,13 +52,13 @@ export function AdminRevenue() {
           <div className="stat-row">
             <StatTile
               label="Total confirmed revenue"
-              value={`$${formatTokenAmount(revenue.data?.totalRevenueBaseUnits)}`}
+              value={formatUsdBaseUnits(revenue.data?.totalRevenueBaseUnits)}
               icon={<CircleDollarSign size={18} />}
               accent={0}
             />
             <StatTile
               label="Total refunds"
-              value={`$${formatTokenAmount(revenue.data?.totalRefundsBaseUnits)}`}
+              value={formatUsdBaseUnits(revenue.data?.totalRefundsBaseUnits)}
               icon={<Undo2 size={18} />}
               accent={4}
             />

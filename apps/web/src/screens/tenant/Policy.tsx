@@ -7,12 +7,13 @@ import { useToast } from "../../components/UndoToast";
 import { AgentSelect, Badge, Button, Dialog, Mono, Select, Surface, TextField, TransactionStatus, truncateMiddle, formatRiskTier, type TransactionPhase } from "../../design-system";
 import { useIdentity } from "../../identity";
 import { useLiveTokenBalance } from "../../hooks/usePolicyContracts";
-import { waitForReceipt, policyLabels, POLICY_PRESETS, parseBaseUnits, baseUnitsToDollars, formatUsdcAmount, formatWindowEpoch, type PolicyPreset } from "./policy/utils";
+import { waitForReceipt, policyLabels, POLICY_PRESETS, parseBaseUnits, baseUnitsToDollars, evaluateDryRun, formatUsdcAmount, formatWindowEpoch, type PolicyPreset } from "./policy/utils";
 import { PolicyDiffTable } from "./policy/PolicyDiffTable";
 import { DryRunPanel } from "./policy/DryRunPanel";
 import { CanaryPanel } from "./policy/CanaryPanel";
 import { TransactionInspector } from "./policy/TransactionInspector";
 import { LivePolicyCard } from "./policy/LivePolicyCard";
+import { formatBaseUnits } from "../../format";
 
 export function Policy() {
   const identity = useIdentity();
@@ -24,7 +25,7 @@ export function Policy() {
   const liveBalance = useLiveTokenBalance(agent);
   const floatUsdc =
     liveBalance.data !== null && liveBalance.data !== undefined
-      ? (Number(liveBalance.data) / 1e6).toFixed(2)
+      ? formatBaseUnits(liveBalance.data)
       : "0.00";
   const [copied, setCopied] = useState(false);
   const [cloneSourceAgent, setCloneSourceAgent] = useState<string>("");
@@ -98,65 +99,15 @@ export function Policy() {
     setCanaryDeployment(stored || null);
   }, [agent]);
 
-  const dryRunVerdict = useMemo(() => {
-    const amountFloat = parseFloat(dryRunAmount) || 0;
-    const amountUnits = BigInt(Math.round(amountFloat * 1_000_000));
-    const maxTxUnits = parseBaseUnits(draft.maxPerTx || "0", 6);
-    const maxWindowUnits = parseBaseUnits(draft.maxPerWindow || "0", 6);
-
-    if (draft.killSwitch) {
-      return {
-        allowed: false,
-        reasonCode: 4,
-        title: "ERR_KILL_SWITCH_ACTIVE",
-        description: "This agent is paused, so it can't spend right now.",
-        remediation: "Turn off the pause switch above before testing a payment.",
-      };
-    }
-    if (amountUnits <= 0n) {
-      return {
-        allowed: false,
-        reasonCode: 9,
-        title: "ERR_AMOUNT_ZERO",
-        description: "Enter an amount greater than zero.",
-        remediation: "Specify a positive USDC amount.",
-      };
-    }
-    if (amountUnits > maxTxUnits) {
-      return {
-        allowed: false,
-        reasonCode: 1,
-        title: "ERR_MAX_PER_TX_EXCEEDED",
-        description: `${amountFloat.toFixed(2)} USDC is over the per-transaction limit (${formatUsdcAmount(draft.maxPerTx)}).`,
-        remediation: "Lower the amount, or raise the per-transaction limit above.",
-      };
-    }
-    if (amountUnits > maxWindowUnits) {
-      return {
-        allowed: false,
-        reasonCode: 2,
-        title: "ERR_MAX_PER_WINDOW_EXCEEDED",
-        description: `This would go over the spending limit for this period (${formatUsdcAmount(draft.maxPerWindow)}).`,
-        remediation: "Lower the amount, or raise the period limit above.",
-      };
-    }
-    if (draft.whitelistEnabled && dryRunMerchant === "unwhitelisted") {
-      return {
-        allowed: false,
-        reasonCode: 5,
-        title: "ERR_MERCHANT_NOT_WHITELISTED",
-        description: "This merchant isn't on the approved list.",
-        remediation: "Add this merchant in Merchant Directory, or turn off the approved-merchants requirement.",
-      };
-    }
-    return {
-      allowed: true,
-      reasonCode: 0,
-      title: "ERR_NONE",
-      description: `This payment is within limits: up to ${formatUsdcAmount(draft.maxPerWindow)} per period, to an approved merchant.`,
-      remediation: "This would go through right away.",
-    };
-  }, [dryRunAmount, dryRunMerchant, draft]);
+  const dryRunVerdict = useMemo(
+    () =>
+      evaluateDryRun({
+        amount: dryRunAmount,
+        merchant: dryRunMerchant === "unwhitelisted" ? "unwhitelisted" : "whitelisted",
+        limits: draft,
+      }),
+    [dryRunAmount, dryRunMerchant, draft],
+  );
 
   const policyDiff = useMemo(() => {
     if (!policy.data) return [];

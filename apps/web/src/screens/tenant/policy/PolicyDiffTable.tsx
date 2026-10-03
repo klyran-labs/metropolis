@@ -1,5 +1,5 @@
 import { Scale } from "lucide-react";
-import { Badge, Mono } from "../../../design-system";
+import { Badge, Mono, TableViewport } from "../../../design-system";
 import type { PolicyDiffRow } from "./utils";
 
 export function PolicyDiffTable({ diffs }: { diffs: PolicyDiffRow[] }) {
@@ -11,6 +11,7 @@ export function PolicyDiffTable({ diffs }: { diffs: PolicyDiffRow[] }) {
         <span>What's changing</span>
         <Badge tone="info">{diffs.length} {diffs.length === 1 ? "change" : "changes"}</Badge>
       </div>
+      <TableViewport label="Pending rule changes">
       <table className="policy-diff-table">
         <thead>
           <tr>
@@ -41,6 +42,7 @@ export function PolicyDiffTable({ diffs }: { diffs: PolicyDiffRow[] }) {
           ))}
         </tbody>
       </table>
+      </TableViewport>
     </div>
   );
 }

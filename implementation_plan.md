@@ -915,3 +915,26 @@ Authorization: explicit user directive (`/goal`). AGENTS.md mandates apply: zero
 | 5 | **Gateway correctness** | Approval signing runs in a transaction with a row lock (concurrent approvers can no longer overwrite each other), repeated approves by the same operator are idempotent, pending approvals get cursor pagination, and `cargo fmt` is applied crate-wide in its own commit. A Postgres-backed concurrency test runs against the CI database. |
 | 6 | **Tests that test behavior** | Copy-pinning assertions are removed from the source-grep test file (structural and wiring checks stay); Playwright gains behavior tests for the pricing tab, policy dry-run and simulator, and screenshot comparison with baselines generated in the same Playwright container CI uses. |
 | 7 | **One formatting layer** | `format.ts` (Intl-based money, dates, relative time, locale-aware) replaces hand-rolled `toFixed` and `toLocaleDateString` calls; shared wording moves behind a typed message catalog so locales can be added without touching screens. |
+
+### 21.1 Delivery record
+
+All seven workstreams are delivered. Deviations from the design above and findings worth knowing:
+
+1. **Contract.** As designed. Fixtures are validated against `docs/api/ui-contract.json`.
+2. **Push.** Events are content-free change notifications (`approvals_changed`, `transfers_changed`, `wallets_changed`, `agents_changed`); the client refetches through authorized endpoints. Polling relaxes to a 60-second safety net only while the stream is connected.
+3. **Security policy.** Changed from the design: one shared `docker/nginx/security-headers.conf` plus per-profile CSP files rendered by `docker/nginx/render-snippets.sh`. The enforced policy is tidied (Google Fonts removed; loopback origins only in the `local` profile). A strict policy ships as `Content-Security-Policy-Report-Only` reporting to the gateway, because the real sign-in widget's network behaviour cannot be verified in the test build (it is stubbed); promotion steps are in `docs/runbooks/web-security-policy.md`. `npm run test:csp` serves the bundle through the real nginx config and fails any test on a violation of either policy; it found and fixed one inline `<style>` injected by theme switching. A live stream check showed nginx forwards small events promptly even with buffering on, so that check guards regressions rather than proving `proxy_buffering off` necessary; the directives are asserted statically.
+4. **Performance.** Intake is **public and rate limited**, not authenticated (browsers send CSP reports without credentials): body limit, per-client token bucket with bounded memory, metric whitelist, log sanitising. Fonts are self-hosted (Latin and Latin Extended).
+5. **Gateway correctness.** As designed (row lock, idempotent approve, cursor pagination, rustfmt in its own commit, Postgres-backed concurrency test with a mutation check).
+6. **Behavior tests.** About 70 copy and CSS-class-name assertions were removed from the source-grep tests; wiring checks remain. New: pure `evaluateDryRun` with boundary tests, Playwright behavior specs for policy dry-run, pricing tab payloads and estimator, and the safety lab's honest failure when checks are unavailable. Screenshot baselines (16, desktop light/dark plus phone) are generated and compared in `mcr.microsoft.com/playwright:v1.63.0-noble` on linux/amd64 (`npm run test:visual`, CI job `ui-visual`). The visual project only runs when `E2E_VISUAL` is set.
+7. **Formatting.** `src/format.ts` (exact base-unit money, one locale, cached `Intl` formatters, honest placeholders) and `src/messages` (typed catalog; placeholders checked at compile time by `t()`). A unit test fails on new `toLocale*String` calls or float-division money in screens. Plain-decimal strings for form inputs and `Number(x.toFixed(n))` data rounding are intentionally not display formatting. Only recurring wording and the dry-run verdicts are in the catalog; static screen headings remain inline, so this is the mechanism for adding locales, not a finished translation.
+
+Defects the new tests found and that were fixed:
+
+* Phone layout: on Home, Agents and Treasury the page was up to 825 px wide in a 412 px viewport (grid tracks sized to their widest child). Fixed with `minmax(0, 1fr)` tracks; a per-screen overflow test (18 screens) fails without it. Wide tables now scroll in a labeled, keyboard-focusable `TableViewport`.
+* "Use maximum" in transfers rounded instead of truncating and could offer more than the balance.
+* Dry-run converted amounts through floating point.
+
+Open items, deliberately not changed here:
+
+* `SwarmTopologyVisualizer` invents roles, budget caps and a 32% "allocated" figure when no delegation record exists. That violates the zero-mock mandate and needs a product decision (remove or back with real data).
+* The Treasury screen shows a developer-network faucet button; check it against the plain-language rule for non-local deployments.

@@ -18,6 +18,7 @@ import {
 import { useCompilePolicy, type CompiledPolicyResult } from "../api";
 import { Badge, Button, formatRiskTier } from "../design-system";
 import { ONCHAIN_REASON_CODES } from "../hooks/usePolicyContracts";
+import { formatBaseUnits } from "../format";
 
 interface WorkloadPreset {
   id: string;
@@ -297,7 +298,7 @@ export function AICopilot({
                     <div className="widget-slider-group">
                       <div className="widget-slider-label">
                         <span>Max per Transaction</span>
-                        <strong>{(Number(compiledResult.maxPerTx) / 1_000_000).toFixed(2)} USDC</strong>
+                        <strong>{formatBaseUnits(compiledResult.maxPerTx as string | number)} USDC</strong>
                       </div>
                       <input
                         type="range"
@@ -317,7 +318,7 @@ export function AICopilot({
                     <div className="widget-slider-group">
                       <div className="widget-slider-label">
                         <span>Hourly Window Ceiling</span>
-                        <strong>{(Number(compiledResult.maxPerWindow) / 1_000_000).toFixed(2)} USDC</strong>
+                        <strong>{formatBaseUnits(compiledResult.maxPerWindow as string | number)} USDC</strong>
                       </div>
                       <input
                         type="range"
@@ -379,8 +380,8 @@ export function AICopilot({
                         <AlertTriangle size={14} className="copilot-invariant-icon" />
                         <span>
                           <strong>Limits don't add up</strong> — the per-payment limit (
-                          {(txVal / 1_000_000).toFixed(2)} USDC) is higher than the hourly limit (
-                          {(windowVal / 1_000_000).toFixed(2)} USDC). Lower the per-payment limit or raise the hourly limit before applying.
+                          {formatBaseUnits(txVal)} USDC) is higher than the hourly limit (
+                          {formatBaseUnits(windowVal)} USDC). Lower the per-payment limit or raise the hourly limit before applying.
                         </span>
                       </div>
                     ) : null;
