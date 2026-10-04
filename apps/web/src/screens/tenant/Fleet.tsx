@@ -11,7 +11,7 @@ import { useIdentity } from "../../identity";
 import { useTripKillSwitch } from "../../hooks/usePolicyContracts";
 import { AgentInspector } from "./AgentInspector";
 import { AgentOnboardingModal } from "../../components/AgentOnboardingModal";
-import { SwarmTopologyVisualizer } from "../../components/SwarmTopologyVisualizer";
+import { AgentStatusGrid } from "../../components/AgentStatusGrid";
 import { useToast } from "../../components/UndoToast";
 import { CopyAddressButton } from "./fleet/CopyAddressButton";
 import { AgentWalletPanel } from "./fleet/AgentWalletPanel";
@@ -477,13 +477,17 @@ export function Fleet() {
               className={viewMode === "swarm" ? "workspace-tab active" : "workspace-tab"}
               onClick={() => setViewMode("swarm")}
             >
-              <Network size={14} style={{ marginRight: 6 }} /> Team map
+              <Network size={14} style={{ marginRight: 6 }} /> Card view
             </button>
           </div>
         </div>
 
         {viewMode === "swarm" ? (
-          <SwarmTopologyVisualizer agents={rows} onInspectAgent={(addr) => setSelected(addr)} />
+          <AgentStatusGrid
+            agents={rows}
+            onInspectAgent={(addr) => setSelected(addr)}
+            onProvisionAgent={() => setOnboardingOpen(true)}
+          />
         ) : (
           <>
             {/* Segmented Filter Pills with Integrated Live Counters */}

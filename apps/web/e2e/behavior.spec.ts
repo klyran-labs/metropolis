@@ -162,3 +162,52 @@ test.describe("test rules: safety lab", () => {
     await expect(lab.getByRole("button", { name: "Simulate a runaway loop" })).toBeEnabled();
   });
 });
+
+test.describe("agents: card view shows only real data", () => {
+  test("renders roster facts and no invented roles, budgets or capabilities", async ({ page }) => {
+    await installGateway(page);
+    await page.goto("/app/fleet");
+    await page.getByRole("button", { name: "Card view" }).click();
+
+    const grid = page.getByRole("region", { name: "Agent cards" });
+    await expect(grid.getByRole("button", { name: "Inspect Research assistant" })).toBeVisible();
+    await expect(grid.getByRole("button", { name: "Inspect Invoice bot" })).toBeVisible();
+    // Real roster status, not a role-based guess.
+    await expect(grid.getByText("Active", { exact: true })).toHaveCount(1);
+    await expect(grid.getByText("Isolated", { exact: true })).toHaveCount(1);
+    await expect(grid.getByText("Tier 1 · Critical")).toBeVisible();
+
+    // The gateway serves no delegations, budgets or capabilities, so none may appear.
+    const text = (await grid.innerText()) + (await page.locator(".agent-card-grid-container").innerText());
+    expect(text).not.toMatch(/\$\s?\d/);
+    expect(text).not.toMatch(/USDC/);
+    for (const invented of ["1000.00", "150.00", "320.00", "48.00", "Supervisor", "Worker", "Specialist", "Sub-Agents", "orchestration:", "inference:", "payment:eip712"]) {
+      expect(text).not.toContain(invented);
+    }
+    await expect(page.getByRole("button", { name: /Delegate Sub-Budget|Create temporary access/ })).toHaveCount(0);
+  });
+
+  test("with no agents it shows an empty state with a way to add one", async ({ page }) => {
+    await installGateway(page);
+    await page.route("**/api/v1/agents", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
+    );
+    await page.goto("/app/fleet");
+    await page.getByRole("button", { name: "Card view" }).click();
+
+    await expect(page.getByText("No agents to show yet")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Agent cards" })).toHaveCount(0);
+    await expect(page.getByText(/\$\s?\d/)).toHaveCount(0);
+    await page.getByRole("button", { name: "Provision First Agent" }).last().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
+});
+
+test.describe("treasury: developer-network faucet", () => {
+  test("is offered on the local profile only", async ({ page }) => {
+    // The e2e build runs with VITE_APP_ENV=local; the non-local guard is asserted in the source test.
+    await installGateway(page);
+    await page.goto("/app/treasury");
+    await expect(page.getByRole("button", { name: /Devnet Faucet/ })).toBeVisible();
+  });
+});

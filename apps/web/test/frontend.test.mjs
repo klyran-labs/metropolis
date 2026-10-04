@@ -511,23 +511,20 @@ test("Institutional UI Upgrades: Batch Fleet, Policy Dry-Run, Plain-Language Sec
 test("Options 1-3: Swarm DAG Governance, Canary Policy Rollout with Atomic Rollback, and Predictive Threat Radar are integrated", async () => {
   const [fleetSrc, swarmSrc, policySrc, activitySrc, apiSrc, globalsCss] = await Promise.all([
     readScreen("Fleet"),
-    readFile(new URL("../src/components/SwarmTopologyVisualizer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/AgentStatusGrid.tsx", import.meta.url), "utf8"),
     readScreen("Policy"),
     readFile(new URL("../src/screens/tenant/ActivityTrace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/api.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/globals.css", import.meta.url), "utf8"),
   ]);
 
-  // Option 1: Hierarchical Swarm Governance & Interactive DAG Visualizer
+  // Option 1: the card view is built from real roster data only. The gateway serves no delegations,
+  // budgets or capabilities, so none of those may be fabricated or kept in browser storage.
   assert.match(fleetSrc, /fleet-view-toggle/);
-  assert.match(fleetSrc, /SwarmTopologyVisualizer/);
-  assert.match(swarmSrc, /swarm-topology-container/);
-  assert.match(swarmSrc, /supervisor-tier/);
-  assert.match(swarmSrc, /workers-tier/);
-  assert.match(swarmSrc, /pulsing-connector/);
+  assert.match(fleetSrc, /AgentStatusGrid/);
   assert.match(swarmSrc, /useTripKillSwitch/);
-  assert.match(apiSrc, /SwarmNode/);
-  assert.match(apiSrc, /SwarmDelegation/);
+  assert.doesNotMatch(swarmSrc, /localStorage|subBudget|allocatedSpend|capabilities|\* 0\.32|"1000\.00"|"150\.00"/);
+  assert.doesNotMatch(apiSrc, /SwarmNode|SwarmDelegation|agentguard_swarm_delegations/);
 
   // Option 2: Canary Policy Deployments with Automated Onchain Rollback
   assert.match(policySrc, /policy-canary-section/);
@@ -962,4 +959,13 @@ test("message catalog: typed lookups, filled placeholders, plain-language wordin
       assert.match(placeholder, /^\{[a-z][A-Za-z]*\}$/, `${key} has an odd placeholder ${placeholder}`);
     }
   }
+});
+
+test("Treasury offers the developer-network faucet only on the local profile", async () => {
+  const src = await readScreen("Treasury");
+  const guard = src.indexOf('configuration.profile === "local"');
+  const button = src.indexOf("Devnet Faucet");
+  assert.ok(guard !== -1 && button !== -1 && guard < button, "faucet button must sit behind the local-profile guard");
+  assert.equal(src.split("Devnet Faucet").length - 1, 1, "faucet wording appears once");
+  assert.equal(src.split("devnetFaucet.mutateAsync").length - 1, 1, "faucet is called from one place");
 });

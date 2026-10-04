@@ -7652,68 +7652,20 @@ kbd,
   border: 1px solid var(--outline-soft);
 }
 
-.swarm-topology-container {
+.agent-card-grid-container {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-top: 12px;
 }
 
-.swarm-controls-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 12px 16px;
-  background: var(--surface-sunken);
-  border-radius: 10px;
-  border: 1px solid var(--outline-soft);
-}
-
-.swarm-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.swarm-summary {
-  font-size: 0.82rem;
-  color: var(--on-surface-secondary);
-  font-weight: 500;
-}
-
-.swarm-dag-canvas {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 20px;
-  background: var(--surface);
-  border-radius: 12px;
-  border: 1px solid var(--outline-soft);
-  position: relative;
-  overflow-x: auto;
-}
-
-.swarm-tier-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
-.swarm-tier-nodes {
+.agent-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 16px;
 }
 
-.swarm-node-card {
+.agent-card {
   background: var(--surface-container);
   border: 1px solid var(--outline);
   border-radius: 10px;
@@ -7725,47 +7677,34 @@ kbd,
   cursor: pointer;
 }
 
-.swarm-node-card:hover {
+.agent-card:hover {
   border-color: var(--primary-text);
   box-shadow: var(--card-shadow);
 }
 
-.swarm-node-card.is-quarantined {
+.agent-card.is-isolated {
   border-color: var(--status-critical);
   background: var(--status-critical-bg);
 }
 
-.swarm-node-head {
+.agent-card-head {
   display: flex;
   align-items: flex-start;
   gap: 10px;
 }
 
-.swarm-avatar {
+.agent-card-avatar {
   width: 34px;
   height: 34px;
   border-radius: 8px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-}
-
-.supervisor-avatar {
-  background: var(--primary-soft);
-  color: var(--primary-text);
-}
-
-.worker-avatar {
   background: var(--blue-soft);
   color: var(--primary-text);
 }
 
-.specialist-avatar {
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.swarm-node-ident {
+.agent-card-ident {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -7773,20 +7712,20 @@ kbd,
   flex: 1;
 }
 
-.swarm-node-title-row {
+.agent-card-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
 }
 
-.swarm-node-address-row {
+.agent-card-address-row {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.swarm-copy-btn {
+.agent-card-copy {
   background: none;
   border: none;
   cursor: pointer;
@@ -7796,101 +7735,49 @@ kbd,
   padding: 2px;
 }
 
-.swarm-budget-box {
-  background: var(--surface-sunken);
-  border: 1px solid var(--outline-soft);
-  border-radius: 8px;
-  padding: 10px;
+.agent-card-facts {
+  margin: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.swarm-budget-labels {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   font-size: 0.8rem;
 }
 
-.swarm-progress-track {
-  width: 100%;
-  height: 6px;
-  background: var(--surface-strong);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.swarm-progress-fill {
-  height: 100%;
-  background: var(--primary);
-  border-radius: 999px;
-  transition: width 0.3s ease;
-}
-
-.swarm-progress-fill.fill-quarantined {
-  background: var(--status-critical);
-}
-
-.swarm-budget-sub {
+.agent-card-facts > div {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  font-size: 0.72rem;
+  gap: 8px;
+}
+
+.agent-card-facts dt {
   color: var(--muted);
 }
 
-.swarm-capabilities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 8px;
+.agent-card-facts dd {
+  margin: 0;
+  font-weight: 600;
 }
 
-.capability-tag {
-  font-size: 0.68rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--surface-strong);
-  color: var(--on-surface-secondary);
-  font-family: monospace;
-}
-
-.swarm-node-footer {
+.agent-card-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding-top: 8px;
   border-top: 1px solid var(--outline-soft);
 }
 
-.swarm-status-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.76rem;
-  font-weight: 550;
-  color: var(--on-surface-secondary);
+.agent-regions-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
 }
 
-.swarm-connector-divider {
-  width: 100%;
-  height: 48px;
-  margin: 6px 0;
-  overflow: hidden;
-}
-
-.pulsing-connector {
-  animation: pulseFlow 2s linear infinite;
-}
-
-@keyframes pulseFlow {
-  from {
-    stroke-dashoffset: 28;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
+.agent-region-card {
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
 }
 
 /* Option 2: Canary Policy Rollout */

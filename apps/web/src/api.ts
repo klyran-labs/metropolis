@@ -105,30 +105,6 @@ export type PolicyUpdate = {
   whitelistEnabled: boolean;
 };
 
-export type SwarmNodeRole = "supervisor" | "worker" | "specialist";
-export type SwarmNodeStatus = "active" | "quarantined";
-
-export type SwarmNode = {
-  agentAddress: string;
-  label: string;
-  parentAddress: string | null;
-  role: SwarmNodeRole;
-  subBudgetCapUsdc: string;
-  allocatedSpendUsdc: string;
-  isolatedStatus: SwarmNodeStatus;
-  capabilities: string[];
-  environment: string;
-  riskTier: string;
-};
-
-export type SwarmDelegation = {
-  supervisorAddress: string;
-  workerAddress: string;
-  subBudgetCapUsdc: string;
-  role: SwarmNodeRole;
-  updatedAt: string;
-};
-
 export type CanaryStage =
   | "staged"
   | "canary_10"
@@ -977,39 +953,7 @@ export const useCompilePolicy = () =>
       }),
   });
 
-const SWARM_STORAGE_KEY = "agentguard_swarm_delegations_v1";
 const CANARY_STORAGE_KEY = "agentguard_canary_deployments_v1";
-
-export function getStoredSwarmDelegations(): Record<string, SwarmDelegation> {
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(SWARM_STORAGE_KEY) : null;
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-export function saveStoredSwarmDelegation(delegation: SwarmDelegation): void {
-  try {
-    if (typeof window === "undefined") return;
-    const current = getStoredSwarmDelegations();
-    current[delegation.workerAddress.toLowerCase()] = delegation;
-    window.localStorage.setItem(SWARM_STORAGE_KEY, JSON.stringify(current));
-  } catch {
-    // Ignore storage failure
-  }
-}
-
-export function removeStoredSwarmDelegation(workerAddress: string): void {
-  try {
-    if (typeof window === "undefined") return;
-    const current = getStoredSwarmDelegations();
-    delete current[workerAddress.toLowerCase()];
-    window.localStorage.setItem(SWARM_STORAGE_KEY, JSON.stringify(current));
-  } catch {
-    // Ignore storage failure
-  }
-}
 
 export function getStoredCanaryDeployments(): Record<string, CanaryDeployment> {
   try {
